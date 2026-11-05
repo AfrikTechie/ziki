@@ -42,7 +42,7 @@ export function EarnTasks({ stage }: { stage: EarnStage }) {
       </summary>
       <ol className="m-0 list-none divide-y divide-zk-border p-0">
         {tasks.map((task, index) => {
-          const current = task.id === next?.id;
+          const current = !task.done;
           return (
             <li key={task.id} className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:grid-cols-[2rem_minmax(0,1fr)_3.5rem_7rem] sm:px-6 ${current ? "bg-zk-tint/60" : ""}`}>
               <span
@@ -64,10 +64,7 @@ export function EarnTasks({ stage }: { stage: EarnStage }) {
                 ) : (
                   current ? (
                     <Link href={`/earn/${task.id}`} aria-label={`Start: ${task.title}`} className={agentsPrimaryBtn}>Start</Link>
-                  ) : (
-                    // One at a time: each task builds on the one before it.
-                    <span className="inline-flex items-center rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-bold text-zk-muted">After task {index}</span>
-                  )
+                  ) : null
                 )}
               </span>
             </li>

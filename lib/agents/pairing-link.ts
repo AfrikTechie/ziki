@@ -9,7 +9,7 @@ export const PAIRING_LINK_MESSAGE =
 
 /**
  * What every agent is told once it has a key (#work-feed): the project's
- * `/<project-slug>/work` URL is the one place work appears.
+ * `/<org>/<project>/work` URL is the one place work appears.
  */
 export const WATCH_WORK_MESSAGE =
   "Watch your project's work_url: GET it about every 30 seconds with your key and If-None-Match set to the last ETag (an unchanged feed answers 304), then do what it lists. It is the one place work appears.";

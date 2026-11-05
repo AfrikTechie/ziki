@@ -1,6 +1,6 @@
 import type { EarnTaskProgress, Prisma, PrismaClient } from "@prisma/client";
 import { award } from "@/lib/points/award";
-import { EARN_TASKS, EARN_WELCOME_FROM, SIGNUP_BONUS, stageForPaid, type EarnStage, type EarnTask } from "@/lib/earn/draft";
+import { EARN_TASKS, EARN_WELCOME_FROM, SIGNUP_BONUS, stageForPaid, type EarnStage, type EarnTask, type EarnTaskId } from "@/lib/earn/draft";
 
 /**
  * Earn marketing tasks (#earn-tasks): where a person is on each of the four
@@ -28,37 +28,73 @@ export function taskByNumber(n: number): EarnTask | null {
 }
 
 /** One task as the earner sees it. */
-export type EarnTaskState = "locked" | "open" | "in-progress" | "in-review" | "paid";
+export type EarnTaskState = "open" | "in-progress" | "in-review" | "paid";
 
-export type EarnTaskRow = Pick<EarnTaskProgress, "taskKey" | "status" | "note">;
+export type EarnTaskRow = Pick<EarnTaskProgress, "taskKey" | "status" | "note"> & Partial<Pick<EarnTaskProgress, "proof">>;
 
-/** How many tasks are confirmed, counting from the first: a later one never counts past a gap. */
-export function paidCount(rows: EarnTaskRow[]): number {
+/** The tasks that are confirmed, in the order of the task list. All four are open at once, so any can be done first. */
+export function doneTasks(rows: EarnTaskRow[]): EarnTaskId[] {
   const confirmed = new Set(rows.filter((row) => row.status === "confirmed").map((row) => row.taskKey));
-  let paid = 0;
-  while (paid < EARN_TASKS.length && confirmed.has(EARN_TASKS[paid].id)) paid += 1;
-  return paid;
+  return EARN_TASKS.filter((task) => confirmed.has(task.id)).map((task) => task.id);
+}
+
+/** How many tasks are confirmed, whichever they are. */
+export function paidCount(rows: EarnTaskRow[]): number {
+  return doneTasks(rows).length;
 }
 
 export function stageFromRows(rows: EarnTaskRow[]): EarnStage {
   return stageForPaid(paidCount(rows));
 }
 
-/** The state of task `index` (0-based): paid, locked behind the one before, or where its row says. */
+/** The state of task `index` (0-based), from its own row alone: no task waits on another. */
 export function taskStateFor(rows: EarnTaskRow[], index: number): EarnTaskState {
-  const paid = paidCount(rows);
-  if (index < paid) return "paid";
-  if (index > paid) return "locked";
   const row = rows.find((candidate) => candidate.taskKey === EARN_TASKS[index].id);
   if (!row) return "open";
+  if (row.status === "confirmed") return "paid";
   return row.status === "submitted" ? "in-review" : "in-progress";
 }
 
-/** The task number (1-based) the earner is on once it has been started, or null when it has not. */
+const EMAIL = /[^\s@<>(),;:"']+@[^\s@<>(),;:"']+\.[a-z]{2,}/gi;
+
+/**
+ * How many of a counted task's things the proof lists: the distinct email
+ * addresses for Send 10 emails, the filled lines for Research 10 people (one
+ * per line, as the form asks). Never more than the task's target.
+ */
+export function proofCount(task: EarnTask, proof: string | null | undefined): number {
+  const text = proof?.trim() ?? "";
+  if (!text) return 0;
+  if (task.target === 1) return 1;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const emails = new Set((text.match(EMAIL) ?? []).map((address) => address.toLowerCase()));
+  const found = task.id === "emails" && emails.size > 0 ? emails.size : lines.length;
+  return Math.min(found, task.target);
+}
+
+export type EarnTaskProgressView = { task: EarnTask; state: EarnTaskState; done: number; target: number };
+
+/**
+ * Where each task really is, for a progress bar: a paid task is full, a task
+ * sent for checking counts what its proof lists (a one-off task counts once),
+ * and a task not started, still going or rejected counts nothing yet.
+ */
+export function taskProgress(rows: EarnTaskRow[]): EarnTaskProgressView[] {
+  return EARN_TASKS.map((task, index) => {
+    const state = taskStateFor(rows, index);
+    const row = rows.find((candidate) => candidate.taskKey === task.id);
+    const done = state === "paid" ? task.target : state === "in-review" ? proofCount(task, row?.proof) : 0;
+    return { task, state, done, target: task.target };
+  });
+}
+
+/** The first task number (1-based) that has been started and is not paid, or null when none has. */
 export function startedFromRows(rows: EarnTaskRow[]): number | null {
-  const paid = paidCount(rows);
-  if (paid >= EARN_TASKS.length) return null;
-  return taskStateFor(rows, paid) === "open" ? null : paid + 1;
+  const index = EARN_TASKS.findIndex((_, i) => {
+    const state = taskStateFor(rows, i);
+    return state === "in-progress" || state === "in-review";
+  });
+  return index < 0 ? null : index + 1;
 }
 
 export async function loadRows(db: Db, userId: string): Promise<EarnTaskProgress[]> {
@@ -75,29 +111,24 @@ export async function earnedFromLedger(db: Db, userId: string): Promise<number> 
 }
 
 /**
- * Starts the earner's next task, once: a row for the first task that isn't
- * paid yet, if it has none. Safe to call on every visit (an upsert on the
- * unique pair). Returns the task number it started, or null.
+ * Starts one task: its row is made the first time the earner opens it or presses Start, and not before, so a task
+ * nobody has begun has no status. All four are open at once, so starting one touches no other. Does nothing if the
+ * task already has a row. Returns whether it started it now.
  */
-export async function startNextTask(db: Db, userId: string): Promise<number | null> {
-  const rows = await loadRows(db, userId);
-  const paid = paidCount(rows);
-  if (paid >= EARN_TASKS.length) return null;
-  const task = EARN_TASKS[paid];
-  if (rows.some((row) => row.taskKey === task.id)) return null;
-  await db.earnTaskProgress.upsert({
-    where: { userId_taskKey: { userId, taskKey: task.id } },
-    create: { userId, taskKey: task.id },
-    update: {},
-  });
-  return paid + 1;
+export async function startTask(db: Db, userId: string, n: number): Promise<boolean> {
+  const task = taskByNumber(n);
+  if (!task) return false;
+  const exists = await db.earnTaskProgress.findUnique({ where: { userId_taskKey: { userId, taskKey: task.id } }, select: { id: true } });
+  if (exists) return false;
+  await db.earnTaskProgress.upsert({ where: { userId_taskKey: { userId, taskKey: task.id } }, create: { userId, taskKey: task.id }, update: {} });
+  return true;
 }
 
 export type SubmitResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Sends a task in for checking. Only the task the earner is on can be sent,
- * and only from started or after a rejection (a resend replaces the proof).
+ * Sends a task in for checking: any task that isn't paid yet, from started or
+ * after a rejection (a resend replaces the proof).
  */
 export async function submitTask(db: Db, userId: string, n: number, proofInput: string): Promise<SubmitResult> {
   const task = taskByNumber(n);
@@ -107,7 +138,6 @@ export async function submitTask(db: Db, userId: string, n: number, proofInput: 
   if (proof.length > EARN_PROOF_MAX) return { ok: false, error: `Keep it under ${EARN_PROOF_MAX} characters.` };
 
   const rows = await loadRows(db, userId);
-  if (taskStateFor(rows, n - 1) === "locked") return { ok: false, error: "Finish the task before this one first." };
   if (taskStateFor(rows, n - 1) === "paid") return { ok: false, error: "This task is already paid." };
 
   await db.earnTaskProgress.upsert({

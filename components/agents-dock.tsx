@@ -4,11 +4,11 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import Link from "next/link";
 import { isEarnPath } from "@/lib/earn/paths";
 import { usePathname, useRouter } from "next/navigation";
-import { agentPageHref } from "@/lib/header-nav";
+import { agentPageHref, LEADERBOARD_HREF } from "@/lib/header-nav";
 import { VersionCredits } from "@/components/credits-dialog";
-import { projectPath } from "@/lib/project-paths";
-import { isReservedProjectSlug } from "@/lib/project-slug";
-import { AGENTS_DOCK_HEIGHT } from "@/lib/agents-dock";
+import { projectPath, type ProjectRef } from "@/lib/project-paths";
+import { useProjectRef } from "@/lib/use-project-ref";
+import { AGENTS_DOCK_HEIGHT, dockVisibleOn, leaderboardVisible } from "@/lib/agents-dock";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
 import { formatZ } from "@/lib/points/rules";
 import { updateMood } from "@/components/agent-robots/moods";
@@ -94,15 +94,6 @@ const LABELS_LINGER = 350;
 /** Until a nameplate has measured itself: its name and status, and with what it has earned. */
 const GUESS = { text: 110, full: 180 };
 
-/** The leaderboard (Ranking) the dock links to; /leaderboard redirects here. */
-const LEADERBOARD_HREF = "/workers";
-
-/** The project the page is in (`/<slug>/...`), or null on a page outside any project. */
-function projectSlugFromPath(pathname: string | null): string | null {
-  const first = pathname?.split("/").filter(Boolean)[0];
-  return first && !isReservedProjectSlug(first) ? decodeURIComponent(first) : null;
-}
-
 /** The order agents stand in, left to right: whatever needs you first, then stuck, then the rest. */
 const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, working: 2, idle: 3, offline: 4 };
 
@@ -119,27 +110,31 @@ const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, workin
  * Agents button at the bottom left opens a plain list of them, where a click
  * on an agent opens its details in its own row; pinned (the default), they
  * also stand on a floor line at the foot of the page. Hover an agent on the
- * floor for its card; click it to open its page. Beside the button, the
- * leaderboard and Workstream (the agents' work feed, drawn for people,
- * #workstream) are always there, with the running version under them, even
- * with no agents and on the pages that manage agents, where the agents
- * themselves are left out because those pages list them already. Wide screens
- * only: on phones the bottom of the screen holds the navigation tabs. Wording
- * stays plain: no issue numbers or title tags.
+ * floor for its card; click it to open its page. At the strip's right end, the
+ * leaderboard (only in a workspace of more than one member) and Workstream
+ * (the agents' work feed, drawn for people, #workstream) stand over the
+ * running version. The strip is drawn only where it helps (dockVisibleOn, an
+ * allowlist of the work pages): with no agents, and on every other page,
+ * nothing is drawn, not even its spacer. Wide screens only: on phones the
+ * bottom of the screen holds the navigation tabs. Wording stays plain: no
+ * issue numbers or title tags.
  */
 export function AgentsDock({
   agents: given,
   defaultProjectSlug = null,
   version,
   earn = false,
+  memberCount = null,
 }: {
   agents: DockAgent[];
   /** Earn (#earn-drafts): the viewer is an earner; on the earn pages the leaderboard and workstream icons are left out. */
   earn?: boolean;
   /** Workstream's project on pages outside a project. */
-  defaultProjectSlug?: string | null;
+  defaultProjectSlug?: ProjectRef | null;
   /** The running version (package version and short commit), in tiny grey text under the links. */
   version?: string;
+  /** Members of the current workspace: the leaderboard link is left out when it is just you. Null when unknown. */
+  memberCount?: number | null;
 }) {
   const prefs = useDockPrefs();
   const router = useRouter();
@@ -157,9 +152,9 @@ export function AgentsDock({
   const dockHeight = AGENTS_DOCK_HEIGHT;
   const floorHeight = pixelOnFloor ? Math.round(CANVAS_H * ROBOT_SCALE) : LOW_FLOOR_H;
   const pathname = usePathname();
-  const projectSlug = projectSlugFromPath(pathname) ?? defaultProjectSlug;
-  // My agents and an agent's own page manage the agents and list them already: the dock would only repeat them.
-  const managing = pathname === "/agents/mine" || pathname.startsWith("/agent/");
+  const projectSlug = useProjectRef() ?? defaultProjectSlug;
+  // Drawn only where it helps (lib/agents-dock.ts): an allowlist of the work pages, and never with no agents.
+  const visible = dockVisibleOn(pathname, all.length);
   const [panel, setPanel] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   // How wide each nameplate is closed (its name and status) and opened (with what it has earned), so its character stands just beside it.
@@ -185,7 +180,7 @@ export function AgentsDock({
   const view = useRef<FloorMode>(null); // which floor the robots were last placed on
   const anchors = useRef(new Map<string, HTMLElement>());
   // Pinned, the agents stand on a floor line at the foot of the page; the panel is a plain list beside it, with no floor of its own.
-  const mode: FloorMode = prefs.pinned && !managing ? "footer" : null;
+  const mode: FloorMode = prefs.pinned && visible ? "footer" : null;
   const { column, minLeft, maxRight } = useColumn(AGENTS_BUTTON_ROOM, LINKS_ROOM);
   // The agents stand together in the middle of the screen, one beside the next: opened up while the cursor is on
   // the strip (and there is room for it), closed up otherwise.
@@ -357,9 +352,11 @@ export function AgentsDock({
     };
   }, [hover, panel]);
 
-  // The leaderboard and Workstream, beside the Agents button: always there, agents or not.
-  const links = <DockLinks projectSlug={projectSlug} version={version} quiet={earn && isEarnPath(pathname)} />;
-  if (all.length === 0 || managing) return <Strip height={AGENTS_DOCK_HEIGHT} links={links} />;
+  // Nothing at all, no strip and no spacer, where the bar doesn't help.
+  if (!visible) return null;
+
+  // The leaderboard and Workstream at the strip's right end.
+  const links = <DockLinks projectSlug={projectSlug} version={version} quiet={earn && isEarnPath(pathname)} leaderboard={leaderboardVisible(memberCount)} />;
 
   const showLabels = () => {
     clearTimeout(labelTimer.current);
@@ -460,7 +457,7 @@ export function AgentsDock({
 
   return (
     <>
-      {/* The strip is always there, as it is on the site; pinned, the agents stand on it. The Agents button and its list sit at its left. */}
+      {/* The strip, where the bar shows at all; pinned, the agents stand on it. The Agents button and its list sit at its left. */}
       <Strip height={dockHeight} links={links}>
         {mode === "footer" ? (
           <div className={`${PAGE_CONTAINER_CLASS} flex h-full items-end pb-1`}>
@@ -668,10 +665,10 @@ function Strip({ height, links, children }: { height: number; links: ReactNode; 
 }
 
 /** Right side of the strip: the leaderboard, with the workstream as an icon under it, and the running version (#workstream). */
-function DockLinks({ projectSlug, version, quiet = false }: { projectSlug: string | null; version?: string; /** Earn: no leaderboard or workstream (#earn-drafts). */ quiet?: boolean }) {
+function DockLinks({ projectSlug, version, quiet = false, leaderboard = true }: { projectSlug: ProjectRef | null; version?: string; /** Earn: no leaderboard or workstream (#earn-drafts). */ quiet?: boolean; /** Left out in a workspace of one member: nobody to rank against. */ leaderboard?: boolean }) {
   return (
     <div className="flex shrink-0 flex-col items-end gap-0.5">
-      {quiet ? null : (
+      {quiet || !leaderboard ? null : (
       <Link
         href={LEADERBOARD_HREF}
         title="Leaderboard"

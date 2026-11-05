@@ -15,7 +15,7 @@ import { isOrganizationAdmin, type OrganizationRole } from "@/lib/organization-r
 import type { WorkspaceChoice } from "@/components/workspace-switcher";
 import { prisma } from "@/lib/prisma";
 import { currentTenantIdFor } from "@/lib/tenant-context";
-import { firstProjectSlugFor } from "@/lib/project-route";
+import { firstProjectRefFor } from "@/lib/project-route";
 import { tenantsForUser } from "@/lib/tenants";
 import { countPendingEscalations } from "@/lib/agent-questions";
 import { loadOwnAgents } from "@/lib/dashboard-overview";
@@ -24,9 +24,9 @@ import { appVersionLabel } from "@/lib/deployed-version";
 import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
 import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
 import { EarnWelcomeToast } from "@/components/earn-welcome-toast";
-import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
+import { isEarnPath } from "@/lib/earn/paths";
 import { withdrawInfo } from "@/lib/earn/draft";
-import { earnAgentWhere, earnWorkspace, isEarner } from "@/lib/earn/earner";
+import { earnWorkspace } from "@/lib/earn/earner";
 
 export default async function AppLayout({
   children,
@@ -76,25 +76,10 @@ export default async function AppLayout({
   }
 
   const user = await requireUser();
-  // Earn (#earn-landing): "Put your agent to work" is a page of its own, for someone who has just
-  // arrived to earn: no header, agents bar or footer around it. It stops being one once an agent is connected.
+  // Earn (#earn-landing): connecting an agent (/earn/agent) is a page of its own: no header, agents bar or footer around it.
   const requestPath = (await headers()).get("x-ziki-path") ?? "";
   // The first time someone opens an earn page in a browser, new account or old: a note that the $5 is in.
   const welcomeNotice = isEarnPath(requestPath) ? await showEarnWelcome(user.id).catch(() => false) : false;
-  if (isEarnLandingPath(requestPath) || isEarnConnectPath(requestPath)) {
-    const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
-    if (!connected || isEarnConnectPath(requestPath)) {
-      return (
-        <div data-app-shell="" className="min-h-dvh bg-zk-bg">
-          <SkipLink />
-          <main id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-dvh outline-none">
-            {children}
-          </main>
-          {welcomeNotice ? <EarnWelcomeToast /> : null}
-        </div>
-      );
-    }
-  }
   // The header lists this person's workspaces. Pages still resolve the active
   // project inside the current workspace, so a foreign project id is ignored.
   let workspaces: WorkspaceChoice[] = [];
@@ -113,7 +98,7 @@ export default async function AppLayout({
     console.error("[layout] workspace context failed", error);
   }
   // For links on pages whose URL names no project yet (#project-urls).
-  const defaultProjectSlug = await firstProjectSlugFor(user.id).catch(() => null);
+  const defaultProjectSlug = await firstProjectRefFor(user.id).catch(() => null);
   // A missing Notification table must not take down every signed-in page.
   let unreadCount = 0;
   try {
@@ -126,6 +111,8 @@ export default async function AppLayout({
 
   let pendingEscalationsCount = 0;
   let dockAgents: DockAgent[] = [];
+  // Members of this workspace, for the Leaderboard link: nobody ranks against no one. Null when it couldn't be read.
+  let memberCount: number | null = null;
   // Earn is a place of its own: on an earn page the agents bar shows the Earn workspace's agents, not the
   // ones in the person's other workspaces.
   const dockTenantId = isEarnPath(requestPath) ? ((await earnWorkspace().catch(() => null))?.id ?? null) : tenantId;
@@ -134,6 +121,11 @@ export default async function AppLayout({
       pendingEscalationsCount = await countPendingEscalations(user.id, tenantId);
     } catch (error) {
       console.error("[layout] pending escalations count failed", error);
+    }
+    try {
+      memberCount = await prisma.membership.count({ where: { tenantId } });
+    } catch (error) {
+      console.error("[layout] member count failed", error);
     }
     try {
       const agents = dockTenantId ? await loadOwnAgents({ userId: user.id, tenantId: dockTenantId }) : [];
@@ -153,11 +145,10 @@ export default async function AppLayout({
     }
   }
 
-  // Earn (#earn-drafts): an earner's money for the header.
-  const earner = await isEarner(user.id).catch(() => false);
-  // Anyone on an earn page gets the clean earn header and bar, member of the Earn workspace or not.
-  const earnSample = earner || isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
-  // The earner's agent bar shows what they have earned, the same amount as the header.
+  // Earn (#earn-drafts): the balance and Withdraw are for the earn pages only. Everywhere else, Ideas included,
+  // the app looks as it always does, even for someone who is in the Earn workspace.
+  const earnSample = isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
+  // On the earn pages the agent bar shows what they have earned, the same amount as the header.
   if (earnSample) dockAgents = dockAgents.map((agent) => ({ ...agent, earnedPoints: earnSample.earned }));
 
   // #287: one primary-key read; a failure leaves shortcuts on, the default.
@@ -192,7 +183,10 @@ export default async function AppLayout({
           reportFormUrl={REPORT_FORM_URL}
           organizationAdmin={tenantId !== null && isOrganizationAdmin(membershipRole, user.role)}
           earned={earnSample ? earnSample.earned : null}
-          withdraw={earnSample ? withdrawInfo(earnSample.stage, earnSample.earned) : null}
+          withdraw={earnSample ? withdrawInfo(earnSample.stage, earnSample.earned, earnSample.done) : null}
+          version={appVersionLabel()}
+          memberCount={memberCount}
+          agentCount={dockAgents.length}
         />
         <main
           id={MAIN_CONTENT_ID}
@@ -205,8 +199,8 @@ export default async function AppLayout({
           {children}
         </main>
       </div>
-      {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it. */}
-      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} />
+      {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it, and draws nothing (no spacer either) where it doesn't help. */}
+      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} memberCount={memberCount} />
       <FocusMainOnNavigate />
       {welcomeNotice ? <EarnWelcomeToast /> : null}
       <KeyboardShortcuts

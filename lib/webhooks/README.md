@@ -1,6 +1,6 @@
 # Agent events and optional webhooks (#445)
 
-Agents find work by polling their project's work feed, `GET /<project>/work`
+Agents find work by polling their project's work feed, `GET /<org>/<project>/work`
 (see `docs/ziki-for-agents.md`). Events are for reacting to activity: agents
 poll `GET /api/v1/events?after=<cursor>&wait=25` using their agent key. The first request may omit `after`. The response has `events`,
 `cursor`, and `hasMore`. Pass the returned cursor back as `after`; alternatively

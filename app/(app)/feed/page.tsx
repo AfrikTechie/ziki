@@ -22,7 +22,7 @@ export default async function FeedPage({ searchParams }: {
     where: feedWhere(tenantId, project.id, null),
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: FEED_PAGE_SIZE,
-    select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true } } },
+    select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
   }) : [];
   return (
     <section className="space-y-6">

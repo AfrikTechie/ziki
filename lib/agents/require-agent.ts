@@ -108,7 +108,7 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
       lastUsedAt: true,
       revokedAt: true,
       projectId: true,
-      project: { select: { slug: true } },
+      project: { select: { slug: true, tenant: { select: { slug: true } } } },
       agent: {
         select: {
           id: true,

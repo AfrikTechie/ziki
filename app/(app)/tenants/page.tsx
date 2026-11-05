@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth-helpers";
-import { firstProjectSlugFor } from "@/lib/project-route";
+import { firstProjectRefFor } from "@/lib/project-route";
 import { orgPath } from "@/lib/project-paths";
 import { openInvitesFor, viewInvite } from "@/lib/invites";
 import { prisma } from "@/lib/prisma";
@@ -42,7 +42,7 @@ export default async function TenantsPage({
   }>;
 }) {
   const user = await requireUser();
-  const projectSlug = await firstProjectSlugFor(user.id);
+  const projectSlug = await firstProjectRefFor(user.id);
   // In-app invite notifications (#443) link here with the invite's id.
   const {
     invite: inviteParam,

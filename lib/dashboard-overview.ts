@@ -315,7 +315,7 @@ export async function loadOwnAgents({
         where: { answeredAt: null },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 1,
-        select: { createdAt: true, body: true, bug: { select: { number: true, isDeleted: true, project: { select: { slug: true } } } } },
+        select: { createdAt: true, body: true, bug: { select: { number: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } } },
       },
       claims: {
         where: { releasedAt: null, status: "active" },
@@ -326,7 +326,7 @@ export async function loadOwnAgents({
           lastHeartbeatAt: true,
           deliverBy: true,
           waitingOnOwnerSince: true,
-          bug: { select: { number: true, title: true, status: true, isDeleted: true, pullRequestUrl: true, project: { select: { slug: true } } } },
+          bug: { select: { number: true, title: true, status: true, isDeleted: true, pullRequestUrl: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
         },
       },
     },

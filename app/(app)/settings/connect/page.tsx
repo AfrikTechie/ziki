@@ -80,7 +80,7 @@ export default async function ConnectAgentPage({
         ) : (
           <>
             {/* From Earn (#earn-drafts), connecting goes straight on to My agents. */}
-            <ConnectAgentFlow projectId={activeProject.id} next={from === "earn" ? "/earn" : undefined} />
+            <ConnectAgentFlow projectId={activeProject.id} next={from === "earn" ? "/earn/home" : undefined} />
             <p className="text-xs text-zk-muted">It will work in {activeProject.name}.</p>
           </>
         )}

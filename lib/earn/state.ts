@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { EARN_PREVIEW_COOKIE, EARN_STAGES, EARN_WELCOME_SEEN_COOKIE, EARN_TASKS, EARN_WORKSPACE_SLUG, earnBalance, earnPreviewEnabled, tasksPaid, type EarnBalance, type EarnStage } from "@/lib/earn/draft";
-import { earnedFromLedger, grantWelcome, isNewEarnAccount, loadRows, stageFromRows, startedFromRows, startNextTask, type EarnTaskRow } from "@/lib/earn/progress";
+import { earnedFromLedger, grantWelcome, isNewEarnAccount, loadRows, stageFromRows, startedFromRows, startTask, doneTasks, type EarnTaskRow } from "@/lib/earn/progress";
 import { earnAgentWhere } from "@/lib/earn/earner";
 
 /**
@@ -38,7 +38,7 @@ export async function earnState(userId: string): Promise<EarnState> {
   await grantWelcome(prisma, userId, EARN_WORKSPACE_SLUG);
   const [rows, earned] = await Promise.all([loadRows(prisma, userId), earnedFromLedger(prisma, userId)]);
   const stage = stageFromRows(rows);
-  return { stage, balance: earnBalance(stage, earned), started: startedFromRows(rows), rows };
+  return { stage, balance: earnBalance(stage, earned, doneTasks(rows)), started: startedFromRows(rows), rows };
 }
 
 /**
@@ -80,11 +80,11 @@ export async function startedTask(userId: string): Promise<number | null> {
 export async function requireEarnAgent(userId: string): Promise<void> {
   if (await previewStage()) return;
   const agent = await prisma.agent.findFirst({ where: earnAgentWhere(userId), select: { id: true } });
-  if (!agent) redirect("/earn");
+  if (!agent) redirect("/earn/agent");
 }
 
-export async function startIfAgentConnected(userId: string): Promise<void> {
+export async function startTaskIfAgentConnected(userId: string, n: number): Promise<void> {
   if (await previewStage()) return;
   const agent = await prisma.agent.findFirst({ where: earnAgentWhere(userId), select: { id: true } });
-  if (agent) await startNextTask(prisma, userId);
+  if (agent) await startTask(prisma, userId, n);
 }

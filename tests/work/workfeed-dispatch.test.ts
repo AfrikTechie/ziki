@@ -74,7 +74,7 @@ const facts = (overrides: Partial<ProjectWork["facts"] extends Map<string, infer
 function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
   return {
     tenantId: "t1",
-    project: { id: "p1", slug: "ziki", name: "Ziki" },
+    project: { id: "p1", slug: "ziki", name: "Ziki", orgSlug: "zedu" },
     importance: [],
     deployments: [],
     contests: [],

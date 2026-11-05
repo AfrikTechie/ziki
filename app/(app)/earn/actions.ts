@@ -3,17 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { startNextTask, submitTask } from "@/lib/earn/progress";
+import { startTask, submitTask } from "@/lib/earn/progress";
 import { requireEarnAgent } from "@/lib/earn/state";
 
 export type EarnActionResult = { error?: string; message?: string };
 
-/** Starts the earner's next task by hand, for someone with no agent to start it for them. */
-export async function startEarnTaskAction(): Promise<void> {
+/** Starts one task by hand (its number comes with the form); the others stay open. */
+export async function startEarnTaskAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   // A task cannot be started until the person's agent is connected.
   await requireEarnAgent(user.id);
-  await startNextTask(prisma, user.id);
+  await startTask(prisma, user.id, Number(formData.get("n")));
   revalidatePath("/earn", "layout");
 }
 

@@ -1,3 +1,4 @@
+import { issueHref } from "@/lib/issue-ref";
 import { prisma } from "@/lib/prisma";
 import { DECISION_MARKER, PLAIN, type Urgency, type YourCallAnswer, type YourCallItem } from "@/lib/your-call-shared";
 
@@ -120,7 +121,7 @@ export async function loadYourCall(projectId: string, viewer: YourCallViewer): P
         id: true, number: true, title: true, summary: true, substatus: true, pullRequestUrl: true, pullRequestHeadSha: true, updatedAt: true,
         voteCount: true, isBoosted: true, reporterId: true, beneficiaryUserId: true,
         milestone: { select: { title: true, dueDate: true } },
-        project: { select: { slug: true } },
+        project: { select: { slug: true, tenant: { select: { slug: true } } } },
         // The people who delivered the fix: their own agents' judgements never count.
         deliveries: { select: { beneficiaryUserId: true, pullRequestUrl: true } },
         // A person's answer given here, by the one who may give it. Their words end up as a comment, and nothing else marks it.
@@ -191,7 +192,7 @@ export async function loadYourCall(projectId: string, viewer: YourCallViewer): P
       yes: yes.map(({ agentId, agentName, says }) => ({ agentId, agentName, says })),
       no: no.map(({ agentId, agentName, says }) => ({ agentId, agentName, says })),
       since: split.at,
-      href: `/${encodeURIComponent(issue.project.slug)}/${issue.number}`,
+      href: issueHref(issue),
       answer: mine ? answerFrom(kind, mine.body) : null,
     });
   }

@@ -133,10 +133,10 @@ export function PointsSources({ sources, name }: { sources: PointSources; name: 
                   <td className="py-1.5 pr-2 text-zk-text">{row.label}</td>
                   <td className="py-1.5 pr-2 text-zk-text2">{row.agentName ?? "Themself"}</td>
                   <td className="py-1.5 pr-2">
-                    {row.issue?.projectSlug ? (
-                      <Link href={issuePath(row.issue.projectSlug, row.issue.number)} className="text-zk-accent hover:underline">#{row.issue.number}</Link>
-                    ) : row.idea?.projectSlug ? (
-                      <Link href={ideaPath(row.idea.projectSlug, row.idea.number)} className="text-zk-accent hover:underline">Idea #{row.idea.number}</Link>
+                    {row.issue?.projectRef ? (
+                      <Link href={issuePath(row.issue.projectRef, row.issue.number)} className="text-zk-accent hover:underline">#{row.issue.number}</Link>
+                    ) : row.idea?.projectRef ? (
+                      <Link href={ideaPath(row.idea.projectRef, row.idea.number)} className="text-zk-accent hover:underline">Idea #{row.idea.number}</Link>
                     ) : (
                       <span className="text-zk-muted">–</span>
                     )}

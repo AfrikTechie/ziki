@@ -8,7 +8,7 @@ export const TEAM_METRIC_WINDOW_DAYS = 30;
 
 export type TeamAgentWork = {
   id: string;
-  /** The issue's address, `/<project-slug>/<number>`. */
+  /** The issue's address, `/<org>/<project>/<number>`. */
   path: string;
   title: string;
   /** The project area (#609) the issue is in, which the Team page filters on. */
@@ -68,7 +68,7 @@ export async function teamAgentsForMembers(
             select: {
               id: true,
               number: true,
-              project: { select: { slug: true } },
+              project: { select: { slug: true, tenant: { select: { slug: true } } } },
               title: true,
               areaId: true,
               area: { select: { name: true } },
@@ -173,7 +173,7 @@ export async function teamAssignedWorkForMembers(
     select: {
       id: true,
       number: true,
-      project: { select: { slug: true } },
+      project: { select: { slug: true, tenant: { select: { slug: true } } } },
       title: true,
       assigneeId: true,
       areaId: true,

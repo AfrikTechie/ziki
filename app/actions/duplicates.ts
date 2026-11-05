@@ -27,7 +27,7 @@ async function requireOrgAdmin() {
 }
 
 function revalidate(...bugIds: (string | null | undefined)[]) {
-  revalidatePath("/[project]", "layout");
+  revalidatePath("/[org]/[project]", "layout");
   revalidatePath("/bugs");
   for (const id of new Set(bugIds)) {
     if (id) {

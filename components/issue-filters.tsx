@@ -2,8 +2,9 @@
 
 import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import Image from "next/image";
-import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ideasPath, issuesPath, statusFromSegment } from "@/lib/project-paths";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ideasPath, issuesPath, statusFromSegment, type ProjectRef } from "@/lib/project-paths";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { statuses } from "@/lib/validations/issue";
 import { statusLabel } from "@/lib/labels";
 import { FINISHED_STATUS_FILTER, statusFilterLabel } from "@/lib/issue-state";
@@ -89,7 +90,7 @@ const REJECTED_IDEAS_STATUS = "rejected_ideas";
  * The list URL for `params`: the status is the path (`/<slug>/issues/open`,
  * #project-urls) and everything else stays in the query.
  */
-function listHref(slug: string, params: URLSearchParams): string {
+function listHref(slug: ProjectRef, params: URLSearchParams): string {
   const next = new URLSearchParams(params.toString());
   const status = next.get("status") || "all";
   next.delete("status");
@@ -100,7 +101,7 @@ function listHref(slug: string, params: URLSearchParams): string {
 
 /** The issues URL with `changes` applied and paging reset. */
 function hrefWithChanges(
-  slug: string,
+  slug: ProjectRef,
   params: URLSearchParams,
   changes: Record<string, string>,
 ): string {
@@ -132,7 +133,7 @@ export function IssueFilters({
   compact?: boolean;
 }) {
   const router = useRouter();
-  const { project: slug } = useParams<{ project: string }>();
+  const slug = useProjectRef()!;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   // The list is in the path; the filters read it as if it were `?status=`.

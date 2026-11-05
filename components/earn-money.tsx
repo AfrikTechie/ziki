@@ -24,7 +24,7 @@ export function LockIcon({ className = "h-4 w-4" }: { className?: string }) {
  */
 export function EarnMoney({ balance }: { balance: EarnBalance }) {
   const ready = balance.withdrawable > 0;
-  const info = withdrawInfo(balance.stage, balance.earned);
+  const info = withdrawInfo(balance.stage, balance.earned, balance.done);
   // Once the tasks are paid, the person closest to starting a project is the next step.
   const closest = stagePeople(balance.stage).find((person) => person.signedUp && !person.started);
   return (

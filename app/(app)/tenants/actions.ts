@@ -31,8 +31,8 @@ import {
   setTenantArchived,
   type PromoteOwnerResult,
 } from "@/lib/tenants";
-import { refererProjectSlug } from "@/lib/referer-path";
-import { ideasPath, orgPath } from "@/lib/project-paths";
+import { refererProjectRef } from "@/lib/referer-path";
+import { ideasPath, orgPath, refOf } from "@/lib/project-paths";
 
 /**
  * The tenant picker's actions (#444), and the organization admin's actions
@@ -41,9 +41,9 @@ import { ideasPath, orgPath } from "@/lib/project-paths";
  */
 
 /** The organization admin area. It always shows the tenant this device is working in. */
-/** The org Settings page the action came from (`/<slug>/org/settings`, #project-urls). */
+/** The org Settings page the action came from (`/<org>/<project>/org/settings`, #project-urls). */
 async function orgSettingsPath(): Promise<string> {
-  const slug = await refererProjectSlug();
+  const slug = await refererProjectRef();
   return slug ? orgPath(slug, "settings") : "/home";
 }
 
@@ -59,9 +59,9 @@ export type TenantFormResult = {
 async function enterTenant(tenantId: string, projectId?: string): Promise<never> {
   await setActiveTenantCookie(tenantId);
   revalidatePath("/", "layout");
-  const project = projectId ? await prisma.project.findFirst({ where: { id: projectId, tenantId, archivedAt: null }, select: { slug: true } }) : null;
+  const project = projectId ? await prisma.project.findFirst({ where: { id: projectId, tenantId, archivedAt: null }, select: { slug: true, tenant: { select: { slug: true } } } }) : null;
   // /home opens the first project of the workspace just made current.
-  redirect(project ? ideasPath(project.slug) : "/home");
+  redirect(project ? ideasPath(refOf(project)) : "/home");
 }
 
 /**
@@ -92,7 +92,7 @@ export async function switchTenantForIssueAction(formData: FormData): Promise<vo
   revalidatePath("/", "layout");
   const bug = await prisma.bug.findFirst({
     where: { id: issueId, tenantId: tenant.id },
-    select: { number: true, project: { select: { slug: true } } },
+    select: { number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
   });
   redirect(bug ? issueHref(bug) : "/home");
 }
@@ -223,7 +223,7 @@ export async function createInviteAction(
     });
   }
 
-  revalidatePath("/[project]/org", "layout");
+  revalidatePath("/[org]/[project]/org", "layout");
   return {
     ok: true,
     email: result.invite.email,
@@ -255,7 +255,7 @@ export async function createShareLinkAction(
   });
   if (!result.ok) return result;
 
-  revalidatePath("/[project]/org", "layout");
+  revalidatePath("/[org]/[project]/org", "layout");
   return { ok: true, url: result.url };
 }
 
@@ -263,7 +263,7 @@ export async function createShareLinkAction(
 export async function revokeShareLinkAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const result = await revokeShareLink(prisma, user, String(formData.get("linkId") ?? ""));
-  if (result.ok) revalidatePath("/[project]/org", "layout");
+  if (result.ok) revalidatePath("/[org]/[project]/org", "layout");
 }
 
 /**
@@ -287,7 +287,7 @@ export async function acceptShareLinkAction(formData: FormData): Promise<void> {
 export async function revokeInviteAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const result = await revokeInvite(prisma, user, String(formData.get("inviteId") ?? ""));
-  if (result.ok) revalidatePath("/[project]/org", "layout");
+  if (result.ok) revalidatePath("/[org]/[project]/org", "layout");
 }
 
 export type AcceptInviteActionResult = { error?: string };

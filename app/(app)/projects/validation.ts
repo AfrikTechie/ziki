@@ -75,7 +75,7 @@ export function urlSlugBase(name: string): string {
 
 /**
  * A project's slug base. Never a top-level route name: an issue's URL is
- * `/<project-slug>/<number>`, so a project called "Issues" gets `issues-project`.
+ * `/<org>/<project>/<number>`, so a project called "Issues" gets `issues-project`.
  */
 export function projectSlugBase(name: string): string {
   return unreservedProjectSlug(urlSlugBase(name));

@@ -85,16 +85,16 @@ export async function GET(req: NextRequest) {
   );
 }
 
-/** Each match with its address, `/<project-slug>/<number>` (#project-urls). */
+/** Each match with its address, `/<org>/<project>/<number>` (#project-urls). */
 async function withPaths(issues: SimilarIssue[]): Promise<SimilarIssueLink[]> {
   if (issues.length === 0) return [];
   const projects = await prisma.bug.findMany({
     where: { id: { in: issues.map((issue) => issue.id) } },
-    select: { id: true, project: { select: { slug: true } } },
+    select: { id: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
   });
-  const slugs = new Map(projects.map((row) => [row.id, row.project.slug]));
+  const projectOf = new Map(projects.map((row) => [row.id, row.project]));
   return issues.flatMap((issue) => {
-    const slug = slugs.get(issue.id);
-    return slug ? [{ ...issue, path: issueHref({ number: issue.number, project: { slug } }) }] : [];
+    const project = projectOf.get(issue.id);
+    return project ? [{ ...issue, path: issueHref({ number: issue.number, project }) }] : [];
   });
 }

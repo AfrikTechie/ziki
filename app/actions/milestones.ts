@@ -15,9 +15,9 @@ function isCode(err: unknown, code: string): boolean {
 }
 
 function revalidateMilestones() {
-  revalidatePath("/[project]/org", "layout");
+  revalidatePath("/[org]/[project]/org", "layout");
   revalidatePath("/milestones");
-  revalidatePath("/[project]", "layout");
+  revalidatePath("/[org]/[project]", "layout");
   revalidatePath("/bugs");
 }
 

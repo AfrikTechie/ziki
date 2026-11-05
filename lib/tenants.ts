@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { ZEDU_SLUG } from "@/lib/tenant";
 import { appCookieOptions } from "@/lib/cookie-options";
-import { unreservedProjectSlug } from "@/lib/project-slug";
+import { isReservedProjectSlug, unreservedProjectSlug } from "@/lib/project-slug";
 
 /**
  * Picking, creating and owning tenants (#444).
@@ -329,7 +329,8 @@ export function tenantSlugCandidate(
   attempt: number,
   suffix: () => string = randomSuffix,
 ): string {
-  if (attempt === 0 && !RESERVED_TENANT_SLUGS.has(base)) return base;
+  // An organisation's slug starts its addresses (`/<org>/<project>`), so never a top-level route's name.
+  if (attempt === 0 && !RESERVED_TENANT_SLUGS.has(base) && !isReservedProjectSlug(base)) return base;
   const tail = `-${suffix()}`;
   return `${base.slice(0, TENANT_SLUG_MAX - tail.length).replace(/-+$/g, "")}${tail}`;
 }

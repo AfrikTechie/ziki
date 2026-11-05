@@ -37,7 +37,7 @@ export async function giveRewardEstimateAction(bugId: string, formData: FormData
   try {
     const input = parseEstimate({ value: Number(formData.get("value")), ...(reason ? { reason } : {}) });
     const result = await giveRewardEstimate({ userId: user.id, agentId: null }, { tenantId, projectId: bug.projectId }, bug.id, input);
-    revalidatePath("/[project]", "layout");
+    revalidatePath("/[org]/[project]", "layout");
     revalidateIssue();
     return { ok: true, reward: result.reward, estimates: result.estimates, fixed: result.fixed, replaced: result.replaced };
   } catch (error) {

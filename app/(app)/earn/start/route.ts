@@ -19,5 +19,6 @@ export async function GET() {
   const { tenantId } = await joinEarnWorkspace(user.id);
   await setActiveTenantCookie(tenantId);
   const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
-  redirect(connected ? "/earn" : "/earn/connect");
+  // Connected before: straight to the default page (choosing what it works on), whatever else they have done. Not connected: to connecting.
+  redirect(connected ? "/earn/home" : "/earn/agent");
 }

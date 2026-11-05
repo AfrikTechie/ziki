@@ -1,5 +1,7 @@
 import { headers } from "next/headers";
 import { BASE_PATH } from "@/lib/base-path";
+import { isProjectFirstPath, projectRef, type ProjectRef } from "@/lib/project-paths";
+import { isReservedProjectSlug } from "@/lib/project-slug";
 
 /**
  * The in-app path of the page a server action was submitted from (#project-urls),
@@ -18,9 +20,19 @@ export async function refererPath(): Promise<string | null> {
   }
 }
 
-/** The project slug of the page an action came from (`/<slug>/…`), or null. */
-export async function refererProjectSlug(): Promise<string | null> {
+/** The project of the page an action came from (`/<org>/<project>/…`), or null. */
+export async function refererProjectRef(): Promise<ProjectRef | null> {
   const path = await refererPath();
-  const first = path?.split("/")[1];
-  return first ? decodeURIComponent(first) : null;
+  if (!path || isProjectFirstPath(path)) return null;
+  const [org, project] = path.split("?")[0].split("/").filter(Boolean);
+  if (!org || !project || isReservedProjectSlug(decode(org))) return null;
+  return projectRef(decode(org), decode(project));
+}
+
+function decode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }

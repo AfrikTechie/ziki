@@ -15,6 +15,7 @@ import { WebhookManagement } from "@/components/webhook-management";
 import { createWebhookAction, listWebhooksAction } from "@/app/actions/webhooks";
 import { OnScreenGuide } from "@/components/support-guide/on-screen-guide";
 import { getPageGuidance, searchSupportAnswers } from "@/components/support-guide/support-guide-data";
+import { projectRef } from "@/lib/project-paths";
 
 vi.mock("@/app/actions/issues", () => ({
   addCommentAction: vi.fn(),
@@ -103,7 +104,7 @@ describe("component accessibility (axe)", () => {
 
   it("CreateBugForm has no violations", async () => {
     const { container } = render(
-      <CreateBugForm projectSlug="acme"
+      <CreateBugForm projectSlug={projectRef("zedu", "acme")}
         users={users}
         types={[{ id: "t1", name: "Bug" }]}
         isAdmin
@@ -114,7 +115,7 @@ describe("component accessibility (axe)", () => {
 
   it("CreateBugForm quick report in the modal has no violations (#report-modal)", async () => {
     const { container } = render(
-      <CreateBugForm projectSlug="acme"
+      <CreateBugForm projectSlug={projectRef("zedu", "acme")}
         users={users}
         types={[{ id: "t1", name: "Bug" }]}
         isAdmin={false}
@@ -241,13 +242,13 @@ describe("component accessibility (axe)", () => {
     });
 
     it("returns direct page navigation shortcuts for page queries", () => {
-      const issuesNav = searchSupportAnswers("take me to issues", "demo");
+      const issuesNav = searchSupportAnswers("take me to issues", projectRef("demo", "demo"));
       expect(issuesNav.actions).toBeDefined();
-      expect(issuesNav.actions?.[0].href).toBe("/demo/issues/all");
+      expect(issuesNav.actions?.[0].href).toBe("/demo/demo/issues/all");
 
-      const ideasNav = searchSupportAnswers("take me to ideas", "demo");
+      const ideasNav = searchSupportAnswers("take me to ideas", projectRef("demo", "demo"));
       expect(ideasNav.actions).toBeDefined();
-      expect(ideasNav.actions?.[0].href).toBe("/demo/ideas");
+      expect(ideasNav.actions?.[0].href).toBe("/demo/demo/ideas");
     });
 
     it("renders the support guide with accessible ARIA label and toggle button", async () => {

@@ -1,4 +1,4 @@
-import { issuesPath } from "@/lib/project-paths";
+import { issuesPath, type ProjectRef } from "@/lib/project-paths";
 
 /**
  * Wording for "this issue type can't be deleted because issues use it"
@@ -39,7 +39,7 @@ export function inUseText({
 }
 
 /** Where those issues are, on the existing filtered list (types filter through the tag filter, by name). */
-export function inUseHrefs(slug: string, value: string): { live: string; deleted: string } {
+export function inUseHrefs(slug: ProjectRef, value: string): { live: string; deleted: string } {
   const q = `tags=${encodeURIComponent(value)}`;
   return { live: issuesPath(slug, "all", q), deleted: issuesPath(slug, "all", `deleted=true&${q}`) };
 }

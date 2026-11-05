@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { unstable_rethrow } from "next/navigation";
-import { newIssuePath } from "@/lib/project-paths";
+import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { createBugAction, type ActionResult } from "@/app/actions/issues";
 import { submitFailureMessage } from "@/lib/submit-error";
 import { ErrorSummary, FieldError, useFieldErrors } from "@/components/ui/field-errors";
@@ -62,7 +62,7 @@ export function CreateIssueForm({
   currentUserId?: string;
   projectId?: string | null;
   /** The project the form was opened in, for the full report page link. */
-  projectSlug: string;
+  projectSlug: ProjectRef;
   /**
    * "page": the full report page (detailed by default, with a link to a
    * quick report). "modal": the quick report opened over the current page.

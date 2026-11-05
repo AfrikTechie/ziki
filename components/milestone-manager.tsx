@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { useParams } from "next/navigation";
+import { useProjectRef } from "@/lib/use-project-ref";
 import {
   createMilestoneAction,
   deleteMilestoneAction,
@@ -32,7 +32,7 @@ type Draft = { title: string; description: string; dueDate: string };
 const EMPTY: Draft = { title: "", description: "", dueDate: "" };
 
 export function MilestoneManager({ milestones }: { milestones: ManagedMilestone[] }) {
-  const { project: slug } = useParams<{ project: string }>();
+  const slug = useProjectRef()!;
   const [editing, setEditing] = useState<ManagedMilestone | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<string | null>(null);

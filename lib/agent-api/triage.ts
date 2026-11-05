@@ -25,6 +25,7 @@ import {
 } from "@/lib/agent-api/pull-request-report";
 import { absoluteUrl } from "@/lib/site-url";
 import { issuePath } from "@/lib/issue-ref";
+import { refOf } from "@/lib/project-paths";
 
 /**
  * The manager's triage view (#triage): one read that says, for every issue in
@@ -339,7 +340,7 @@ export async function triageQueue(
   const now = deps.now ?? Date.now();
   const project = await prisma.project.findFirst({
     where: { id: scope.projectId, tenantId: scope.tenantId },
-    select: { id: true, slug: true, repoUrl: true },
+    select: { id: true, slug: true, repoUrl: true, tenant: { select: { slug: true } } },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
   const repo = parseGitHubRepoUrl(project.repoUrl);
@@ -396,7 +397,7 @@ export async function triageQueue(
       judgedByCaller: judged?.byCaller ?? false,
     };
     return {
-      issue: { id: bug.id, number: bug.number, title: bug.title, status: bug.status, substatus: bug.substatus, url: absoluteUrl(issuePath(project.slug, bug.number)) },
+      issue: { id: bug.id, number: bug.number, title: bug.title, status: bug.status, substatus: bug.substatus, url: absoluteUrl(issuePath(refOf(project), bug.number)) },
       holder: holderOf(bug, hold),
       pullRequest,
       judgements: facts.judgements,

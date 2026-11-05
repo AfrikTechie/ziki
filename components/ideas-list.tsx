@@ -3,7 +3,7 @@ import { IdeaVoteBadge } from "@/components/vote-badge";
 import { IdeaRowStatus } from "@/components/issue-row-status";
 import { IdeaPathChips } from "@/components/idea-path";
 import { LocalTime } from "@/components/local-time";
-import { ideaPath } from "@/lib/project-paths";
+import { ideaPath, type ProjectRef } from "@/lib/project-paths";
 import { SortHeader } from "@/components/sort-header";
 import { DEFAULT_IDEA_SORT, IDEA_SORT_COOKIE } from "@/lib/list-sort";
 
@@ -38,7 +38,7 @@ export type IdeaListRow = {
  * leave this list once an agent converts them.
  */
 export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT_IDEA_SORT }: {
-  slug: string;
+  slug: ProjectRef;
   ideas: IdeaListRow[];
   /** The list's sort, for the sortable column headers (#column-sort). */
   sort?: string;

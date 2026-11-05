@@ -49,7 +49,7 @@ export type AgentActivityItem = {
   id: string;
   createdAt: Date;
   action: string;
-  bug: { id: string; number: number; title: string; project: { slug: string } } | null;
+  bug: { id: string; number: number; title: string; project: { slug: string; tenant: { slug: string } } } | null;
   target: string | null;
   undone: boolean;
 };

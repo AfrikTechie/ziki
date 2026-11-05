@@ -1,3 +1,5 @@
+import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
+
 /**
  * The in-app page a quick report was opened from (#report-modal), passed as
  * `?from=` by the links that open the report modal. Only a same-site path is
@@ -10,7 +12,7 @@ export function safeReportedFrom(value: unknown): string | null {
   if (!path.startsWith("/") || path.startsWith("//")) return null;
   if (path.length > 300) return null;
   if (/[\s\u0000-\u001f\u007f\\]/.test(path)) return null;
-  if (/^\/[^/]+\/issues\/new(?:[/?#]|$)/.test(path)) return null;
+  if (/^\/[^/]+\/[^/]+\/issues\/new(?:[/?#]|$)/.test(path)) return null;
   return path;
 }
 
@@ -20,8 +22,8 @@ export function reportedFromLine(path: string): string {
 }
 
 /** The report-issue link for a project's page, carrying that page as `?from=` (#project-urls). */
-export function newIssueHref(slug: string, from?: string | null): string {
+export function newIssueHref(ref: ProjectRef, from?: string | null): string {
   const safe = safeReportedFrom(from);
-  const path = `/${encodeURIComponent(slug)}/issues/new`;
+  const path = newIssuePath(ref);
   return safe ? `${path}?from=${encodeURIComponent(safe)}` : path;
 }

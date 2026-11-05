@@ -63,7 +63,7 @@ export async function giveConfirmationAction(
   try {
     const input = parseConfirmation(body);
     const given = await giveConfirmation({ tenantId, userId }, { tenantId, projectId: bug.projectId }, bug.id, input);
-    revalidatePath("/[project]", "layout");
+    revalidatePath("/[org]/[project]", "layout");
     revalidateIssue();
     return {
       ok: true,

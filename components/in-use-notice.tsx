@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { inUseHrefs, inUseText } from "@/lib/in-use";
 import { Button } from "@/components/ui/button";
 
@@ -31,7 +31,7 @@ export function InUseNotice({
   onDismiss: () => void;
 }) {
   const text = inUseText(inUse);
-  const { project: slug } = useParams<{ project: string }>();
+  const slug = useProjectRef()!;
   const hrefs = inUseHrefs(slug, inUse.filterValue);
 
   return (

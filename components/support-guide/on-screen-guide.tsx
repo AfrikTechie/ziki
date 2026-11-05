@@ -9,7 +9,7 @@ import {
   FAQItem,
   NavigationAction,
 } from "./support-guide-data";
-import { isReservedProjectSlug } from "@/lib/project-slug";
+import { useProjectRef } from "@/lib/use-project-ref";
 
 export type GuideMode = "avatar" | "nudge" | "chat" | "tour";
 
@@ -28,17 +28,12 @@ function getFormattedTime() {
   return `${hours}:${mins}`;
 }
 
-function projectSlugFromPath(pathname: string | null): string | null {
-  const first = pathname?.split("/").filter(Boolean)[0];
-  return first && !isReservedProjectSlug(first) ? decodeURIComponent(first) : null;
-}
-
 function OnScreenGuideContent() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const projectSlug = useMemo(() => projectSlugFromPath(pathname), [pathname]);
+  const projectSlug = useProjectRef();
 
   // Compute page guidance directly from pathname during render
   const pageGuidance = useMemo(

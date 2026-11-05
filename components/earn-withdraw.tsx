@@ -14,7 +14,7 @@ const SECONDARY =
 /**
  * Withdraw (#earn-drafts, Mark's review): always a window over the page you are
  * on, never a trip to another page. It shows the threshold and your balance
- * against it. Below the threshold it lists every way to get there, with the next
+ * against it, with a link to the full Earnings page. Below the threshold it lists every way to get there, with the next
  * one to do; at the threshold or more it offers the withdrawal.
  *
  * DRAFT: there is no payout backend yet, so the Withdraw button only closes the window.
@@ -82,6 +82,7 @@ export function EarnWithdraw({
 
           <div className="mt-6 flex flex-wrap justify-end gap-2">
             <button type="button" onClick={close} className={SECONDARY}>Close</button>
+            <Link href="/earn/earnings" onClick={() => setOpen(false)} className={SECONDARY}>See my earnings</Link>
             {info.ready ? null : info.next ? (
               <Link href={info.next.href} onClick={() => setOpen(false)} className={PRIMARY}>Start next task</Link>
             ) : (

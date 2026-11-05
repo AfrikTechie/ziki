@@ -3,7 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import { quickIdeaVerdictAction } from "@/app/actions/idea-verdicts";
 import { toggleVoteAction } from "@/app/actions/issues";
-import { voteNoteCommentAction } from "@/app/(app)/[project]/notes/actions";
+import { voteNoteCommentAction } from "@/app/(app)/[org]/[project]/notes/actions";
 
 type Direction = "up" | "down";
 

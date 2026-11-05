@@ -3,14 +3,14 @@ import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantAccess } from "@/lib/tenant-access";
 import { loadMilestoneSummaries, type MilestoneSummary } from "@/lib/milestone-stats";
 import { dueDateValue, milestoneIssuesHref } from "@/lib/milestones";
-import { firstProjectSlugFor } from "@/lib/project-route";
-import { orgPath } from "@/lib/project-paths";
+import { firstProjectRefFor } from "@/lib/project-route";
+import { orgPath, type ProjectRef } from "@/lib/project-paths";
 import { MilestoneProgressBar } from "@/components/milestone-progress";
 import { MilestoneDue } from "@/components/milestone-due";
 
 export const metadata = { title: "Milestones" };
 
-function MilestoneCard({ m, slug }: { m: MilestoneSummary; slug: string | null }) {
+function MilestoneCard({ m, slug }: { m: MilestoneSummary; slug: ProjectRef | null }) {
   const left = m.progress.total - m.progress.done;
   return (
     <li className="rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:p-5">
@@ -43,7 +43,7 @@ export default async function MilestonesPage() {
   const user = await requireUser();
   const { tenantId, admin } = await currentTenantAccess(user.id, user.role);
   const all = tenantId ? await loadMilestoneSummaries({ tenantId }) : [];
-  const slug = await firstProjectSlugFor(user.id);
+  const slug = await firstProjectRefFor(user.id);
   const open = all.filter((m) => !m.isClosed);
   const closed = all.filter((m) => m.isClosed);
 

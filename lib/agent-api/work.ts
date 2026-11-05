@@ -39,14 +39,14 @@ import { commentPreview } from "@/lib/activity-log";
 import { absoluteUrl } from "@/lib/site-url";
 import { openAgentRequests } from "@/lib/agent-requests";
 import { issuePath } from "@/lib/issue-ref";
-import { ideaPath } from "@/lib/project-paths";
+import { ideaPath, projectPath, projectRef } from "@/lib/project-paths";
 import { contestsIn, liveStakesOf, STAKE_REFRESH_MS, sweepStakes } from "@/lib/agent-api/stakes";
 import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
 
 /**
  * One list of everything an agent can do in a project (#work-feed).
  *
- * Agents watch `GET /<project-slug>/work` instead of polling each role queue.
+ * Agents watch `GET /<org>/<project>/work` instead of polling each role queue.
  * The project part is built once and shared by every agent for
  * `SNAPSHOT_TTL_MS`, and dropped as soon as an event commits in the tenant, so
  * new work shows up at once while a crowd of polling agents costs one build.
@@ -129,8 +129,11 @@ export type WorkItem = {
   actions: WorkAction[];
 };
 
+/** The project a feed is for, with its organisation's slug for its addresses (`/<org>/<project>/…`). */
+export type FeedProject = { id: string; slug: string; name: string; orgSlug: string };
+
 export type WorkFeed = {
-  project: { id: string; slug: string; name: string };
+  project: FeedProject;
   agent: { id: string; name: string; level: AgentLevel };
   workUrl: string;
   pollAfterSeconds: number;
@@ -220,7 +223,7 @@ type IdeaFacts = ReviewedBug & {
 
 export type ProjectWork = {
   tenantId: string;
-  project: { id: string; slug: string; name: string };
+  project: FeedProject;
   /** Open ideas still short of the threshold, with their verdict score (#727). */
   ideas: (IssueRef & { score: number })[];
   /** Open ideas at or past the project's threshold, waiting for any agent to convert them. */
@@ -329,7 +332,7 @@ eventStreamBus.on("event", (event: StreamEvent) => invalidateWork(event.tenantId
 eventStreamBus.on(TENANT_WRITE, (tenantId: string) => invalidateWork(tenantId));
 
 /** The project part of the feed, shared by every agent until it expires or an event commits. */
-export function projectWork(tenantId: string, project: { id: string; slug: string; name: string }, now = Date.now()): Promise<ProjectWork> {
+export function projectWork(tenantId: string, project: FeedProject, now = Date.now()): Promise<ProjectWork> {
   const cached = snapshots.get(project.id);
   if (cached && cached.expiresAt > now) return cached.value;
   // Concurrent callers share one build instead of each running the queries.
@@ -350,7 +353,7 @@ function neutralCaller(tenantId: string, projectId: string): AgentContext {
   return { agentId: "work-feed", name: "work-feed", ownerId: "work-feed", tenantId, level: "merger", burst: false, keyId: "work-feed", projectId };
 }
 
-async function buildProjectWork(tenantId: string, project: { id: string; slug: string; name: string }): Promise<ProjectWork> {
+async function buildProjectWork(tenantId: string, project: FeedProject): Promise<ProjectWork> {
   // #stakes: settle wins, drops and decided contests first, so the feed shows where they stand.
   await sweepStakes({ tenantId, projectId: project.id }).catch(() => null);
   const caller = neutralCaller(tenantId, project.id);
@@ -965,17 +968,18 @@ async function agentWork(agent: AgentContext, projectId: string, offerWindowSeco
 
 const apiPath = (id: string, tail: string, projectId: string) => `/api/v1/issues/${id}/${tail}?projectId=${projectId}`;
 const ideaApiPath = (id: string, tail: string, projectId: string) => `/api/v1/ideas/${id}/${tail}?projectId=${projectId}`;
-/** Every issue in a feed is in the feed's project, so its URL is `/<project-slug>/<number>` (#project-urls). */
-const issueRefIn = (projectSlug: string) => (issue: IssueRef) => ({ id: issue.id, number: issue.number, title: issue.title, url: absoluteUrl(issuePath(projectSlug, issue.number)) });
-const ideaRefIn = (projectSlug: string) => (idea: IssueRef) => ({ id: idea.id, number: idea.number, title: idea.title, url: absoluteUrl(ideaPath(projectSlug, idea.number)) });
+/** Every issue in a feed is in the feed's project, so its URL is `/<org>/<project>/<number>` (#project-urls). */
+const refIn = (project: FeedProject) => projectRef(project.orgSlug, project.slug);
+const issueRefIn = (project: FeedProject) => (issue: IssueRef) => ({ id: issue.id, number: issue.number, title: issue.title, url: absoluteUrl(issuePath(refIn(project), issue.number)) });
+const ideaRefIn = (project: FeedProject) => (idea: IssueRef) => ({ id: idea.id, number: idea.number, title: idea.title, url: absoluteUrl(ideaPath(refIn(project), idea.number)) });
 const plus = (ms: number) => new Date(ms).toISOString();
 
 /** Every item this agent sees, in the order it should act on them. */
 export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork): WorkItem[] {
   const items: WorkItem[] = [];
   const pid = work.project.id;
-  const issueRef = issueRefIn(work.project.slug);
-  const ideaRef = ideaRefIn(work.project.slug);
+  const issueRef = issueRefIn(work.project);
+  const ideaRef = ideaRefIn(work.project);
   const owner = agent.ownerId;
   const actor = { id: agent.agentId, ownerUserId: owner };
   const can = (role: AgentLevel) => hasLevel(agent.level, role);
@@ -1695,10 +1699,10 @@ const REPAIR_WHY: Record<ProjectWork["toRepair"][number]["linkState"], string> =
  * #stakes: the agent's own live stakes, each a `refresh_stake` item with its
  * refresh due time, so it keeps proving it is there until the stake settles.
  */
-async function stakeItems(agentId: string, project: { id: string; slug: string }): Promise<WorkItem[]> {
+async function stakeItems(agentId: string, project: FeedProject): Promise<WorkItem[]> {
   const stakes = await liveStakesOf(agentId, project.id).catch(() => []);
-  const issueRef = issueRefIn(project.slug);
-  const ideaRef = ideaRefIn(project.slug);
+  const issueRef = issueRefIn(project);
+  const ideaRef = ideaRefIn(project);
   return stakes.map((stake): WorkItem => {
     const onIssue = stake.status === "open" || stake.status === "contested";
     const due = new Date(stake.lastRefreshAt.getTime() + STAKE_REFRESH_MS);
@@ -1749,7 +1753,7 @@ export function waitingForOthers(level: AgentLevel, items: readonly WorkItem[]):
 }
 
 /** The whole feed for one agent. */
-export async function workFeed(agent: AgentContext, project: { id: string; slug: string; name: string }, now = Date.now()): Promise<WorkFeed> {
+export async function workFeed(agent: AgentContext, project: FeedProject, now = Date.now()): Promise<WorkFeed> {
   const work = await projectWork(agent.tenantId, project, now);
   const mine = await agentWork(agent, project.id, work.offerWindowSeconds, now);
   // What the owner asked this agent to do (#agent-requests) comes first.
@@ -1827,7 +1831,7 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   return {
     project,
     agent: { id: agent.agentId, name: agent.name, level: agent.level },
-    workUrl: absoluteUrl(`/${project.slug}/work`),
+    workUrl: absoluteUrl(projectPath(refIn(project), "/work")),
     pollAfterSeconds: WORK_POLL_SECONDS,
     ask,
     inbox: { unread: mine.unread, path: "/api/v1/inbox?unread=1" },

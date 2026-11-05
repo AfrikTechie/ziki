@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
-import { ideasPath, orgPath } from "@/lib/project-paths";
+import { usePathname } from "next/navigation";
+import { ideasPath, orgPath, type ProjectRef } from "@/lib/project-paths";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { SignOutButton } from "@/components/sign-out-button";
 import { WorkspaceSwitcher, type WorkspaceChoice } from "@/components/workspace-switcher";
 import {
   MANAGE_AGENTS_HREF,
   AGENTS_DIRECTORY_HREF,
+  LEADERBOARD_HREF,
   SITE_ADMIN_HREF,
   isNavItemActive,
   realRoleOf,
@@ -17,6 +19,9 @@ import {
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { Avatar } from "@/components/avatar";
 import { AccountThemeSelector } from "@/components/theme-toggle";
+import { CookieSettingsLink } from "@/components/consent-banner";
+import { VersionCredits } from "@/components/credits-dialog";
+import { leaderboardInMenu } from "@/lib/agents-dock";
 import { recentNotificationsAction } from "@/app/actions/notifications";
 import { LocalTime } from "@/components/local-time";
 import { BASE_PATH } from "@/lib/base-path";
@@ -119,7 +124,7 @@ function TopNavLink({
  * The workspace areas: Product (the issue tracker), Marketing and Security.
  * The logo goes to the project's Ideas.
  */
-function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: string | null }) {
+function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: ProjectRef | null }) {
   // Product opens the project the page is in, or the first one (#project-urls).
   const productHref = projectSlug ? ideasPath(projectSlug) : "/tenants";
   return (
@@ -275,13 +280,22 @@ export function AppHeader({
   defaultProjectSlug = null,
   earned = null,
   withdraw = null,
+  version,
+  memberCount = null,
+  agentCount = 0,
 }: {
+  /** The running version (package version), shown with Cookie settings at the foot of the account menu. */
+  version?: string;
+  /** Members of the current workspace: the Leaderboard entry needs more than one. Null when unknown. */
+  memberCount?: number | null;
+  /** How many agents the person has here: with any, the agents bar shows Leaderboard on the pages it is drawn on. */
+  agentCount?: number;
   /** Earn (#earn-drafts): what the Withdraw window shows; null for everyone else. */
   withdraw?: WithdrawInfo | null;
   /** Earn (#earn-drafts): an earner's dollars, shown with Withdraw in the header; null for everyone else. */
   earned?: number | null;
   /** The first project in the current workspace, for pages whose URL names none yet. */
-  defaultProjectSlug?: string | null;
+  defaultProjectSlug?: ProjectRef | null;
   userName?: string | null;
   userImage?: string | null;
   role?: AppRole | null;
@@ -297,7 +311,7 @@ export function AppHeader({
   organizationAdmin?: boolean;
 }) {
   const pathname = usePathname();
-  const projectSlug = useParams<{ project?: string }>()?.project ?? defaultProjectSlug;
+  const projectSlug = useProjectRef() ?? defaultProjectSlug;
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -395,6 +409,13 @@ export function AppHeader({
                 <MenuLink href={AGENTS_DIRECTORY_HREF} active={pathname === AGENTS_DIRECTORY_HREF}>
                   All agents
                 </MenuLink>
+                {/* The agents bar carries Leaderboard wherever it is drawn, so the menu offers it only elsewhere. And you
+                    can't be the only person on a leaderboard: a workspace of one has none. */}
+                {leaderboardInMenu(pathname, agentCount, memberCount) && !earnQuiet ? (
+                  <MenuLink href={LEADERBOARD_HREF} active={isNavItemActive(pathname, LEADERBOARD_HREF)}>
+                    Leaderboard
+                  </MenuLink>
+                ) : null}
                 {isSuperAdmin(role) ? (
                   <MenuLink href={SITE_ADMIN_HREF} active={isNavItemActive(pathname, SITE_ADMIN_HREF)}>
                     Site admin
@@ -414,6 +435,14 @@ export function AppHeader({
                   userId={userId}
                   className={`${linkFocus} font-bold text-zk-bad-fg hover:bg-zk-bad-soft`}
                 />
+                {/* On every page, with or without the agents bar: Cookie settings and the version, small and grey.
+                    Cookie settings opens the consent banner, so the menu steps aside first. */}
+                <div className="flex items-center justify-between gap-3 px-3 pb-1 pt-1 text-[11px] text-zk-muted">
+                  <CookieSettingsLink onOpen={closeAccount} className={`rounded underline hover:text-zk-text ${linkFocus}`} />
+                  {version ? (
+                    <VersionCredits version={version} className={`rounded font-mono hover:text-zk-text hover:underline ${linkFocus}`} />
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>

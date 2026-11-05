@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
         isDeleted: false,
         OR: matches,
       },
-      select: { id: true, number: true, title: true, status: true, project: { select: { slug: true } } },
+      select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
       orderBy: { updatedAt: "desc" },
       take: SUGGEST_LIMIT,
     });

@@ -25,11 +25,11 @@ describe("GET /earn/start", () => {
 
   it("sends someone with no Earn agent to the connect page by path", async () => {
     findFirst.mockResolvedValue(null);
-    await expect(GET()).rejects.toThrow("REDIRECT:/earn/connect");
+    await expect(GET()).rejects.toThrow("REDIRECT:/earn/agent");
   });
 
-  it("sends someone whose agent is connected on to /earn by path", async () => {
+  it("sends someone whose agent is connected on to the default page, /earn/home, by path", async () => {
     findFirst.mockResolvedValue({ id: "agent-1" });
-    await expect(GET()).rejects.toThrow("REDIRECT:/earn");
+    await expect(GET()).rejects.toThrow("REDIRECT:/earn/home");
   });
 });

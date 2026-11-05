@@ -499,9 +499,8 @@
 .ziki-homepage .paths-grid { display: grid; gap: 18px; grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 1180px) { .ziki-homepage .paths-grid { grid-template-columns: repeat(2, 1fr); } }
 
-/* Earn: the explanation that opens under the cards when the Earn card is chosen (no script: the section is the link's target). */
-.ziki-homepage .earn-more { display: none; padding-top: 0; scroll-margin-top: 24px; }
-.ziki-homepage .earn-more:target { display: block; }
+/* Earn: how earning works, on its own page (/earning). */
+.ziki-homepage .earn-more { scroll-margin-top: 24px; }
 .ziki-homepage .earn-more-grid { align-items: start; border-top: 1px solid var(--line); display: grid; gap: 64px; grid-template-columns: .9fr 1.1fr; padding-top: 56px; }
 .ziki-homepage .earn-more h2 { font-size: clamp(28px, 3.2vw, 40px); font-weight: 500; letter-spacing: -.04em; line-height: 1.06; margin: 0 0 16px; }
 .ziki-homepage .earn-more-lede { color: var(--muted); font-size: 17px; line-height: 1.55; margin: 0 0 28px; max-width: 460px; }
@@ -513,6 +512,14 @@
 .ziki-homepage .earn-more-steps h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
 .ziki-homepage .earn-more-steps p { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0; max-width: 520px; }
 @media (max-width: 900px) { .ziki-homepage .earn-more-grid { gap: 36px; grid-template-columns: 1fr; padding-top: 40px; } }
+/* /earn: the public page is short, so its sections sit closer and its small cards are not stretched to the home page's height. */
+.ziki-homepage .earn-benefits { padding-bottom: 24px; padding-top: 72px; }
+.ziki-homepage .earn-benefits .lifecycle-card { min-height: 0; padding: 26px 24px 28px; }
+.ziki-homepage .earn-benefits .lifecycle-icon { margin: 0 0 6px; }
+.ziki-homepage .earn-benefits .lifecycle-card h3 { font-size: 20px; margin: 14px 0 8px; }
+.ziki-homepage .earn-benefits .lifecycle-card > p { font-size: 15px; line-height: 1.55; }
+.ziki-homepage .earn-steps { padding-bottom: 40px; padding-top: 72px; }
+.ziki-homepage .earn-closing { padding-bottom: 96px; padding-top: 56px; }
 .ziki-homepage .path-card { display: flex; flex-direction: column; padding: 26px 24px 24px; }
 .ziki-homepage .path-card .lifecycle-icon { margin: 0 0 18px; }
 .ziki-homepage .path-kicker { color: var(--green); font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }

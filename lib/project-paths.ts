@@ -1,10 +1,42 @@
 /**
- * Every page belongs to a project, and its address starts with the project's
- * slug (#project-urls): `/<slug>/issues/open`, `/<slug>/ideas`,
- * `/<slug>/ideas/42`, `/<slug>/notes`, `/<slug>/740`. The slug, not a cookie,
- * says which project a page shows (lib/project-route.ts resolves it and checks
- * access). Build every in-app link with these helpers.
+ * Every page belongs to a project, and its address starts with its
+ * organisation's slug and then the project's (#project-urls):
+ * `/<org>/<project>/issues/open`, `/<org>/<project>/ideas/42`,
+ * `/<org>/<project>/740`. `/<org>` alone lists the organisation's projects.
+ * The URL, not a cookie, says which project a page shows (lib/project-route.ts
+ * resolves it and checks access). Build every in-app link with these helpers,
+ * from a `ProjectRef` (`projectRef(org, project)` or `refOf(project)`).
  */
+
+/** `<org>/<project>`, URL-encoded: the two segments every project address starts with. */
+export type ProjectRef = string & { readonly __projectRef: true };
+
+export function projectRef(orgSlug: string, projectSlug: string): ProjectRef {
+  return `${encodeURIComponent(orgSlug)}/${encodeURIComponent(projectSlug)}` as ProjectRef;
+}
+
+/** The ref of a project read with `tenant: { select: { slug: true } }`. */
+export function refOf(project: { slug: string; tenant: { slug: string } }): ProjectRef {
+  return projectRef(project.tenant.slug, project.slug);
+}
+
+/** An organisation's own page, the list of its projects: `/<org>`. */
+export function orgHomePath(orgSlug: string, query?: URLSearchParams | string): string {
+  return withQuery(`/${encodeURIComponent(orgSlug)}`, query);
+}
+
+/**
+ * The second segment of an address from before organisations were in URLs
+ * (`/<project>/ideas`, `/<project>/740`): a project's own page name, or an
+ * issue number. A project may not take one of these names, so
+ * `/<a>/<b>/...` with such a `b` is always an old project-first address.
+ */
+const PROJECT_PAGES = new Set(["ideas", "issues", "notes", "org", "projects", "tasks", "workstream", "work"]);
+
+export function isProjectFirstPath(path: string): boolean {
+  const [first, second] = path.split("?")[0].split("/").filter(Boolean);
+  return Boolean(first && second && (PROJECT_PAGES.has(second) || /^[0-9]+$/.test(second)));
+}
 
 /** The path segment of each issue list, by the status it shows. */
 const STATUS_SEGMENT: Record<string, string> = {
@@ -30,9 +62,9 @@ export function statusFromSegment(segment: string): string | null {
   return SEGMENT_STATUS[segment] ?? null;
 }
 
-/** `/<slug>` followed by `rest` (which starts with `/`, or is empty). */
-export function projectPath(slug: string, rest = ""): string {
-  return `/${encodeURIComponent(slug)}${rest}`;
+/** `/<org>/<project>` followed by `rest` (which starts with `/`, or is empty). */
+export function projectPath(ref: ProjectRef, rest = ""): string {
+  return `/${ref}${rest}`;
 }
 
 function withQuery(path: string, query?: URLSearchParams | string): string {
@@ -40,28 +72,28 @@ function withQuery(path: string, query?: URLSearchParams | string): string {
   return text ? `${path}?${text}` : path;
 }
 
-/** An issue list: `/<slug>/issues/<status>`; `all` when no status is given. */
-export function issuesPath(slug: string, status: string | null = "all", query?: URLSearchParams | string): string {
+/** An issue list: `/<org>/<project>/issues/<status>`; `all` when no status is given. */
+export function issuesPath(slug: ProjectRef, status: string | null = "all", query?: URLSearchParams | string): string {
   const segment = STATUS_SEGMENT[status ?? "all"] ?? "all";
   return withQuery(projectPath(slug, `/issues/${segment}`), query);
 }
 
 /** The ideas lists: new ideas, `drafts` or `rejected`. */
-export function ideasPath(slug: string, view: "new" | "drafts" | "rejected" = "new", query?: URLSearchParams | string): string {
+export function ideasPath(slug: ProjectRef, view: "new" | "drafts" | "rejected" = "new", query?: URLSearchParams | string): string {
   return withQuery(projectPath(slug, view === "new" ? "/ideas" : `/ideas/${view}`), query);
 }
 
-/** An idea's page: `/<slug>/ideas/<number>`. Ideas are numbered apart from issues. */
-export function ideaPath(slug: string, number: number): string {
+/** An idea's page: `/<org>/<project>/ideas/<number>`. Ideas are numbered apart from issues. */
+export function ideaPath(slug: ProjectRef, number: number): string {
   return projectPath(slug, `/ideas/${number}`);
 }
 
-/** The organization admin area under a project: `/<slug>/org`, `/<slug>/org/members`. */
-export function orgPath(slug: string, section = ""): string {
+/** The organization admin area under a project: `/<org>/<project>/org`, `.../org/members`. */
+export function orgPath(slug: ProjectRef, section = ""): string {
   return projectPath(slug, section ? `/org/${section}` : "/org");
 }
 
 /** Filing a new report (it starts as an idea). */
-export function newIssuePath(slug: string, query?: URLSearchParams | string): string {
+export function newIssuePath(slug: ProjectRef, query?: URLSearchParams | string): string {
   return withQuery(projectPath(slug, "/issues/new"), query);
 }

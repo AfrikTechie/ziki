@@ -23,7 +23,7 @@ export default async function EarnWithdrawPage() {
   const [agent] = await Promise.all([
     prisma.agent.findFirst({ where: earnAgentWhere(user.id), orderBy: { createdAt: "asc" }, select: { name: true } }).catch(() => null),
   ]);
-  const tasks = stageTasks(balance.stage);
+  const tasks = stageTasks(balance.stage, balance.done);
   const signedUp = stagePeople(balance.stage).filter((person) => person.signedUp).length;
 
   return (

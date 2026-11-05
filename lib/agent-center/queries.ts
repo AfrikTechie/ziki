@@ -5,7 +5,7 @@ import { isTenantAdminRole } from "@/lib/agents/membership";
 import { auditWhere } from "@/lib/agent-audit/visibility";
 import { ACTIVITY_PAGE_SIZE, activityBefore, activityFilters, activityPage, type ActivityParams } from "./paging";
 
-const issueSelect = { id: true, number: true, title: true, status: true, pullRequestUrl: true, project: { select: { slug: true } } } as const;
+const issueSelect = { id: true, number: true, title: true, status: true, pullRequestUrl: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } as const;
 const orderBy = [{ createdAt: "desc" }, { id: "desc" }] as const;
 
 /** Session-derived identity only. Membership is rechecked before any data read. */

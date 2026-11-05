@@ -1,4 +1,7 @@
-import { issuesPath, ideasPath, projectPath } from "@/lib/project-paths";
+import { issuesPath, ideasPath, projectPath, projectRef, type ProjectRef } from "@/lib/project-paths";
+
+/** The project links point into when the page is in none: the local Demo workspace. */
+const FALLBACK_PROJECT = projectRef("demo", "demo");
 
 export interface FAQItem {
   id: string;
@@ -81,9 +84,9 @@ export const COMMON_FAQS: FAQItem[] = [
   },
 ];
 
-export function getPageGuidance(pathname: string, projectSlug?: string | null): PageGuidance {
+export function getPageGuidance(pathname: string, projectSlug?: ProjectRef | null): PageGuidance {
   const cleanPath = pathname.split("?")[0].replace(/\/$/, "") || "/";
-  const slug = projectSlug || "demo";
+  const slug = projectSlug || FALLBACK_PROJECT;
 
   // Homepage
   if (cleanPath === "/" || cleanPath === "") {
@@ -304,10 +307,10 @@ export function getPageGuidance(pathname: string, projectSlug?: string | null): 
 
 export function searchSupportAnswers(
   query: string,
-  projectSlug?: string | null
+  projectSlug?: ProjectRef | null
 ): SupportAnswerResult {
   const q = query.toLowerCase().trim();
-  const slug = projectSlug || "demo";
+  const slug = projectSlug || FALLBACK_PROJECT;
 
   if (!q) {
     return {

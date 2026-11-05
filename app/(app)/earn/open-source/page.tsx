@@ -17,7 +17,7 @@ export default async function EarnOpenSourcePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="space-y-1">
-        <Link href="/earn" className={`text-sm ${agentsLink}`}>← What should it work on?</Link>
+        <Link href="/earn/home" className={`text-sm ${agentsLink}`}>← What should it work on?</Link>
         <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">Open source</h1>
       </div>
 

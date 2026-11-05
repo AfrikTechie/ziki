@@ -18,13 +18,14 @@ export const CONVERSION_BONUS = 11;
 export const EARN_CC_ADDRESS = "earn@ziki.dev";
 
 export type EarnTaskId = "who" | "research" | "emails" | "post";
-export type EarnTask = { id: EarnTaskId; title: string; detail: string; pay: number; done: boolean };
+/** `target`: how many make the task (10 people, 10 emails), or 1 for a task done once. */
+export type EarnTask = { id: EarnTaskId; title: string; detail: string; pay: number; target: number; done: boolean };
 
 export const EARN_TASKS: EarnTask[] = [
-  { id: "who", title: "Tell us who needs Ziki", detail: "One sentence about a kind of business. Takes 2 minutes.", pay: 3, done: false },
-  { id: "research", title: "Research 10 people with your agent", detail: "Your agent finds businesses that match what you wrote.", pay: 2, done: false },
-  { id: "emails", title: "Send 10 emails", detail: "From your own email, with your link. CC Ziki so each one counts.", pay: 4, done: false },
-  { id: "post", title: "Post about Ziki", detail: "Share your link on X, LinkedIn or your WhatsApp status.", pay: 5, done: false },
+  { id: "who", title: "Tell us who needs Ziki", detail: "One sentence about a kind of business. Takes 2 minutes.", pay: 3, target: 1, done: false },
+  { id: "research", title: "Research 10 people with your agent", detail: "Your agent finds businesses that match what you wrote.", pay: 2, target: 10, done: false },
+  { id: "emails", title: "Send 10 emails", detail: "From your own email, with your link. CC Ziki so each one counts.", pay: 4, target: 10, done: false },
+  { id: "post", title: "Post about Ziki", detail: "Share your link on X, LinkedIn or your WhatsApp status.", pay: 5, target: 1, done: false },
 ];
 
 /** Who does what on each task, and what to send back as proof. The agent does the work; the person checks it and sends it from their own accounts. */
@@ -147,9 +148,9 @@ export type WithdrawInfo = {
 };
 
 /** `earned` is what the ledger says; without it the stage's own sum is used (demos). */
-export function withdrawInfo(stage: EarnStage, earned?: number): WithdrawInfo {
-  const balance = earnBalance(stage, earned);
-  const tasks = stageTasks(stage);
+export function withdrawInfo(stage: EarnStage, earned?: number, done?: readonly EarnTaskId[]): WithdrawInfo {
+  const balance = earnBalance(stage, earned, done);
+  const tasks = stageTasks(stage, done);
   const nextIndex = tasks.findIndex((task) => !task.done);
   const left = Math.max(0, WITHDRAW_THRESHOLD - balance.earned);
   const fromTasks = Math.min(balance.tasksLeft, left);
@@ -174,7 +175,10 @@ export function tasksDone(stage: EarnStage): boolean {
 }
 
 /** The four tasks as they stand at a stage: the first N paid, in order. */
-export function stageTasks(stage: EarnStage): EarnTask[] {
+export function stageTasks(stage: EarnStage, done?: readonly EarnTaskId[]): EarnTask[] {
+  // All four tasks are open at once, so which are paid comes from the person's own confirmed tasks when known;
+  // without that (the demo stages) the first N are taken as paid.
+  if (done) return EARN_TASKS.map((task) => ({ ...task, done: done.includes(task.id) }));
   const paid = tasksPaid(stage);
   return EARN_TASKS.map((task, i) => ({ ...task, done: i < paid }));
 }
@@ -200,6 +204,8 @@ export type EarnBalance = {
   tasksLeft: number;
   converted: boolean;
   heldReason: string | null;
+  /** The tasks that are paid, in any order. Pass it on to stageTasks and withdrawInfo so every page agrees on which. */
+  done: EarnTaskId[];
 };
 
 /**
@@ -207,8 +213,8 @@ export type EarnBalance = {
  * withdrawable until the threshold. `earnedOverride` is the ledger's figure for
  * a real earner; without it the stage's own sum is used (demos).
  */
-export function earnBalance(stage: EarnStage = "new", earnedOverride?: number): EarnBalance {
-  const tasks = stageTasks(stage);
+export function earnBalance(stage: EarnStage = "new", earnedOverride?: number, doneOverride?: readonly EarnTaskId[]): EarnBalance {
+  const tasks = stageTasks(stage, doneOverride);
   const earned = SIGNUP_BONUS + tasks.filter((task) => task.done).reduce((sum, task) => sum + task.pay, 0);
   const converted = stage === "unlocked";
   const total = earnedOverride ?? earned + (converted ? CONVERSION_BONUS : 0);
@@ -225,5 +231,6 @@ export function earnBalance(stage: EarnStage = "new", earnedOverride?: number): 
     tasksLeft,
     converted,
     heldReason: total >= WITHDRAW_THRESHOLD ? null : `To reach $${WITHDRAW_THRESHOLD}, ${needs.join(" and ")}. What you've earned stays yours.`,
+    done: tasks.filter((task) => task.done).map((task) => task.id),
   };
 }

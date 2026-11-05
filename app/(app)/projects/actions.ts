@@ -6,8 +6,8 @@ import { requireUser } from "@/lib/auth-helpers";
 import { fieldError, fromZodError } from "@/lib/form-errors";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { refererProjectSlug } from "@/lib/referer-path";
-import { ideasPath, orgPath } from "@/lib/project-paths";
+import { refererProjectRef } from "@/lib/referer-path";
+import { ideasPath, orgPath, projectRef } from "@/lib/project-paths";
 import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
 import { isTenantAdmin } from "@/lib/agents/membership";
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
@@ -35,7 +35,7 @@ export type ProjectActionResult = {
 
 /** Back to the org's Projects page the action came from (#project-urls), with a message. */
 async function projectsMessage(key: "error" | "notice", message: string): Promise<string> {
-  const slug = await refererProjectSlug();
+  const slug = await refererProjectRef();
   return slug ? `${orgPath(slug, "projects")}?${key}=${encodeURIComponent(message)}` : "/home";
 }
 
@@ -263,7 +263,8 @@ export async function createProjectAction(
 
   revalidatePath("/", "layout");
   // A new project opens on its own page (#project-urls).
-  redirect(ideasPath(slug));
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
+  redirect(tenant ? ideasPath(projectRef(tenant.slug, slug)) : "/home");
 }
 
 /** Archive or restore a project the tenant owner owns. */

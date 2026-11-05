@@ -27,7 +27,7 @@ async function projectSettingsAccess(slug: string) {
 
 function revalidateProject(slug: string) {
   revalidatePath(`/projects/${encodeURIComponent(slug)}/settings`);
-  revalidatePath("/[project]", "layout");
+  revalidatePath("/[org]/[project]", "layout");
 }
 
 /** How many times a create re-reads the slugs after losing a race to the same slug. */

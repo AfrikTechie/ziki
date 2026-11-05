@@ -136,7 +136,7 @@ export type AgentThreadEntry =
       answer: string | null;
       answeredAt: Date | null;
       createdAt: Date;
-      bug: { id: string; number: number; title: string; project: { slug: string } } | null;
+      bug: { id: string; number: number; title: string; project: { slug: string; tenant: { slug: string } } } | null;
     }
   | {
       kind: "message";
@@ -167,7 +167,7 @@ export async function listAgentThread(actor: Actor, agentId: string, take = 100)
             answer: true,
             answeredAt: true,
             createdAt: true,
-            bug: { select: { id: true, number: true, title: true, project: { select: { slug: true } } } },
+            bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
           },
         })
       : Promise.resolve([]),

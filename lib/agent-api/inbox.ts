@@ -257,13 +257,13 @@ export async function pollInbox(
   }
 }
 
-/** The address of each item's issue, `/<project-slug>/<number>` (#project-urls), by issue id. */
+/** The address of each item's issue, `/<org>/<project>/<number>` (#project-urls), by issue id. */
 export async function inboxIssuePaths(items: readonly InboxItemRow[]): Promise<Map<string, string>> {
   const ids = [...new Set(items.map((item) => item.bugId).filter((id): id is string => Boolean(id)))];
   if (ids.length === 0) return new Map();
   const bugs = await prisma.bug.findMany({
     where: { id: { in: ids } },
-    select: { id: true, number: true, project: { select: { slug: true } } },
+    select: { id: true, number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
   });
   return new Map(bugs.map((bug) => [bug.id, issueHref(bug)]));
 }

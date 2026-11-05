@@ -164,7 +164,7 @@ describe("the work gate (#agent-work-gate)", () => {
       expect(() => assertAgentMayWork(agent, at(method, path)), `${method} ${path}`).not.toThrow();
     }
     for (const [method, path] of [
-      ["GET", "/demo/work"],
+      ["GET", "/zedu/demo/work"],
       ["POST", "/api/v1/ideas"],
       ["POST", "/api/v1/issues/abc/bid"],
       ["GET", "/api/v1/projects"],

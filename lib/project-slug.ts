@@ -1,8 +1,9 @@
 /**
- * Project slugs share the top level of the site with the app's own pages: an
- * issue lives at `/<project-slug>/<number>` and a project's work feed at
- * `/<project-slug>/work`. A project may therefore never take the name of a
- * top-level route, or its URLs would open that page instead.
+ * Organisation slugs share the top level of the site with the app's own
+ * pages: a project lives at `/<org>/<project>` (#project-urls). An
+ * organisation may therefore never take the name of a top-level route, or its
+ * URLs would open that page instead. Project slugs keep the same rule, since
+ * an old `/<project>/…` address must still find its project.
  *
  * When you add a folder directly under `app/`, `app/(app)/`, `app/(auth)/`
  * (or any other route group), a top-level file route, a top-level redirect in
@@ -42,6 +43,11 @@ export const RESERVED_PROJECT_SLUGS: ReadonlySet<string> = new Set([
   "points",
   "projects",
   "questions",
+  // Project pages that were once a second segment (`/<project>/tasks`):
+  // lib/project-paths.ts reads `/<a>/<these>` as an old address.
+  "tasks",
+  "workstream",
+  "work",
   "redesigns",
   "security",
   "settings",
@@ -84,19 +90,23 @@ export function isReservedProjectSlug(slug: string): boolean {
   return RESERVED_PROJECT_SLUGS.has(slug);
 }
 
-const PROJECT_ISSUE_PATH = /^\/([^/]+)\/[0-9]+(\/[^/]+)?$/;
+const PROJECT_ISSUE_PATH = /^\/([^/]+)\/[^/]+\/[0-9]+(\/[^/]+)?$/;
 
 /**
  * Whether an app path (no base path, no query) is an issue page:
- * `/<project-slug>/<number>`, or with `subpages` also one below it such as
- * `/<project-slug>/<number>/history`. Top-level routes never count.
+ * `/<org>/<project>/<number>`, or with `subpages` also one below it such as
+ * `/<org>/<project>/<number>/history`. Top-level routes never count.
  */
 export function isProjectIssuePath(path: string, { subpages = false }: { subpages?: boolean } = {}): boolean {
   const match = PROJECT_ISSUE_PATH.exec(path.replace(/\/+$/, ""));
   return Boolean(match && (subpages || !match[2]) && !isReservedProjectSlug(match[1]));
 }
 
-/** `slug`, or `slug-project` when it names a top-level route (`issues` → `issues-project`). */
+/**
+ * `slug`, or `slug-project` when it names a top-level route (`issues` →
+ * `issues-project`) or is only digits (`/<org>/123` reads as an old issue
+ * address, lib/project-paths.ts `isProjectFirstPath`).
+ */
 export function unreservedProjectSlug(slug: string): string {
-  return isReservedProjectSlug(slug) ? `${slug}${RESERVED_SUFFIX}` : slug;
+  return isReservedProjectSlug(slug) || /^[0-9]+$/.test(slug) ? `${slug}${RESERVED_SUFFIX}` : slug;
 }

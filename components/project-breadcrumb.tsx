@@ -3,9 +3,10 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ideasPath, projectPath } from "@/lib/project-paths";
+import { ideasPath, orgHomePath, projectPath, projectRef, type ProjectRef } from "@/lib/project-paths";
 
-export type BreadcrumbProject = { slug: string; name: string };
+/** The organisation's slug, and the project (none on the organisation's own page). */
+export type BreadcrumbProject = { orgSlug: string; slug?: string; name?: string };
 
 /** Each issue list's stage (the tabs across the top) and, when the stage has several, its step. */
 const ISSUE_LISTS: Record<string, [string, string?]> = {
@@ -28,8 +29,8 @@ const ISSUE_LISTS: Record<string, [string, string?]> = {
 const IDEA_LISTS: Record<string, string> = { rejected: "Rejected", drafts: "Drafts" };
 
 /** What the page under the project is, from its path: [Ideas], [In Progress, Closed], [Issue #12], … */
-function sectionOf(pathname: string, slug: string): string[] {
-  const rest = pathname.slice(`/${encodeURIComponent(slug)}`.length).replace(/^\/+|\/+$/g, "");
+function sectionOf(pathname: string, ref: ProjectRef): string[] {
+  const rest = pathname.slice(projectPath(ref).length).replace(/^\/+|\/+$/g, "");
   const [first, second] = rest.split("/");
   if (!first) return [];
   if (/^[0-9]+$/.test(first)) return [`Issue #${first}`];
@@ -46,14 +47,15 @@ const crumb = "rounded-md px-1.5 py-0.5 hover:bg-zk-chip hover:text-zk-text focu
 
 /**
  * Where you are (#no-platforms): All Projects (the organisation's projects
- * page), the project (its issue list) and the page in it. On the projects page
- * itself, All Projects is all there is.
+ * page, `/<org>`), the project (its issue list) and the page in it. On the
+ * projects page itself, All Projects is all there is.
  */
 export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
   const pathname = usePathname() ?? "";
-  const projectsHref = projectPath(project.slug, "/projects");
-  const onProjects = pathname === projectsHref;
-  const section = sectionOf(pathname, project.slug);
+  const projectsHref = orgHomePath(project.orgSlug);
+  const ref = project.slug ? projectRef(project.orgSlug, project.slug) : null;
+  const onProjects = !ref;
+  const section = ref ? sectionOf(pathname, ref) : [];
   return (
     <nav aria-label="Breadcrumb" className="mx-auto mb-3 flex w-full max-w-6xl items-center px-0.5 text-[13px] text-zk-text2 max-sm:mb-1">
       <ol className="flex min-w-0 flex-wrap items-center gap-0.5">
@@ -63,11 +65,11 @@ export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
             All Projects
           </Link>
         </li>
-        {onProjects ? null : (
+        {!ref ? null : (
           <>
             <li aria-hidden="true" className="text-zk-muted">/</li>
             <li className="min-w-0">
-              <Link href={ideasPath(project.slug)} className={`${crumb} block truncate font-bold text-zk-text`}>{project.name}</Link>
+              <Link href={ideasPath(ref)} className={`${crumb} block truncate font-bold text-zk-text`}>{project.name}</Link>
             </li>
             {section.map((part, index) => (
               <Fragment key={part}>

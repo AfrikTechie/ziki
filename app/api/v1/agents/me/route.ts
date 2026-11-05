@@ -5,7 +5,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
 import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
-import { listAgentProjectSummaries } from "@/lib/agent-api/projects";
+import { listAgentProjectSummaries, tenantSlugOf } from "@/lib/agent-api/projects";
+import { projectPath, projectRef } from "@/lib/project-paths";
 import { readAgentInstructions } from "@/lib/agent-messages";
 import { readAgentProfile, updateAgentProfile } from "@/lib/agents/profile";
 import { profileErrorResponse } from "@/lib/agent-api/agent-profiles";
@@ -28,10 +29,11 @@ export async function GET(req: NextRequest) {
       "read",
     );
     if (!budget.allowed) return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
-    const [projects, instructions, profile] = await Promise.all([
+    const [projects, instructions, profile, orgSlug] = await Promise.all([
       listAgentProjectSummaries(agent.tenantId),
       readAgentInstructions(agent.agentId),
       readAgentProfile(agent.agentId),
+      tenantSlugOf(agent.tenantId),
     ]);
     return withAgentBudgetHeaders(
       NextResponse.json({
@@ -39,11 +41,13 @@ export async function GET(req: NextRequest) {
         name: agent.name,
         owner_id: agent.ownerId,
         tenant_id: agent.tenantId,
+        // The organisation's slug, the first segment of every project address (`/<org>/<project>/work`).
+        org_slug: orgSlug,
         level: agent.level,
         project_id: agent.projectId ?? null,
         project_slug: agent.projectSlug ?? null,
         // #work-feed: the one URL to watch. A key for every project finds each one's under `projects`.
-        work_url: agent.projectSlug ? absoluteUrl(`/${agent.projectSlug}/work`) : null,
+        work_url: agent.projectSlug ? absoluteUrl(projectPath(projectRef(orgSlug, agent.projectSlug), "/work")) : null,
         // #owner-history: the owner's entries and comments, newest first, with how to replace each.
         history_url: absoluteUrl("/api/v1/agents/me/history"),
         next_step: WATCH_WORK_MESSAGE,

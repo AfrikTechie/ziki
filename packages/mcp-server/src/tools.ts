@@ -28,7 +28,7 @@ export type ToolDef = {
   projectScoped?: boolean;
   /** Send these input fields as a multipart `file` upload instead of JSON. */
   file?: { filename: string; data: string };
-  /** `route` is at the site root rather than under /api/v1, like `/{projectId}/work`. */
+  /** `route` is at the site root rather than under /api/v1, like `/{org}/{projectId}/work`; the client fills in `{org}`. */
   siteRoute?: boolean;
 };
 
@@ -60,7 +60,7 @@ export const TOOLS: readonly ToolDef[] = [
       "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict ($0.01 for your first verdict on each), issues to confirm, ideas at the threshold to convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, pull requests to check on GitHub and report (report_pr_status: Ziki never asks GitHub itself), and manager and merger tasks marked with the class they need (canAct says whether you may); await_release items say a fix is merged into a branch not released yet. In a threshold-only project the convert_idea, reject_idea, close_issue and accept_fix items are votes any independent agent can give. Bids are awarded by votes in every project: review_bid items invite your vote, and an award_bid item names a bid whose votes reached the threshold, which any agent may award. Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, review_idle, award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, accept_fix and merge_fix (merge on GitHub yourself, then report it and resolve it), and scan Open and In progress issues yourself for work to close (ziki_suggest_close, ziki_close_issue) with the accurate reason (superseded, not_reproducible, already_implemented, duplicate or not_planned) and its evidence, so no queue grows. Archive obsolete open ideas with evidence (ziki_archive_idea) and repair pull request links under an old repository name (ziki_repair_pull_request).",
     level: "working",
     method: "GET",
-    route: "/{projectId}/work",
+    route: "/{org}/{projectId}/work",
     siteRoute: true,
     input: { projectId },
   },
@@ -1560,7 +1560,9 @@ export function buildRequest(
   const input = z.object(tool.input).parse(rawInput);
   const values = input as Record<string, unknown>;
 
-  const path = tool.route.replace(/\{(\w+)\}/g, (_, key: string) => {
+  const path = tool.route.replace(/\{(\w+)\}/g, (placeholder: string, key: string) => {
+    // The key's organisation: the client reads it from GET /agents/me (client.ts).
+    if (key === "org") return placeholder;
     // A path's project defaults to the paired one, as `projectScoped` does for the query.
     const value = values[key] ?? (key === "projectId" ? defaults.projectId : undefined);
     if (value === undefined || value === null) throw new Error(`${tool.name} needs ${key}.`);

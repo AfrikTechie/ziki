@@ -77,7 +77,7 @@ export async function sitemapSectionXml(file: string): Promise<string | null> {
   if (file === "pages.xml") {
     return urlset([
       { path: "/", changeFrequency: "weekly", priority: 1 },
-      ...["/how-it-works", "/for-agents", "/developers"].map((path) => ({ path, changeFrequency: "weekly" as const, priority: 0.8 })),
+      ...["/how-it-works", "/for-agents", "/developers", "/earn"].map((path) => ({ path, changeFrequency: "weekly" as const, priority: 0.8 })),
       // New agents join all the time.
       { path: "/agents", changeFrequency: "hourly", priority: 0.9 },
     ]);

@@ -7,7 +7,7 @@ import { currentTenantIdFor } from "@/lib/tenant-context";
 import { convertIdea, giveIdeaVerdict, ideaVerdictSchema, rejectIdea, withdrawIdea } from "@/lib/agent-api/idea-verdicts";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { redirect } from "next/navigation";
-import { ideaPath, projectPath } from "@/lib/project-paths";
+import { ideaPath, projectPath, refOf } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 
@@ -70,7 +70,7 @@ export async function giveIdeaVerdictAction(
 
   try {
     const given = await giveIdeaVerdict({ tenantId, userId }, idea.projectId, idea.id, parsed.data);
-    revalidatePath("/[project]", "layout");
+    revalidatePath("/[org]/[project]", "layout");
     return { ok: true, replaced: given.replaced, ideaScore: given.ideaScore, ideaThreshold: given.ideaThreshold };
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };
@@ -103,7 +103,7 @@ export async function quickIdeaVerdictAction(ideaId: string, opinion: "good" | "
   try {
     const input = ideaVerdictSchema.parse({ opinion, ...QUICK_VERDICT[opinion] });
     const given = await giveIdeaVerdict({ tenantId, userId: user.id }, idea.projectId, idea.id, input);
-    revalidatePath("/[project]", "layout");
+    revalidatePath("/[org]/[project]", "layout");
     return { ok: true, replaced: given.replaced, ideaScore: given.ideaScore, ideaThreshold: given.ideaThreshold };
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };
@@ -134,7 +134,7 @@ export async function withdrawIdeaFromPage(ideaId: string): Promise<{ ok?: true;
 
   try {
     await withdrawIdea({ tenantId, userId, agentId: null }, idea.projectId, idea.id);
-    revalidatePath("/[project]", "layout");
+    revalidatePath("/[org]/[project]", "layout");
     return { ok: true };
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };
@@ -163,7 +163,7 @@ async function ideaDecision(formData: FormData, decide: "approve" | "reject"): P
   if (!tenantId || !ideaId) return;
   const idea = await prisma.idea.findFirst({
     where: { id: ideaId, tenantId, isDeleted: false },
-    select: { id: true, number: true, projectId: true, project: { select: { slug: true } } },
+    select: { id: true, number: true, projectId: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
   });
   if (!idea) return;
   const agent = await awardingAgentOf(user.id, tenantId);
@@ -180,10 +180,10 @@ async function ideaDecision(formData: FormData, decide: "approve" | "reject"): P
     }
   } catch (error) {
     if (!(error instanceof IssueApiError)) console.error(`[idea-${decide}] failed`, error);
-    redirect(`${ideaPath(idea.project.slug, idea.number)}?error=${encodeURIComponent(error instanceof IssueApiError ? error.message : "Could not do that. Please try again.")}`);
+    redirect(`${ideaPath(refOf(idea.project), idea.number)}?error=${encodeURIComponent(error instanceof IssueApiError ? error.message : "Could not do that. Please try again.")}`);
   }
-  revalidatePath("/[project]", "layout");
-  redirect(issueNumber ? projectPath(idea.project.slug, `/${issueNumber}`) : ideaPath(idea.project.slug, idea.number));
+  revalidatePath("/[org]/[project]", "layout");
+  redirect(issueNumber ? projectPath(refOf(idea.project), `/${issueNumber}`) : ideaPath(refOf(idea.project), idea.number));
 }
 
 export async function approveIdeaAction(formData: FormData): Promise<void> {

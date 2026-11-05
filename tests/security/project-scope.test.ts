@@ -47,3 +47,23 @@ describe("issueProject project scope (#742)", () => {
     ).rejects.toBeInstanceOf(AgentProjectError);
   });
 });
+
+describe("project addresses carry the organisation (#project-urls)", () => {
+  it("reads an old project-first address as old, and an org/project address as new", async () => {
+    const { isProjectFirstPath, issuesPath, projectRef } = await import("@/lib/project-paths");
+    expect(isProjectFirstPath("/desktop/ideas/2297")).toBe(true);
+    expect(isProjectFirstPath("/desktop/740")).toBe(true);
+    expect(isProjectFirstPath("/zedu/desktop/ideas/2297")).toBe(false);
+    expect(isProjectFirstPath("/zedu")).toBe(false);
+    expect(issuesPath(projectRef("zedu", "desktop"), "in_progress")).toBe("/zedu/desktop/issues/in-progress");
+  });
+
+  it("never lets a new project or organisation take a name an address reads as old or as a site page", async () => {
+    const { unreservedProjectSlug } = await import("@/lib/project-slug");
+    const { tenantSlugCandidate } = await import("@/lib/tenants");
+    expect(unreservedProjectSlug("123")).toBe("123-project");
+    expect(unreservedProjectSlug("workstream")).toBe("workstream-project");
+    expect(tenantSlugCandidate("agents", 0, () => "x2y3")).toBe("agents-x2y3");
+    expect(tenantSlugCandidate("zedu", 0)).toBe("zedu");
+  });
+});
