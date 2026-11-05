@@ -251,6 +251,55 @@ describe("issue list layout", () => {
 
 });
 
+/** The agents dock's settings (#agents-dock): saved per browser, and the dock still works when they can't be. */
+describe("agents dock settings", () => {
+  function fakeStorage(saved: string | null, blocked = false) {
+    const store = new Map(saved === null ? [] : [["ziki-agents-dock", saved]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => { if (blocked) throw new Error("blocked"); return store.get(key) ?? null; },
+      setItem: (key: string, value: string) => { if (blocked) throw new Error("blocked"); store.set(key, value); },
+    });
+    return store;
+  }
+  /** A fresh copy of the module, as after a page load: it keeps what it read in memory. */
+  async function load() {
+    vi.resetModules();
+    return import("@/components/agents-dock-prefs");
+  }
+
+  it("starts with the face and the bar closing when the cursor leaves", async () => {
+    fakeStorage(null);
+    const { readPrefs, lookFor } = await load();
+    expect(readPrefs().closeOnLeave).toBe(true);
+    expect(lookFor(readPrefs(), "agent-1")).toBe("face");
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the checkbox's choice across a page load, and ignores anything it can't read", async () => {
+    const store = fakeStorage(null);
+    (await load()).writePrefs({ closeOnLeave: false });
+    expect(JSON.parse(store.get("ziki-agents-dock")!).closeOnLeave).toBe(false);
+    expect((await load()).readPrefs().closeOnLeave).toBe(false);
+    fakeStorage(JSON.stringify({ closeOnLeave: "no", pinned: 1, looks: { a: "nonsense", b: "pixel" } }));
+    const junk = (await load()).readPrefs();
+    expect(junk).toMatchObject({ closeOnLeave: true, pinned: true, looks: { b: "pixel" } });
+    expect(junk.looks.a).toBeUndefined();
+    fakeStorage("not json");
+    expect((await load()).readPrefs().closeOnLeave).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("still works when the browser blocks storage: the choice holds until the page reloads", async () => {
+    fakeStorage(null, true);
+    const { readPrefs, writePrefs } = await load();
+    expect(readPrefs().closeOnLeave).toBe(true);
+    writePrefs({ closeOnLeave: false });
+    expect(readPrefs().closeOnLeave).toBe(false);
+    expect((await load()).readPrefs().closeOnLeave).toBe(true);
+    vi.unstubAllGlobals();
+  });
+});
+
 /** Your call (#your-call): how urgent an issue the agents split on is, and why. */
 describe("Your call urgency", () => {
   const NOW = new Date("2026-11-03T12:00:00Z").getTime();
