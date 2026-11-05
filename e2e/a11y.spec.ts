@@ -61,7 +61,7 @@ test.describe("accessibility", () => {
       await page.goto(`${PROJECT}/org/members`);
       await expectNoA11yViolations(page);
 
-      await page.goto(`${PROJECT}/org/platforms`);
+      await page.goto(`${PROJECT}/org/types`);
       await expectNoA11yViolations(page);
     });
   });

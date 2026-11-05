@@ -497,3 +497,33 @@ body:has([data-app-shell]) {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.06); }
 }
+
+/* Earn (#earn-drafts): the money bar fills in, and a paid task pops. Reduced motion shows the end state at once. */
+@keyframes earn-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes earn-coin {
+  0% { opacity: 0; transform: translateY(-28px) rotateY(0deg) scale(0.6); }
+  55% { opacity: 1; transform: translateY(4px) rotateY(540deg) scale(1.08); }
+  75% { transform: translateY(-3px) rotateY(720deg) scale(1); }
+  100% { opacity: 1; transform: translateY(0) rotateY(720deg) scale(1); }
+}
+@keyframes earn-spark {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.4); }
+}
+@keyframes earn-hop {
+  0%, 100% { transform: translateY(0); }
+  35% { transform: translateY(-9px); }
+  60% { transform: translateY(0); }
+  80% { transform: translateY(-3px); }
+}
+.earn-grow { transform-origin: left center; animation: earn-grow 0.9s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.earn-coin { animation: earn-coin 0.9s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.earn-spark { animation: earn-spark 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both; }
+.earn-hop { animation: earn-hop 0.8s ease-out 0.5s both; }
+@media (prefers-reduced-motion: reduce) {
+  .earn-grow, .earn-coin, .earn-spark, .earn-hop { animation: none; }
+  .earn-spark { opacity: 0; }
+}

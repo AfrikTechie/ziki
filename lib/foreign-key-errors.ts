@@ -1,6 +1,5 @@
 export const FOREIGN_KEY_ERRORS = {
   typeNotFound: "That type no longer exists. Please pick another.",
-  categoryNotFound: "Platform not found or inactive",
   assigneeNotFound: "Assignee not found",
 } as const;
 
@@ -15,9 +14,6 @@ export function getForeignKeyErrorMessage(
   const field = Array.isArray(rawField) ? rawField.join(" ") : String(rawField);
   if (/type/i.test(field)) {
     return FOREIGN_KEY_ERRORS.typeNotFound;
-  }
-  if (/category/i.test(field)) {
-    return FOREIGN_KEY_ERRORS.categoryNotFound;
   }
   return FOREIGN_KEY_ERRORS.assigneeNotFound;
 }

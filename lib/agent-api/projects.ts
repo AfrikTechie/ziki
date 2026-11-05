@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { absoluteUrl } from "@/lib/site-url";
+import { projectPath, projectRef } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import {
   getPlatformRewardConfig,
@@ -24,6 +25,13 @@ const projectSelect = {
   workflow: true,
 } satisfies Prisma.ProjectSelect;
 
+/** The organisation's slug, the first segment of its projects' addresses (#project-urls). */
+export async function tenantSlugOf(tenantId: string): Promise<string> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
+  if (!tenant) throw new IssueApiError(404, "Organisation not found.");
+  return tenant.slug;
+}
+
 export async function listAgentProjectSummaries(tenantId: string) {
   return prisma.project.findMany({
     where: { tenantId },
@@ -42,6 +50,7 @@ export async function listAgentProjects(tenantId: string) {
     }),
     getPlatformRewardConfig(prisma),
   ]);
+  const orgSlug = await tenantSlugOf(tenantId);
   const base = projectDefaultsFromPlatform(platform);
   const openCounts = await prisma.bug.groupBy({
     by: ["projectId"],
@@ -51,7 +60,7 @@ export async function listAgentProjects(tenantId: string) {
   const openByProject = new Map(openCounts.map((row) => [row.projectId, row._count._all]));
   return projects.map((project) => ({
     ...project,
-    workUrl: absoluteUrl(`/${project.slug}/work`),
+    workUrl: absoluteUrl(projectPath(projectRef(orgSlug, project.slug), "/work")),
     notesUrl: `/api/v1/projects/${project.id}/notes`,
     notesCommentsUrl: `/api/v1/projects/${project.id}/notes/comments`,
     rewardRules: parseProjectRewardConfig(project.rewardConfig, base),
@@ -70,12 +79,13 @@ export async function getAgentProject(tenantId: string, projectId: string) {
     getPlatformRewardConfig(prisma),
   ]);
   if (!project) throw new IssueApiError(404, "Project not found.");
+  const orgSlug = await tenantSlugOf(tenantId);
   const openIssueCount = await prisma.bug.count({
     where: { tenantId, projectId: project.id, isDeleted: false, substatus: "open" },
   });
   return {
     ...project,
-    workUrl: absoluteUrl(`/${project.slug}/work`),
+    workUrl: absoluteUrl(projectPath(projectRef(orgSlug, project.slug), "/work")),
     notesUrl: `/api/v1/projects/${project.id}/notes`,
     notesCommentsUrl: `/api/v1/projects/${project.id}/notes/comments`,
     rewardRules: parseProjectRewardConfig(project.rewardConfig, projectDefaultsFromPlatform(platform)),

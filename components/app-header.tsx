@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
-import { ideasPath, orgPath } from "@/lib/project-paths";
+import { usePathname } from "next/navigation";
+import { ideasPath, orgPath, type ProjectRef } from "@/lib/project-paths";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { SignOutButton } from "@/components/sign-out-button";
 import { WorkspaceSwitcher, type WorkspaceChoice } from "@/components/workspace-switcher";
 import {
   MANAGE_AGENTS_HREF,
   AGENTS_DIRECTORY_HREF,
+  LEADERBOARD_HREF,
   SITE_ADMIN_HREF,
   isNavItemActive,
   realRoleOf,
@@ -17,11 +19,17 @@ import {
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { Avatar } from "@/components/avatar";
 import { AccountThemeSelector } from "@/components/theme-toggle";
+import { CookieSettingsLink } from "@/components/consent-banner";
+import { VersionCredits } from "@/components/credits-dialog";
+import { leaderboardInMenu } from "@/lib/agents-dock";
 import { recentNotificationsAction } from "@/app/actions/notifications";
 import { LocalTime } from "@/components/local-time";
 import { BASE_PATH } from "@/lib/base-path";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
 import { ZikiMark } from "@/components/ziki-mark";
+import { EarnPill } from "@/components/earn-pill";
+import { isEarnPath } from "@/lib/earn/paths";
+import type { WithdrawInfo } from "@/lib/earn/draft";
 
 const linkFocus =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
@@ -116,7 +124,7 @@ function TopNavLink({
  * The workspace areas: Product (the issue tracker), Marketing and Security.
  * The logo goes to the project's Ideas.
  */
-function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: string | null }) {
+function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: ProjectRef | null }) {
   // Product opens the project the page is in, or the first one (#project-urls).
   const productHref = projectSlug ? ideasPath(projectSlug) : "/tenants";
   return (
@@ -270,9 +278,24 @@ export function AppHeader({
   reportFormUrl,
   organizationAdmin = false,
   defaultProjectSlug = null,
+  earned = null,
+  withdraw = null,
+  version,
+  memberCount = null,
+  agentCount = 0,
 }: {
+  /** The running version (package version), shown with Cookie settings at the foot of the account menu. */
+  version?: string;
+  /** Members of the current workspace: the Leaderboard entry needs more than one. Null when unknown. */
+  memberCount?: number | null;
+  /** How many agents the person has here: with any, the agents bar shows Leaderboard on the pages it is drawn on. */
+  agentCount?: number;
+  /** Earn (#earn-drafts): what the Withdraw window shows; null for everyone else. */
+  withdraw?: WithdrawInfo | null;
+  /** Earn (#earn-drafts): an earner's dollars, shown with Withdraw in the header; null for everyone else. */
+  earned?: number | null;
   /** The first project in the current workspace, for pages whose URL names none yet. */
-  defaultProjectSlug?: string | null;
+  defaultProjectSlug?: ProjectRef | null;
   userName?: string | null;
   userImage?: string | null;
   role?: AppRole | null;
@@ -288,7 +311,7 @@ export function AppHeader({
   organizationAdmin?: boolean;
 }) {
   const pathname = usePathname();
-  const projectSlug = useParams<{ project?: string }>()?.project ?? defaultProjectSlug;
+  const projectSlug = useProjectRef() ?? defaultProjectSlug;
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -302,12 +325,14 @@ export function AppHeader({
   }
 
   const realRole = realRoleOf({ isRealSuperAdmin, isRealAdmin });
+  // Earn (#earn-drafts): an earner on the earn pages sees only what they came for.
+  const earnQuiet = earned !== null && isEarnPath(pathname);
 
   return (
     // Sticky only from lg: on phones and tablets the toolbar wraps onto rows,
     // and a header that tall pinned to the top covers the page under it.
     <header className="relative z-40 border-b border-zk-border bg-zk-surface shadow-[0_1px_3px_rgba(0,0,0,0.04)] lg:sticky lg:top-0">
-      <div className={`${PAGE_CONTAINER_CLASS} flex flex-wrap items-center gap-x-3 gap-y-2 py-3 max-sm:py-2 sm:px-6`}>
+      <div className={`${PAGE_CONTAINER_CLASS} flex flex-wrap items-center gap-x-3 gap-y-2 py-3 max-sm:py-2 sm:px-6 ${earnQuiet ? "max-sm:flex-nowrap" : ""}`}>
         {/* Below lg the nav lives in the bottom strip, leaving one row here.
             The logo (the mark alone) is the way to the Dashboard. */}
         <div className="flex min-w-0 items-center gap-2">
@@ -316,16 +341,22 @@ export function AppHeader({
             <ZikiMark className="h-8 w-auto text-zk-text max-sm:h-7" />
           </Link>
           <span aria-hidden="true" className="h-[18px] w-px shrink-0 bg-zk-border max-sm:hidden" />
-          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className="min-w-0 max-sm:max-w-44" />
+          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className={`min-w-0 max-sm:max-w-44 ${earnQuiet ? "max-sm:hidden" : ""}`} />
         </div>
 
-        <TopNav pathname={pathname} projectSlug={projectSlug} />
+        {/* Earn (#earn-drafts): an earner on the earn pages sees none of the builders' links. */}
+        {earnQuiet ? null : <TopNav pathname={pathname} projectSlug={projectSlug} />}
 
         {/* Phones and tablets: min-w-0 lets the group narrow so its flex-wrap
             breaks the chips onto rows (no sideways scroll at 360px or 768px).
             From lg up it keeps shrink-0 so the account controls are never
             squeezed. */}
-        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:gap-1 lg:shrink-0">
+        <div className={`ml-auto flex min-w-0 items-center justify-end gap-2 max-sm:gap-1 lg:shrink-0 ${earnQuiet ? "max-sm:flex-nowrap" : "flex-wrap"}`}>
+          {earned !== null && withdraw ? (
+            // Earn (#earn-drafts): the balance as one pill, in reach from every page. It drops a panel down (the bar, the
+            // next task, Withdraw); Withdraw opens a window over the page, never another page.
+            <EarnPill info={withdraw} />
+          ) : null}
 
           <div ref={accountRef} className="relative">
             <button
@@ -378,6 +409,13 @@ export function AppHeader({
                 <MenuLink href={AGENTS_DIRECTORY_HREF} active={pathname === AGENTS_DIRECTORY_HREF}>
                   All agents
                 </MenuLink>
+                {/* The agents bar carries Leaderboard wherever it is drawn, so the menu offers it only elsewhere. And you
+                    can't be the only person on a leaderboard: a workspace of one has none. */}
+                {leaderboardInMenu(pathname, agentCount, memberCount) && !earnQuiet ? (
+                  <MenuLink href={LEADERBOARD_HREF} active={isNavItemActive(pathname, LEADERBOARD_HREF)}>
+                    Leaderboard
+                  </MenuLink>
+                ) : null}
                 {isSuperAdmin(role) ? (
                   <MenuLink href={SITE_ADMIN_HREF} active={isNavItemActive(pathname, SITE_ADMIN_HREF)}>
                     Site admin
@@ -397,12 +435,20 @@ export function AppHeader({
                   userId={userId}
                   className={`${linkFocus} font-bold text-zk-bad-fg hover:bg-zk-bad-soft`}
                 />
+                {/* On every page, with or without the agents bar: Cookie settings and the version, small and grey.
+                    Cookie settings opens the consent banner, so the menu steps aside first. */}
+                <div className="flex items-center justify-between gap-3 px-3 pb-1 pt-1 text-[11px] text-zk-muted">
+                  <CookieSettingsLink onOpen={closeAccount} className={`rounded underline hover:text-zk-text ${linkFocus}`} />
+                  {version ? (
+                    <VersionCredits version={version} className={`rounded font-mono hover:text-zk-text hover:underline ${linkFocus}`} />
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
 
           {/* Escalations, as an envelope, then the bell last. */}
-          <InboxEnvelope key={`${userId}:${activeTenantId}:${pathname}`} unreadCount={unreadCount} pendingEscalations={pendingEscalationsCount} active={isNavItemActive(pathname, "/inbox")} />
+          {earnQuiet ? null : <InboxEnvelope key={`${userId}:${activeTenantId}:${pathname}`} unreadCount={unreadCount} pendingEscalations={pendingEscalationsCount} active={isNavItemActive(pathname, "/inbox")} />}
         </div>
       </div>
     </header>

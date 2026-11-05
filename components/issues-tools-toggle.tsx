@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 /**
  * Phones: one icon beside the Issues title that shows or hides the search,
- * filter, sort and platform controls, so they don't take a row of their own.
+ * filter and sort controls, so they don't take a row of their own.
  * The controls stay in the page; the heading's data attribute drives the CSS.
  */
 export function IssuesToolsToggle({ active = false }: { active?: boolean }) {
@@ -36,7 +36,7 @@ export function IssuesToolsToggle({ active = false }: { active?: boolean }) {
         <circle cx="10" cy="12" r="2" />
         <circle cx="18" cy="18" r="2" />
       </svg>
-      {/* A search, filter or platform is applied: show it even while closed. */}
+      {/* A search or filter is applied: show it even while closed. */}
       {active ? (
         <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-zk-surface bg-electric-blue-strong" />
       ) : null}

@@ -22,7 +22,7 @@ export type DashboardData = {
   weekly: WeekPoint[];
   medianFirstResponseSeconds: number | null;
   medianResolutionSeconds: number | null;
-  byPlatform: Breakdown[];
+  byProject: Breakdown[];
   byType: Breakdown[];
   totalOpened: number;
   totalClosed: number;
@@ -51,7 +51,7 @@ const FIRST_CLOSE = Prisma.sql`
 export async function fetchDashboard(tenantId: string, range: DateRange): Promise<DashboardData> {
   const { from, to } = range;
 
-  const [byStatus, weekly, medians, byPlatform, byType] =
+  const [byStatus, weekly, medians, byProject, byType] =
     await Promise.all([
       prisma.$queryRaw<{ status: string; count: bigint }[]>`
         SELECT b.status::text AS status, COUNT(*) AS count
@@ -131,9 +131,9 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
       `,
 
       prisma.$queryRaw<{ label: string; count: bigint }[]>`
-        SELECT COALESCE(c.name, 'No platform') AS label, COUNT(*) AS count
+        SELECT p.name AS label, COUNT(*) AS count
         FROM "Bug" b
-        LEFT JOIN "Category" c ON c.id = b."categoryId"
+        JOIN "Project" p ON p.id = b."projectId"
         WHERE b."isDeleted" = false
           AND b."tenantId" = ${tenantId}
           AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
@@ -164,7 +164,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
     weekly: weeklyPoints,
     medianFirstResponseSeconds: maybeNum(medians[0]?.first_response),
     medianResolutionSeconds: maybeNum(medians[0]?.resolution),
-    byPlatform: byPlatform.map((r) => ({ label: r.label, count: num(r.count) })),
+    byProject: byProject.map((r) => ({ label: r.label, count: num(r.count) })),
     byType: byType.map((r) => ({ label: r.label, count: num(r.count) })),
     totalOpened: weeklyPoints.reduce((sum, w) => sum + w.opened, 0),
     totalClosed: weeklyPoints.reduce((sum, w) => sum + w.closed, 0),

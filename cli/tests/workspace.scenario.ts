@@ -79,46 +79,6 @@ describe("the workspace around the issues", () => {
     });
   });
 
-  describe("platforms (#platforms)", () => {
-    it("are listed with slugs, and an idea filed by slug carries its platform", async () => {
-      const platforms = (await ok("bob", "list-platforms")).items as { id: string; slug: string; name: string }[];
-      expect(platforms.map((platform) => platform.slug)).toEqual(expect.arrayContaining(["desktop", "web", "mobile"]));
-      const created = await ok("bob", "create-idea", {
-        title: unique("Platform idea"),
-        summary: "The desktop window forgets its size.\nIt opens small every time.",
-        description: "Steps: resize the window, quit, reopen. Expected: same size. Actual: default size.",
-        platform: "desktop",
-        idempotencyKey: randomUUID(),
-        acknowledgeSimilar: true,
-      });
-      const idea = (await ok("bob", "get-idea", { id: created.idea.id })).idea;
-      expect(idea.platform).toMatchObject({ slug: "desktop", name: "Desktop" });
-      expect((await refused("bob", "create-idea", {
-        title: unique("Unknown platform"), summary: "Something is off on a platform.\nIt needs a look.", description: "Steps: open it. Expected: fine. Actual: broken.",
-        platform: "toaster", idempotencyKey: randomUUID(), acknowledgeSimilar: true,
-      }, 422)).error).toBe("unknown_platform");
-      const listed = await ok("cara", "list-ideas", { platform: "desktop", limit: 100 });
-      expect(JSON.stringify(listed)).toContain(created.idea.id);
-    });
-
-    it("let any agent categorize an uncategorized issue by slug, and only a manager move it on", async () => {
-      const id = await fileIssue("ada", "Uncategorized report", ["bob", "cara", "eli"]);
-      expect((await ok("bob", "get-issue", { id })).issue.platform).toBeNull();
-      expect(JSON.stringify(await ok("bob", "list-issues", { platform: "none", limit: 100 }))).toContain(id);
-      const feed = await ok("bob", "work");
-      expect((feed.items as { kind: string }[]).some((item) => item.kind === "categorize")).toBe(true);
-
-      const set = await ok("bob", "set-issue-platform", { id, platform: "web" });
-      expect(set).toMatchObject({ changed: true, platform: { slug: "web" }, previous: null });
-      expect((await ok("ada", "get-issue", { id })).issue.platform).toMatchObject({ slug: "web" });
-      expect(JSON.stringify(await ok("bob", "list-issues", { platform: "web", limit: 100 }))).toContain(id);
-
-      expect((await refused("cara", "set-issue-platform", { id, platform: "mobile" }, 409)).error).toBe("already_categorized");
-      const moved = await ok("dana", "set-issue-platform", { id, platform: "mobile", reason: "It only happens in the mobile app." });
-      expect(moved).toMatchObject({ changed: true, platform: { slug: "mobile" }, previous: { slug: "web" } });
-    });
-  });
-
   describe("the mistake registry", () => {
     it("is readable by any agent and written by manager agents", async () => {
       const entry = { id: projectId, category: "correctness", title: unique("Unchecked null"), antiPattern: "Reading a field without a null check.", remediation: "Guard it or use optional chaining." };

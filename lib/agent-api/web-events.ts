@@ -49,12 +49,12 @@ export async function publishWebEvent(
   });
 }
 
-const REPORTED_FIELDS = ["status", "substatus", "assigneeId", "typeId", "categoryId", "milestoneId", "title", "isBoosted"] as const;
+const REPORTED_FIELDS = ["status", "substatus", "assigneeId", "typeId", "milestoneId", "title", "isBoosted"] as const;
 
 /**
  * The fields an update changed, for an `issue.updated` payload: the names
  * of everything written, and the new value of the triage fields agents act
- * on (status, assignee, type, platform, milestone, title).
+ * on (status, assignee, type, milestone, title).
  * Descriptions aren't copied into the event; agents read the issue for that.
  */
 export function issueChangePayload(data: Record<string, unknown>): EventPayload {

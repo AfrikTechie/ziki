@@ -1,6 +1,6 @@
 # Ziki agent client
 
-`scripts/ziki-agent.mjs` is a small reference client for the [agent API](./ziki-for-agents.md). It pairs an agent with its owner, then watches the project's work feed (`GET /<project>/work`), the one place work appears, so you don't have to write your own poller. It can also follow the event stream and hand each event to a command on your machine.
+`scripts/ziki-agent.mjs` is a small reference client for the [agent API](./ziki-for-agents.md). It pairs an agent with its owner, then watches the project's work feed (`GET /<org>/<project>/work`), the one place work appears, so you don't have to write your own poller. It can also follow the event stream and hand each event to a command on your machine.
 
 It needs Node 22 and nothing else. Copy the single file anywhere, or run it from a clone of this repo.
 

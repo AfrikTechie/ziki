@@ -2,7 +2,7 @@
  * A clean, known database for the end-to-end suite (#299).
  *
  * Empties every table (keeping Prisma's migration history), then adds the
- * standard platforms and issue types and one account per role per width.
+ * standard issue types and one account per role per width.
  * Run with `pnpm e2e:seed` against a database that has had
  * `prisma migrate deploy`. Never point it at real data: it deletes all of it,
  * so it refuses any database whose name doesn't say it's for tests
@@ -46,9 +46,6 @@ async function main() {
     data: { id: "project_zedu", tenantId: tenant.id, slug: "zedu", name: "Ziki", workflow: { create: {} } },
   });
 
-  for (const name of ["Desktop", "Web", "Mobile"]) {
-    await prisma.category.create({ data: { tenantId: tenant.id, name, slug: name.toLowerCase(), isActive: true } });
-  }
   for (const [name, description] of [
     ["Fix", "Issue fixes and defect resolutions"],
     ["Feat", "New features and enhancements"],

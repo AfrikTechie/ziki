@@ -22,10 +22,10 @@ export const metadata = { title: "Connect your agent" };
 export default async function ConnectAgentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ code?: string | string[] }>;
+  searchParams: Promise<{ code?: string | string[]; from?: string | string[] }>;
 }) {
   // Pairing codes are approved on their own page; keep old links with a code working.
-  const { code } = await searchParams;
+  const { code, from } = await searchParams;
   if (typeof code === "string" && code) {
     redirect(`/settings/agents/pair?code=${encodeURIComponent(code.slice(0, 20))}`);
   }
@@ -79,7 +79,8 @@ export default async function ConnectAgentPage({
           </>
         ) : (
           <>
-            <ConnectAgentFlow projectId={activeProject.id} />
+            {/* From Earn (#earn-drafts), connecting goes straight on to My agents. */}
+            <ConnectAgentFlow projectId={activeProject.id} next={from === "earn" ? "/earn/home" : undefined} />
             <p className="text-xs text-zk-muted">It will work in {activeProject.name}.</p>
           </>
         )}

@@ -2,20 +2,15 @@ import { unstable_cache } from "next/cache";
 import { TAGS } from "@/lib/cache-tags";
 import { prisma } from "@/lib/prisma";
 import { currentTenantIdFor, notificationInTenant } from "@/lib/tenant-context";
-import {
-  DEFAULT_PLATFORMS,
-  RETIRED_PLATFORMS,
-  ensureDefaultPlatforms,
-} from "@/lib/categories";
 import { ensureDefaultIssueTypes } from "@/lib/issue-types";
 
 /**
  * Cached reads for data that changes only through an admin action (#297, #317).
  *
- * Platforms and issue types were queried on every render of the issues
- * list, the issue page and the report form. They are cached here under a
- * tag and expired by the admin actions that change them, so an edit shows
- * up on the very next request.
+ * Issue types were queried on every render of the issues list, the issue
+ * page and the report form. They are cached here under a tag and expired by
+ * the admin actions that change them, so an edit shows up on the very next
+ * request.
  *
  * What's cached is data that's identical for everyone. The one per-user
  * entry is the unread notification count, keyed by user id and expired by
@@ -39,7 +34,6 @@ export type IssueTypeLookup = {
   template: string | null;
   isActive: boolean;
 };
-export type PlatformLookup = { id: string; name: string; isActive: boolean };
 
 /**
  * True when Postgres is behind the migration that added this column.
@@ -86,13 +80,6 @@ async function readIssueTypes(tenantId: string): Promise<IssueTypeLookup[]> {
   }
 }
 
-const readPlatforms = (tenantId: string): Promise<PlatformLookup[]> =>
-  prisma.category.findMany({
-    where: { tenantId },
-    select: { id: true, name: true, isActive: true },
-    orderBy: { name: "asc" },
-  });
-
 const cachedIssueTypes = unstable_cache(readIssueTypes, ["lookup", "issue-types", "v2"], {
   tags: [TAGS.issueTypes],
   revalidate: LOOKUP_TTL_SECONDS,
@@ -111,49 +98,6 @@ export async function getIssueTypes(tenantId?: string | null): Promise<IssueType
 /** The issue types a new report can use in this organization. */
 export async function getActiveIssueTypesCached(tenantId?: string | null): Promise<IssueTypeLookup[]> {
   return (await getIssueTypes(tenantId)).filter((t) => t.isActive);
-}
-
-/**
- * True when the platform list is missing a default or still has a retired
- * one active — the state `ensureDefaultPlatforms` exists to repair.
- */
-export function platformsNeedRepair(
-  platforms: Pick<PlatformLookup, "name" | "isActive">[],
-  retired: readonly string[] = RETIRED_PLATFORMS,
-): boolean {
-  const names = new Set(platforms.map((p) => p.name));
-  if (DEFAULT_PLATFORMS.some((name) => !names.has(name))) return true;
-  return platforms.some((p) => p.isActive && retired.includes(p.name));
-}
-
-/**
- * Every platform in this organization, active or not, by name.
- * No organization means no platforms: another organization's list is never used.
- *
- * The report form used to run `ensureDefaultPlatforms` — three upserts and
- * an update — on every render. Now it runs only when this organization's
- * list actually needs repairing. A render can't expire a cache tag, so after
- * a repair the fresh rows are read directly; the stale entry ages out within
- * the TTL.
- */
-export async function getPlatforms(tenantId: string | null): Promise<PlatformLookup[]> {
-  if (!tenantId) return [];
-  const platforms = await unstable_cache(
-    () => readPlatforms(tenantId),
-    ["lookup", "platforms", "v2", tenantId],
-    { tags: [TAGS.platforms], revalidate: LOOKUP_TTL_SECONDS },
-  )();
-  if (!platformsNeedRepair(platforms)) return platforms;
-  await ensureDefaultPlatforms(tenantId);
-  return readPlatforms(tenantId);
-}
-
-export async function getActivePlatforms(
-  tenantId: string | null,
-): Promise<Pick<PlatformLookup, "id" | "name">[]> {
-  return (await getPlatforms(tenantId))
-    .filter((p) => p.isActive)
-    .map(({ id, name }) => ({ id, name }));
 }
 
 /**

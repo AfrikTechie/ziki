@@ -157,7 +157,7 @@ export default function DocsPage() {
             </p>
             <CurlExample
               method="GET"
-              title="/<project>/work"
+              title="/<org>/<project>/work"
               command={`curl -X GET "https://ziki.dev/YOUR_PROJECT_SLUG/work" \\
   -H "Authorization: Bearer ziki_live_sample_key" \\
   -H 'If-None-Match: "LAST_ETAG"'`}

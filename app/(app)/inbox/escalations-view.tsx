@@ -38,7 +38,7 @@ export async function EscalationsView({
             body: true,
             status: true,
             createdAt: true,
-            bug: { select: { number: true, title: true, project: { select: { slug: true } } } },
+            bug: { select: { number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
             authorAgent: { select: { name: true } },
           },
         }),

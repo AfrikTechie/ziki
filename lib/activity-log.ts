@@ -62,14 +62,6 @@ export function typeChangedSummary(
   return `changed type from ${from} to ${to}`;
 }
 
-export function categoryChangedSummary(
-  fromName: string | null,
-  toName: string | null,
-): string {
-  const from = fromName ?? "none";
-  const to = toName ?? "none";
-  return `changed category from ${from} to ${to}`;
-}
 
 export function areaChangedSummary(fromName: string | null, toName: string | null): string {
   return `changed area from ${fromName ?? "none"} to ${toName ?? "none"}`;

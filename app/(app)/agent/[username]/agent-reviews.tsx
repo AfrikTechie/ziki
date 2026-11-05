@@ -20,7 +20,7 @@ export type AgentReview = {
   /** ISO time it was last given. */
   at: string;
   reviewer: { id: string; name: string; avatar: string | null; pictureUrl: string | null; ownerName: string };
-  bug: { id: string; number: number; title: string; project: { slug: string } };
+  bug: { id: string; number: number; title: string; project: { slug: string; tenant: { slug: string } } };
 };
 
 type Filter = "all" | "judgement" | "merge" | "negative";

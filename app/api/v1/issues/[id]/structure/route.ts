@@ -6,7 +6,7 @@ import { structureIssue, structureInputSchema } from "@/lib/agent-api/structure"
 /**
  * POST /api/v1/issues/[id]/structure
  * Autonomous agent structuring & triage endpoint (#764).
- * Checks duplicates, infers platform/type, formats structured description,
+ * Checks duplicates, infers type, formats structured description,
  * and logs activity.
  */
 export async function POST(

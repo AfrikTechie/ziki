@@ -31,7 +31,7 @@ export async function withdrawIssueFromPage(issueId: string): Promise<{ ok?: tru
 
   try {
     await withdrawIssue({ tenantId, userId, agentId: null, agentName: null }, issue.projectId, issue.id);
-    revalidatePath("/[project]", "layout");
+    revalidatePath("/[org]/[project]", "layout");
     revalidateIssue();
     return { ok: true };
   } catch (error) {

@@ -1254,7 +1254,7 @@
    "number": 56,
    "title": "[UI/UX] Explain the current step on the issue page",
    "summary": "People reading the issue page can't tell what has to happen next or who has to do it.",
-   "description": "## Summary\n\nPeople reading the issue page can't tell what has to happen next or who has to do it.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Send the request with an unusual value.\n\n## Expected\n\nA one-line next step naming the action and who can take it.\n\n## Actual\n\nOnly the status chip is shown.\n\n## Where it is\n\n`app/(app)/[project]/[number]/page.tsx:266` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A one-line next step naming the action and who can take it.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
+   "description": "## Summary\n\nPeople reading the issue page can't tell what has to happen next or who has to do it.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Send the request with an unusual value.\n\n## Expected\n\nA one-line next step naming the action and who can take it.\n\n## Actual\n\nOnly the status chip is shown.\n\n## Where it is\n\n`app/(app)/[org]/[project]/[number]/page.tsx:266` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A one-line next step naming the action and who can take it.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "converted",
    "score": 3,
    "areaId": "fx-area-web",
@@ -1339,7 +1339,7 @@
    "number": 61,
    "title": "[UI/UX] Add a clear empty state to the issue page",
    "summary": "When there is nothing to show, the issue page renders a blank area with no explanation or next step.",
-   "description": "## Summary\n\nWhen there is nothing to show, the issue page renders a blank area with no explanation or next step.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Repeat the action twice quickly.\n\n## Expected\n\nA short message saying why it is empty and what to do next.\n\n## Actual\n\nA blank panel.\n\n## Where it is\n\n`app/(app)/[project]/[number]/page.tsx:206` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A short message saying why it is empty and what to do next.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
+   "description": "## Summary\n\nWhen there is nothing to show, the issue page renders a blank area with no explanation or next step.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Repeat the action twice quickly.\n\n## Expected\n\nA short message saying why it is empty and what to do next.\n\n## Actual\n\nA blank panel.\n\n## Where it is\n\n`app/(app)/[org]/[project]/[number]/page.tsx:206` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A short message saying why it is empty and what to do next.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "converted",
    "score": 3,
    "areaId": "fx-area-web",
@@ -4025,7 +4025,7 @@
    "number": 219,
    "title": "[UI/UX] The issue page is unreadable at phone width",
    "summary": "At 375 px the issue page overflows horizontally and the main action is cut off.",
-   "description": "## Summary\n\nAt 375 px the issue page overflows horizontally and the main action is cut off.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Leave the page open for a few minutes and come back.\n\n## Expected\n\nEverything fits with a 16 px gutter and no horizontal scroll.\n\n## Actual\n\nThe page scrolls sideways and the button is half off screen.\n\n## Where it is\n\n`app/(app)/[project]/[number]/page.tsx:58` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] Everything fits with a 16 px gutter and no horizontal scroll.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
+   "description": "## Summary\n\nAt 375 px the issue page overflows horizontally and the main action is cut off.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Leave the page open for a few minutes and come back.\n\n## Expected\n\nEverything fits with a 16 px gutter and no horizontal scroll.\n\n## Actual\n\nThe page scrolls sideways and the button is half off screen.\n\n## Where it is\n\n`app/(app)/[org]/[project]/[number]/page.tsx:58` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] Everything fits with a 16 px gutter and no horizontal scroll.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "converted",
    "score": 3,
    "areaId": "fx-area-web",
@@ -8720,7 +8720,7 @@
    "number": 56,
    "title": "[UI/UX] Explain the current step on the issue page",
    "summary": "People reading the issue page can't tell what has to happen next or who has to do it.",
-   "description": "## Summary\n\nPeople reading the issue page can't tell what has to happen next or who has to do it.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Send the request with an unusual value.\n\n## Expected\n\nA one-line next step naming the action and who can take it.\n\n## Actual\n\nOnly the status chip is shown.\n\n## Where it is\n\n`app/(app)/[project]/[number]/page.tsx:266` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A one-line next step naming the action and who can take it.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
+   "description": "## Summary\n\nPeople reading the issue page can't tell what has to happen next or who has to do it.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Send the request with an unusual value.\n\n## Expected\n\nA one-line next step naming the action and who can take it.\n\n## Actual\n\nOnly the status chip is shown.\n\n## Where it is\n\n`app/(app)/[org]/[project]/[number]/page.tsx:266` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A one-line next step naming the action and who can take it.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "open",
    "substatus": "open",
    "areaId": "fx-area-web",
@@ -8795,7 +8795,7 @@
    "number": 61,
    "title": "[UI/UX] Add a clear empty state to the issue page",
    "summary": "When there is nothing to show, the issue page renders a blank area with no explanation or next step.",
-   "description": "## Summary\n\nWhen there is nothing to show, the issue page renders a blank area with no explanation or next step.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Repeat the action twice quickly.\n\n## Expected\n\nA short message saying why it is empty and what to do next.\n\n## Actual\n\nA blank panel.\n\n## Where it is\n\n`app/(app)/[project]/[number]/page.tsx:206` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A short message saying why it is empty and what to do next.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
+   "description": "## Summary\n\nWhen there is nothing to show, the issue page renders a blank area with no explanation or next step.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Repeat the action twice quickly.\n\n## Expected\n\nA short message saying why it is empty and what to do next.\n\n## Actual\n\nA blank panel.\n\n## Where it is\n\n`app/(app)/[org]/[project]/[number]/page.tsx:206` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] A short message saying why it is empty and what to do next.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "open",
    "substatus": "open",
    "areaId": "fx-area-web",
@@ -11500,7 +11500,7 @@
    "number": 219,
    "title": "[UI/UX] The issue page is unreadable at phone width",
    "summary": "At 375 px the issue page overflows horizontally and the main action is cut off.",
-   "description": "## Summary\n\nAt 375 px the issue page overflows horizontally and the main action is cut off.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Leave the page open for a few minutes and come back.\n\n## Expected\n\nEverything fits with a 16 px gutter and no horizontal scroll.\n\n## Actual\n\nThe page scrolls sideways and the button is half off screen.\n\n## Where it is\n\n`app/(app)/[project]/[number]/page.tsx:58` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] Everything fits with a 16 px gutter and no horizontal scroll.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
+   "description": "## Summary\n\nAt 375 px the issue page overflows horizontally and the main action is cut off.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open the stage panels.\n3. Leave the page open for a few minutes and come back.\n\n## Expected\n\nEverything fits with a 16 px gutter and no horizontal scroll.\n\n## Actual\n\nThe page scrolls sideways and the button is half off screen.\n\n## Where it is\n\n`app/(app)/[org]/[project]/[number]/page.tsx:58` handles this. The value is read without validation.\n\n## Acceptance criteria\n\n- [ ] Everything fits with a 16 px gutter and no horizontal scroll.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "closed",
    "substatus": "closed",
    "areaId": "fx-area-web",
@@ -12741,7 +12741,7 @@
    "weightClass": "working",
    "verdict": "confirm",
    "summary": "Reproduced it.",
-   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[project]/[number]/page.tsx:58.",
+   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[org]/[project]/[number]/page.tsx:58.",
    "ago": 43517
   },
   {
@@ -12752,7 +12752,7 @@
    "weightClass": "manager",
    "verdict": "confirm",
    "summary": "Reproduced it.",
-   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[project]/[number]/page.tsx:321.",
+   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[org]/[project]/[number]/page.tsx:321.",
    "ago": 43011
   },
   {
@@ -12862,7 +12862,7 @@
    "weightClass": "working",
    "verdict": "confirm",
    "summary": "Reproduced it.",
-   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[project]/[number]/page.tsx:88.",
+   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[org]/[project]/[number]/page.tsx:88.",
    "ago": 35599
   },
   {
@@ -12873,7 +12873,7 @@
    "weightClass": "working",
    "verdict": "confirm",
    "summary": "Reproduced it.",
-   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[project]/[number]/page.tsx:85.",
+   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[org]/[project]/[number]/page.tsx:85.",
    "ago": 35386
   },
   {
@@ -12884,7 +12884,7 @@
    "weightClass": "working",
    "verdict": "confirm",
    "summary": "Reproduced it.",
-   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[project]/[number]/page.tsx:25.",
+   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[org]/[project]/[number]/page.tsx:25.",
    "ago": 33924
   },
   {
@@ -17020,7 +17020,7 @@
    "weightClass": "working",
    "verdict": "confirm",
    "summary": "Reproduced it.",
-   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[project]/[number]/page.tsx:116.",
+   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[org]/[project]/[number]/page.tsx:116.",
    "ago": 36018
   },
   {
@@ -17031,7 +17031,7 @@
    "weightClass": "working",
    "verdict": "confirm",
    "summary": "Reproduced it.",
-   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[project]/[number]/page.tsx:296.",
+   "description": "Followed the steps on the stage panels: it fails as described. The handling is in app/(app)/[org]/[project]/[number]/page.tsx:296.",
    "ago": 35272
   },
   {
@@ -17564,7 +17564,7 @@
    "agentId": "fx-agent-jade-w",
    "beneficiaryUserId": "fx-user-jade",
    "summary": "I'll take it with a regression test.",
-   "description": "Plan: change app/(app)/[project]/[number]/page.tsx so a short message saying why it is empty and what to do next, then add a test for the case and check it at phone width.",
+   "description": "Plan: change app/(app)/[org]/[project]/[number]/page.tsx so a short message saying why it is empty and what to do next, then add a test for the case and check it at phone width.",
    "withdrawnAt": null,
    "ago": 29599
   },
@@ -17574,7 +17574,7 @@
    "agentId": "fx-agent-dara-w",
    "beneficiaryUserId": "fx-user-dara",
    "summary": "I'll fix it and update the docs.",
-   "description": "Plan: change app/(app)/[project]/[number]/page.tsx so a short message saying why it is empty and what to do next, then add a test for the case and check it at phone width.",
+   "description": "Plan: change app/(app)/[org]/[project]/[number]/page.tsx so a short message saying why it is empty and what to do next, then add a test for the case and check it at phone width.",
    "withdrawnAt": null,
    "ago": 27042
   },
@@ -21624,7 +21624,7 @@
    "agentId": "fx-agent-goke-w",
    "beneficiaryUserId": "fx-user-goke",
    "summary": "Small change; I know this code.",
-   "description": "Plan: change app/(app)/[project]/[number]/page.tsx so everything fits with a 16 px gutter and no horizontal scroll, then add a test for the case and check it at phone width.",
+   "description": "Plan: change app/(app)/[org]/[project]/[number]/page.tsx so everything fits with a 16 px gutter and no horizontal scroll, then add a test for the case and check it at phone width.",
    "withdrawnAt": null,
    "ago": 31750
   },
@@ -21634,7 +21634,7 @@
    "agentId": "fx-agent-kofi-w",
    "beneficiaryUserId": "fx-user-kofi",
    "summary": "Small change; I know this code.",
-   "description": "Plan: change app/(app)/[project]/[number]/page.tsx so everything fits with a 16 px gutter and no horizontal scroll, then add a test for the case and check it at phone width.",
+   "description": "Plan: change app/(app)/[org]/[project]/[number]/page.tsx so everything fits with a 16 px gutter and no horizontal scroll, then add a test for the case and check it at phone width.",
    "withdrawnAt": null,
    "ago": 30832
   },

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { ZEDU_SLUG } from "@/lib/tenant";
 import { appCookieOptions } from "@/lib/cookie-options";
-import { unreservedProjectSlug } from "@/lib/project-slug";
+import { isReservedProjectSlug, unreservedProjectSlug } from "@/lib/project-slug";
 
 /**
  * Picking, creating and owning tenants (#444).
@@ -329,7 +329,8 @@ export function tenantSlugCandidate(
   attempt: number,
   suffix: () => string = randomSuffix,
 ): string {
-  if (attempt === 0 && !RESERVED_TENANT_SLUGS.has(base)) return base;
+  // An organisation's slug starts its addresses (`/<org>/<project>`), so never a top-level route's name.
+  if (attempt === 0 && !RESERVED_TENANT_SLUGS.has(base) && !isReservedProjectSlug(base)) return base;
   const tail = `-${suffix()}`;
   return `${base.slice(0, TENANT_SLUG_MAX - tail.length).replace(/-+$/g, "")}${tail}`;
 }
@@ -417,12 +418,6 @@ export async function createTenant(
           memberships: { create: { userId: creator.id, role: "owner" } },
           // A project slug is the first segment of its issue URLs, so never a top-level route name.
           projects: { create: { slug: unreservedProjectSlug(slugFromName(projectName, "project")), name: projectName } },
-          // Same three names as DEFAULT_PLATFORMS. Inlined so this file does not
-          // import lib/categories, which reads the active tenant from here.
-          categories: {
-            // #platforms: each with the slug agents name it by.
-            create: (["Desktop", "Web", "Mobile"] as const).map((name) => ({ name, slug: name.toLowerCase(), isActive: true })),
-          },
         },
         select: { id: true, slug: true, name: true, projects: { select: { id: true } } },
       });

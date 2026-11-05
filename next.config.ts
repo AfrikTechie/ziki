@@ -74,6 +74,12 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     const list = [
+      // Earn's connect page moved to /earn/agent; keep old links and bookmarks working.
+      {
+        source: "/earn/connect",
+        destination: "/earn/agent",
+        permanent: true,
+      },
       {
         source: "/bugs",
         destination: "/issues",

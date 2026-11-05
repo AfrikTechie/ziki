@@ -243,7 +243,7 @@ export function isAgentNotificationEvent(
 
 /**
  * Plans the notifications for one event. `issuePath` is the address of the
- * event's issue (`/<project-slug>/<number>`, #project-urls), looked up at
+ * event's issue (`/<org>/<project>/<number>`, #project-urls), looked up at
  * delivery; null when the event is about no issue.
  */
 export function planNotifications(event: NotificationEvent, siteUrl: string, issuePath: string | null): PlannedNotification[] {

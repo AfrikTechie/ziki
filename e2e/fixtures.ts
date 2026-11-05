@@ -39,8 +39,8 @@ export const test = base.extend<Fixtures & Options>({
 
 export { expect };
 
-/** The seeded project every spec works in (e2e/seed.ts); pages live under its slug (#project-urls). */
-export const PROJECT = "/zedu";
+/** The seeded project every spec works in (e2e/seed.ts); pages live under its organisation and slug (#project-urls). */
+export const PROJECT = "/zedu/zedu";
 
 /** Reports an issue through the form and returns its page URL. */
 export async function reportIssue(page: Page, title: string, description = "Steps: open the page, click Save. Expected it to save; it shows a blank page.") {

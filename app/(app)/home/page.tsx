@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
-import { firstProjectSlugFor } from "@/lib/project-route";
+import { firstProjectRefFor } from "@/lib/project-route";
 import { ideasPath } from "@/lib/project-paths";
 
 /**
@@ -10,6 +10,6 @@ import { ideasPath } from "@/lib/project-paths";
  */
 export default async function HomePage() {
   const user = await requireUser();
-  const slug = await firstProjectSlugFor(user.id);
+  const slug = await firstProjectRefFor(user.id);
   redirect(slug ? ideasPath(slug) : "/tenants");
 }

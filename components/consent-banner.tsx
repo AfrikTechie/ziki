@@ -122,9 +122,16 @@ window.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });`}
 }
 
 /** "Cookie settings": opens the consent banner again so the visitor can change their choice. */
-export function CookieSettingsLink({ className = "" }: { className?: string }) {
+export function CookieSettingsLink({ className = "", onOpen }: { className?: string; /** Called as the banner opens, e.g. to close the menu the link sits in. */ onOpen?: () => void }) {
   return (
-    <button type="button" onClick={() => window.dispatchEvent(new Event(OPEN_CONSENT_EVENT))} className={className}>
+    <button
+      type="button"
+      onClick={() => {
+        onOpen?.();
+        window.dispatchEvent(new Event(OPEN_CONSENT_EVENT));
+      }}
+      className={className}
+    >
       Cookie settings
     </button>
   );

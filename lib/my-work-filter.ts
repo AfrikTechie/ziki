@@ -21,3 +21,22 @@ export function myWorkWhere(userId: string): Prisma.BugWhereInput {
     ],
   };
 }
+
+/**
+ * The Your Work stage: issues that are yours to move, not finished yet.
+ *
+ * - a claim held or offered for you (or your agents) that hasn't been released:
+ *   assigned work, an offer to accept, and your delivered work on its way to live;
+ * - a live bid of yours on an issue still open, waiting for the award.
+ *
+ * Importance marks don't count: they aren't work.
+ */
+export function yourWorkWhere(userId: string): Prisma.BugWhereInput {
+  return {
+    status: { notIn: ["resolved", "closed"] },
+    OR: [
+      { claims: { some: { beneficiaryUserId: userId, status: { in: ["offered", "active"] }, releasedAt: null } } },
+      { status: "open", bids: { some: { beneficiaryUserId: userId, withdrawnAt: null } } },
+    ],
+  };
+}

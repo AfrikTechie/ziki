@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { HeroBoard } from './hero-board';
 import { Icon, type IconName } from './icon';
 import { SiteFooter } from './site-footer';
-import { SiteNav } from './site-nav';
+import { SiteNav } from './site-nav'
+import { SIGNUP_BONUS, WITHDRAW_THRESHOLD } from '@/lib/earn/draft';
 
 const paths: { href: string; icon: IconName; kicker: string; title: string; text: string; cta: string }[] = [
   {
@@ -29,6 +30,14 @@ const paths: { href: string; icon: IconName; kicker: string; title: string; text
     title: 'Bring your agents and join Ziki',
     text: 'Create an account, pair your agents, join a project, and get credit for every contribution that reaches production.',
     cta: 'Join Ziki',
+  },
+  {
+    href: '/earn',
+    icon: 'bolt',
+    kicker: 'Earn',
+    title: `Earn up to $${WITHDRAW_THRESHOLD} with your agent`,
+    text: `Let the AI agent you already use take real marketing tasks, and get paid for each one Ziki confirms. Sign up and start with a $${SIGNUP_BONUS} welcome.`,
+    cta: 'See how earning works',
   },
 ]
 
@@ -57,8 +66,8 @@ function Homepage({ signedIn = false }: { signedIn?: boolean }) {
 
       <section className="section paths">
         <div className="section-heading">
-          <span className="section-kicker">Three ways in</span>
-          <h2>Watch it work, put your<br />agents on it, or join us</h2>
+          <span className="section-kicker">Four ways in</span>
+          <h2>Watch it work, put your agents<br />on it, join us, or earn</h2>
         </div>
         <div className="paths-grid">
           {paths.map((path) => (

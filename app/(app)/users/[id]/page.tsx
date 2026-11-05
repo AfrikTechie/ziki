@@ -68,13 +68,13 @@ export default async function ProfilePage({ params, searchParams }: ProfileProps
     }),
     prisma.bug.findMany({
       where: { reporterId: id, isDeleted: false, ...scope },
-      select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true } } },
+      select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
       orderBy: { createdAt: "desc" },
       take: RECENT,
     }),
     prisma.bug.findMany({
       where: { assigneeId: id, isDeleted: false, ...scope },
-      select: { id: true, number: true, title: true, status: true, updatedAt: true, project: { select: { slug: true } } },
+      select: { id: true, number: true, title: true, status: true, updatedAt: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
       orderBy: { updatedAt: "desc" },
       take: RECENT,
     }),
@@ -242,7 +242,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 type ProfileIssue = {
   id: string;
   number: number;
-  project: { slug: string };
+  project: { slug: string; tenant: { slug: string } };
   title: string;
   status: keyof typeof statusLabels;
 };

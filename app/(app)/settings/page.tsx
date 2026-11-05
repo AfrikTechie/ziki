@@ -3,7 +3,7 @@ import { ThemeSettings } from "@/components/theme-settings";
 import { parseTheme } from "@/lib/theme";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
-import { firstProjectSlugFor } from "@/lib/project-route";
+import { firstProjectRefFor } from "@/lib/project-route";
 import { orgPath } from "@/lib/project-paths";
 import { prisma } from "@/lib/prisma";
 import { NotificationSettings } from "@/components/notification-settings";
@@ -82,7 +82,7 @@ export default async function SettingsPage(props: {
   searchParams?: Promise<{ section?: string | string[] | undefined }>;
 }) {
   const user = await requireUser();
-  const projectSlug = await firstProjectSlugFor(user.id);
+  const projectSlug = await firstProjectRefFor(user.id);
   const params = props.searchParams ? await props.searchParams : {};
   const section = parseSection(params.section);
   const agentsEnabled = isAgentPlatformEnabled();

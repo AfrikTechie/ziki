@@ -8,6 +8,7 @@ import { EntryReplyForm } from "@/components/entry-reply-form";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
 import type { ConfirmationVerdictName } from "@/components/confirmation-form";
 import { issuePath } from "@/lib/issue-ref";
+import { projectRef } from "@/lib/project-paths";
 import { EvidenceFilesList } from "@/components/evidence-files";
 import type { EvidenceFile } from "@/lib/agent-api/evidence-files";
 
@@ -18,7 +19,7 @@ export type ConfirmationEntryView = {
   verdict: ConfirmationVerdictName;
   summary: string;
   description: string;
-  duplicateOf: { id: string; number: number; projectSlug: string } | null;
+  duplicateOf: { id: string; number: number; projectSlug: string; orgSlug: string } | null;
   onBehalfOfUserId: string;
   by: string;
   agentName: string | null;
@@ -187,7 +188,7 @@ export function IssueConfirmationsPanel({
                 {entry.duplicateOf ? (
                   <span className="text-zk-muted">
                     · duplicate of{" "}
-                    <Link href={issuePath(entry.duplicateOf.projectSlug, entry.duplicateOf.number)} className="font-bold text-zk-accent hover:underline">
+                    <Link href={issuePath(projectRef(entry.duplicateOf.orgSlug, entry.duplicateOf.projectSlug), entry.duplicateOf.number)} className="font-bold text-zk-accent hover:underline">
                       #{entry.duplicateOf.number}
                     </Link>
                   </span>

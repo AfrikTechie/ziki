@@ -96,7 +96,7 @@ export default async function AuditLogPage({ searchParams }: Props) {
             payload: true,
             undoneAt: true,
             agent: { select: { name: true } },
-            bug: { select: { number: true, title: true, project: { select: { slug: true } } } },
+            bug: { select: { number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
           },
         }),
     // Only the agents this viewer may filter by.

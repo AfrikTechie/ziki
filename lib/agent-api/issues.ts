@@ -8,8 +8,6 @@ import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
 import { commentSchema, statusSchema, substatusSchema, commentLabel } from "@/lib/validations/issue";
-import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
-import { platformSelect, withPlatform, type PlatformView } from "@/lib/platforms";
 import { rewardView } from "@/lib/agent-api/reward-estimates";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
@@ -147,7 +145,7 @@ export const issueSelect = {
   id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true,
   // #close-reasons: why, on what evidence and when a closed issue was closed.
   closeReason: true, closeEvidence: true, closedAt: true,
-  categoryId: true, typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
+  typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
   createdByAgentId: true, projectId: true, areaId: true, createdAt: true, updatedAt: true, proofLinks: true,
   voteCount: true,
   // #idea-table: the idea this issue was converted from.
@@ -159,8 +157,6 @@ export const issueSelect = {
   pullRequestUrl: true,
   pullRequestHeadSha: true,
   area: { select: { id: true, name: true, slug: true } },
-  // #platforms: returned as `platform: { id, slug, name }` (withImportance renames it).
-  category: { select: platformSelect },
   // #rewards: what solving it pays, in $, and how far the estimating has got.
   reward: true, rewardEstimateCount: true, rewardFixedAt: true,
 } satisfies Prisma.BugSelect;
@@ -170,11 +166,9 @@ export const issueSelect = {
  * link shows everything. An API client that sends a mistyped id must be told,
  * not handed the whole backlog.
  */
-export function requireKnownFilter(name: "platform" | "area", raw: string | null, parsed: string | null): string | null {
+export function requireKnownFilter(name: "area", raw: string | null, parsed: string | null): string | null {
   if (raw?.trim() && parsed === null) {
-    throw new IssueApiError(422, name === "platform"
-      ? `Unknown platform "${raw.trim()}". Use a slug from GET /api/v1/platforms, or "none".`
-      : `Unknown ${name} id "${raw.trim()}". Use an id from this project, or "none".`);
+    throw new IssueApiError(422, `Unknown ${name} id "${raw.trim()}". Use an id from this project, or "none".`);
   }
   return parsed;
 }
@@ -192,10 +186,6 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
       assigneeId = parsed.data;
     }
   }
-  const platforms = await prisma.category.findMany({
-    where: { tenantId: scope.tenantId },
-    select: { id: true, name: true, slug: true },
-  });
   const requestedArea = params.get("area");
   const areas = requestedArea
     ? await prisma.projectArea.findMany({ where: { projectId: scope.projectId }, select: { id: true, name: true } })
@@ -218,7 +208,6 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
     ...(status ? { status } : {}),
     ...(substatus ? { substatus } : {}),
     ...(assigneeId !== undefined ? { assigneeId } : {}),
-    ...platformFilterWhere(requireKnownFilter("platform", params.get("platform"), parsePlatformFilter(params.get("platform"), platforms))),
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
   };
   const where: Prisma.BugWhereInput = { ...filtered, ...cursorWhere(cursor) };
@@ -228,15 +217,15 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
 
 /**
  * #importance: an issue's importance, read from `Bug.voteCount`, which keeps its
- * column name; and #platforms: its `category` relation as `platform`.
+ * column name.
  */
-export function withImportance<T extends { voteCount: number; category?: PlatformView | null; reward?: { toNumber(): number } | number; rewardEstimateCount?: number; rewardFixedAt?: Date | null }>(
+export function withImportance<T extends { voteCount: number; reward?: { toNumber(): number } | number; rewardEstimateCount?: number; rewardFixedAt?: Date | null }>(
   row: T,
-): Omit<T, "voteCount" | "category" | "reward" | "rewardEstimateCount" | "rewardFixedAt"> & { importance: number; platform: PlatformView | null; reward: ReturnType<typeof rewardView> | null } {
-  const { voteCount, reward, rewardEstimateCount, rewardFixedAt, ...rest } = withPlatform(row);
+): Omit<T, "voteCount" | "reward" | "rewardEstimateCount" | "rewardFixedAt"> & { importance: number; reward: ReturnType<typeof rewardView> | null } {
+  const { voteCount, reward, rewardEstimateCount, rewardFixedAt, ...rest } = row;
   // #rewards: the reward in $, with how many estimates it averages and whether it is fixed.
   const rewardJson = reward === undefined ? null : rewardView({ reward, rewardEstimateCount: rewardEstimateCount ?? 0, rewardFixedAt: rewardFixedAt ?? null });
-  return { ...rest, importance: voteCount, reward: rewardJson } as Omit<T, "voteCount" | "category" | "reward" | "rewardEstimateCount" | "rewardFixedAt"> & { importance: number; platform: PlatformView | null; reward: ReturnType<typeof rewardView> | null };
+  return { ...rest, importance: voteCount, reward: rewardJson } as Omit<T, "voteCount" | "reward" | "rewardEstimateCount" | "rewardFixedAt"> & { importance: number; reward: ReturnType<typeof rewardView> | null };
 }
 
 /** A comment's upvotes (#comment-votes) as `votes`, in place of Prisma's `_count`. */

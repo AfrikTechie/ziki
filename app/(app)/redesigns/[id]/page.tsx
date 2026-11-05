@@ -15,7 +15,7 @@ export default async function RedesignPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const proposal = await prisma.redesignProposal.findFirst({ where: { id, tenantId },
     include: { authorAgent: { select: { name: true } }, onBehalfOf: { select: { name: true } }, approver: { select: { name: true } },
-      bug: { select: { number: true, project: { select: { slug: true } } } } },
+      bug: { select: { number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } } },
   });
   if (!proposal) notFound();
 

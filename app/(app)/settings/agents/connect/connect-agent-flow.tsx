@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { copyText } from "@/lib/clipboard";
@@ -24,7 +26,7 @@ const CLOSE_AFTER_MS = 4000;
  * the agent, and watch it connect. The text holds the agent's key, so it is
  * copied, never shown in full.
  */
-export function ConnectAgentFlow({ projectId }: { projectId: string | null }) {
+export function ConnectAgentFlow({ projectId, next }: { projectId: string | null; /** Where to go once connected (Earn: My agents). */ next?: string }) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -60,11 +62,15 @@ export function ConnectAgentFlow({ projectId }: { projectId: string | null }) {
   useEffect(() => {
     if (step !== "connected") return;
     const timer = setTimeout(() => {
+      if (next) {
+        router.push(next);
+        return;
+      }
       setOpen(false);
       router.refresh();
     }, CLOSE_AFTER_MS);
     return () => clearTimeout(timer);
-  }, [step, router]);
+  }, [step, router, next]);
 
   /** Every opening starts from a blank name. */
   function openDialog() {
@@ -215,6 +221,8 @@ export function ConnectAgentFlow({ projectId }: { projectId: string | null }) {
                 </h2>
                 <p className={agentsMutedClass}>{agent.name} is ready to work.</p>
               </div>
+              {/* Earn (#earn-drafts): what the agent can earn is on My agents. */}
+              {next ? <Link href={next} className={agentsPrimaryBtn}>Go to My agents</Link> : null}
             </div>
           ) : null}
         </dialog>
@@ -224,7 +232,7 @@ export function ConnectAgentFlow({ projectId }: { projectId: string | null }) {
 }
 
 /** A little robot dancing on the success screen. The moves live in globals.css (zk-dance-*). */
-function DancingAgent() {
+export function DancingAgent() {
   return (
     <svg viewBox="0 0 120 140" width="150" height="175" className="mx-auto overflow-visible" aria-hidden="true">
       <g className="fill-zk-accent text-[15px] font-bold">

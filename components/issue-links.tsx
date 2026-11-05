@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { formatProofLinkLabel } from "@/lib/proof-links";
-import { ideaPath } from "@/lib/project-paths";
+import { ideaPath, type ProjectRef } from "@/lib/project-paths";
 
 export type IssueLinksProps = {
   links: string[];
   /** The issue's attached pull request, shown here even when it is not in the link list. */
   linkedPullRequestUrl?: string | null;
   /** The idea the issue was converted from. */
-  idea?: { number: number; slug: string } | null;
+  idea?: { number: number; slug: ProjectRef } | null;
   /** Repaired old links (#pr-link-repair): the verified canonical PR or commit, or that the old repository can't be read. */
   repairs?: { originalUrl: string; canonicalUrl: string | null; inaccessible: boolean; agentName: string }[];
 };

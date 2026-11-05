@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { issuesPath, orgPath } from "@/lib/project-paths";
+import { issuesPath, orgPath, refOf } from "@/lib/project-paths";
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
@@ -32,7 +32,7 @@ export default async function ProjectSettingsPage({
     where: { tenantId, slug },
     select: {
       id: true, slug: true, name: true, goal: true, repoUrl: true, stagingUrl: true, siteUrl: true,
-      githubInstallationId: true, rewardConfig: true, workflow: true,
+      githubInstallationId: true, rewardConfig: true, workflow: true, tenant: { select: { slug: true } },
     },
   });
   if (!project) notFound();
@@ -49,7 +49,7 @@ export default async function ProjectSettingsPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="space-y-2">
-        <Link href={orgPath(project.slug, "projects")} className="text-sm text-zk-accent hover:underline">← Projects</Link>
+        <Link href={orgPath(refOf(project), "projects")} className="text-sm text-zk-accent hover:underline">← Projects</Link>
         <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">{project.name} settings</h1>
         <p className="text-sm text-zk-text2">Owners and admins can update project details and connect its GitHub App installation.</p>
       </div>
@@ -83,7 +83,7 @@ export default async function ProjectSettingsPage({
         <WorkflowSettingsForm slug={project.slug} workflow={workflow} />
       </section>
       <ProjectAreasManager projectSlug={project.slug} areas={areas} />
-      <Link href={issuesPath(project.slug)} className="inline-block text-sm text-zk-accent hover:underline">Back to issues</Link>
+      <Link href={issuesPath(refOf(project))} className="inline-block text-sm text-zk-accent hover:underline">Back to issues</Link>
     </div>
   );
 }

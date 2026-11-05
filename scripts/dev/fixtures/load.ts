@@ -11,6 +11,11 @@
  * workspace owner). `pnpm db:fixtures` also makes every other local account a
  * member of the Demo workspace, so you can browse it as yourself.
  *
+ * It also loads "Fresh Start" (fresh.ts), an empty workspace as it is right
+ * after signing up: sign in as fresh@fixtures.local, same password.
+ * The Demo owner also gets Demo Work and Demo Live (work-workspaces.ts), to
+ * see the Your Work and Live stages.
+ *
  * Additive only (AGENTS.md: never reseed): it touches nothing outside its own
  * workspace (slug `demo`, ids `fx-*`) and its own users (`*@fixtures.local`).
  * A rerun deletes and recreates that workspace, so the data is always as
@@ -22,6 +27,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
+import { FRESH_LOGIN_EMAIL, loadFreshWorkspace } from "./fresh";
+import { loadWorkWorkspaces } from "./work-workspaces";
 
 type Row = Record<string, unknown>;
 type Fixtures = {
@@ -138,12 +145,17 @@ export async function loadFixtures(options: { db?: PrismaClient; addExistingUser
     // The agents' audit log, which their pages' Activity reads.
     await table("agentAuditEvent", (fx.auditEvents ?? []).map((e) => ({ ...e, tenantId: TENANT_ID })));
 
+    // A second, empty workspace: an account as it is right after signing up (fresh.ts).
+    await loadFreshWorkspace(db, passwordHash);
+    // Two more of the Demo owner's workspaces: one with assigned work, one with work and live issues (work-workspaces.ts).
+    await loadWorkWorkspaces(db, ids.get("fx-user-demo")!, now);
+
     if (options.addExistingUsers) {
       const others = await db.user.findMany({ where: { NOT: { email: { endsWith: "@fixtures.local" } } }, select: { id: true } });
       await db.membership.createMany({ data: others.map((o) => ({ tenantId: TENANT_ID, userId: o.id, role: "member" as const })), skipDuplicates: true });
     }
     if (!options.quiet) {
-      console.log(`[fixtures] loaded the Demo workspace: ${fx.bugs.length} issues, ${fx.ideas.length} ideas. Sign in as ${fx.login.email} / ${fx.login.password}.`);
+      console.log(`[fixtures] loaded the Demo workspace: ${fx.bugs.length} issues, ${fx.ideas.length} ideas. Sign in as ${fx.login.email} / ${fx.login.password}. Fresh Start (empty, just signed up): ${FRESH_LOGIN_EMAIL}, same password.`);
     }
     return { issues: fx.bugs.length, ideas: fx.ideas.length };
   } finally {

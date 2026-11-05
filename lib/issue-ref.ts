@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { projectPath, refOf, type ProjectRef } from "@/lib/project-paths";
 
 /**
- * Readable issue references (#457). An issue lives at `/<project-slug>/<number>`
+ * Readable issue references (#457). An issue lives at `/<org>/<project>/<number>`
  * (#project-urls). A reference is its per-organisation number, a prefixed
  * form such as `ZE-123`, or its internal id. Numbers are unique per tenant
  * (`@@unique([tenantId, number])`), so a number only means something inside
@@ -29,16 +30,16 @@ export function parseIssueRef(raw: string): IssueRef {
 }
 
 /**
- * The address of an issue: its project's slug and its organisation-wide
- * number, e.g. `/ziki/123` or `/ziki/123/history` (#project-urls).
+ * The address of an issue: its organisation and project and its
+ * organisation-wide number, e.g. `/zedu/desktop/123` or `.../123/history` (#project-urls).
  */
-export function issuePath(projectSlug: string, number: number, suffix = ""): string {
-  return `/${encodeURIComponent(projectSlug)}/${number}${suffix}`;
+export function issuePath(ref: ProjectRef, number: number, suffix = ""): string {
+  return projectPath(ref, `/${number}${suffix}`);
 }
 
-/** The address of an issue read with `project: { select: { slug: true } }`. */
-export function issueHref(issue: { number: number; project: { slug: string } }, suffix = ""): string {
-  return issuePath(issue.project.slug, issue.number, suffix);
+/** The address of an issue read with `project: { select: { slug: true, tenant: { select: { slug: true } } } }`. */
+export function issueHref(issue: { number: number; project: { slug: string; tenant: { slug: string } } }, suffix = ""): string {
+  return issuePath(refOf(issue.project), issue.number, suffix);
 }
 
 

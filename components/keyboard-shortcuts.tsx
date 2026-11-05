@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { useParams, usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { newIssueHref } from "@/lib/reported-from";
 import { issuesPath } from "@/lib/project-paths";
 import {
@@ -34,7 +35,7 @@ export function KeyboardShortcuts({ enabled }: { enabled: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   // The project the page belongs to (#project-urls): the shortcuts go to its lists.
-  const slug = useParams<{ project?: string }>()?.project;
+  const slug = useProjectRef();
   const [helpOpen, setHelpOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sequence = useRef<SequenceState>(IDLE);

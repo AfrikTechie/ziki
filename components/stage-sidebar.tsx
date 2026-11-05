@@ -10,8 +10,8 @@ export type SidebarStep = {
   count: number;
   href: string;
   selected: boolean;
-  /** warn: a step that asks for you (Your call, #your-call), drawn in amber so it catches the eye. */
-  tone?: "warn";
+  /** earn: the green Ziki tasks step above Open (#earn-drafts). warn: a step that asks for you (Your call, #your-call), drawn in amber so it catches the eye. */
+  tone?: "earn" | "warn";
 };
 
 export function StageSidebar({ steps }: { steps: SidebarStep[] }) {
@@ -37,7 +37,11 @@ export function StageSidebar({ steps }: { steps: SidebarStep[] }) {
                     aria-hidden="true"
                     data-testid="stage-count"
                     className={`flex h-7 min-w-7 shrink-0 items-center justify-center rounded-lg px-1 font-mono text-[11px] font-semibold tabular-nums ${
-                      step.tone === "warn"
+                      step.tone === "earn"
+                        ? step.selected
+                          ? "bg-zk-ok-fg text-white ring-4 ring-zk-ok-fg/20"
+                          : "border-2 border-zk-ok-fg/50 bg-zk-ok-bg text-zk-ok-fg group-hover:border-zk-ok-fg"
+                        : step.tone === "warn"
                         ? step.selected
                           ? "bg-amber-500 text-white ring-4 ring-amber-500/25"
                           : "border-2 border-amber-400 bg-amber-50 text-amber-700 shadow-[0_0_8px_1px_rgba(245,158,11,0.35)]"
@@ -52,7 +56,9 @@ export function StageSidebar({ steps }: { steps: SidebarStep[] }) {
                 </span>
                 <span
                   className={`flex min-h-7 min-w-0 flex-1 items-center self-start leading-tight max-lg:whitespace-nowrap text-sm ${
-                    step.tone === "warn"
+                    step.tone === "earn"
+                      ? "font-bold text-zk-ok-fg group-hover:underline"
+                      : step.tone === "warn"
                       ? `text-amber-700 group-hover:text-amber-800 ${step.selected ? "font-bold" : "font-semibold"}`
                       : `group-hover:text-zk-accent ${step.selected ? "font-bold text-zk-text" : "font-medium text-zk-text2"}`
                   }`}

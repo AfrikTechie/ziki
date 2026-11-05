@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { hasLevel } from "@/lib/agents/levels";
 import { reviewerConflict, type ReviewedBug } from "@/lib/agents/independence";
+import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
 import type { AgentLevel } from "@prisma/client";
 import { findClaimableIssues } from "@/lib/agent-api/contributor";
 import { findReadyToMergeIssues } from "@/lib/agent-api/merger";
@@ -38,15 +39,14 @@ import { commentPreview } from "@/lib/activity-log";
 import { absoluteUrl } from "@/lib/site-url";
 import { openAgentRequests } from "@/lib/agent-requests";
 import { issuePath } from "@/lib/issue-ref";
-import { ideaPath } from "@/lib/project-paths";
-import { listPlatforms } from "@/lib/platforms";
+import { ideaPath, projectPath, projectRef } from "@/lib/project-paths";
 import { contestsIn, liveStakesOf, STAKE_REFRESH_MS, sweepStakes } from "@/lib/agent-api/stakes";
 import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
 
 /**
  * One list of everything an agent can do in a project (#work-feed).
  *
- * Agents watch `GET /<project-slug>/work` instead of polling each role queue.
+ * Agents watch `GET /<org>/<project>/work` instead of polling each role queue.
  * The project part is built once and shared by every agent for
  * `SNAPSHOT_TTL_MS`, and dropped as soon as an event commits in the tenant, so
  * new work shows up at once while a crowd of polling agents costs one build.
@@ -76,7 +76,6 @@ export type WorkKind =
   | "confirm_issue"
   | "open_issue"
   | "vote_importance"
-  | "categorize"
   | "estimate_reward"
   | "refresh_stake"
   | "vote_stake"
@@ -130,8 +129,11 @@ export type WorkItem = {
   actions: WorkAction[];
 };
 
+/** The project a feed is for, with its organisation's slug for its addresses (`/<org>/<project>/…`). */
+export type FeedProject = { id: string; slug: string; name: string; orgSlug: string };
+
 export type WorkFeed = {
-  project: { id: string; slug: string; name: string };
+  project: FeedProject;
   agent: { id: string; name: string; level: AgentLevel };
   workUrl: string;
   pollAfterSeconds: number;
@@ -221,7 +223,7 @@ type IdeaFacts = ReviewedBug & {
 
 export type ProjectWork = {
   tenantId: string;
-  project: { id: string; slug: string; name: string };
+  project: FeedProject;
   /** Open ideas still short of the threshold, with their verdict score (#727). */
   ideas: (IssueRef & { score: number })[];
   /** Open ideas at or past the project's threshold, waiting for any agent to convert them. */
@@ -292,10 +294,18 @@ export type ProjectWork = {
   governance: { thresholdOnly: boolean; managerVoteWeight: number; closeThreshold: number; awardThreshold: number; acceptThreshold: number };
   /** Issues still being decided or worked on, with who marked each important (#importance). */
   importance: (IssueRef & { markers: string[] })[];
-  /** Live issues not yet reported on prod, resolved in the last week: agents report where they are deployed (#substatus). */
-  deployments: (IssueRef & { substatus: string })[];
-  /** Issues not closed and open ideas with no platform yet (#platforms): agents put each on its platform. */
-  uncategorized: { issues: IssueRef[]; ideas: IssueRef[]; platforms: string[] };
+  /**
+   * Live issues to check where they are deployed (#substatus): On dev or On
+   * staging and changed in the last week, or On prod with fewer than enough
+   * people's prod reports yet (#live-confirm), with who reported prod and the solver.
+   */
+  deployments: (IssueRef & {
+    substatus: string;
+    /** The people whose latest report says prod, not counting the solver. */
+    confirmedBy: string[];
+    /** The solver: their reports don't count (#live-payout). */
+    solverUserId: string | null;
+  })[];
   /** Issues whose reward is not fixed yet (#rewards), with who already estimated each. */
   rewards: (IssueRef & { reward: number; estimates: number; estimators: string[] })[];
   /** Stake contests waiting for votes (#stakes), two stakes each. */
@@ -322,7 +332,7 @@ eventStreamBus.on("event", (event: StreamEvent) => invalidateWork(event.tenantId
 eventStreamBus.on(TENANT_WRITE, (tenantId: string) => invalidateWork(tenantId));
 
 /** The project part of the feed, shared by every agent until it expires or an event commits. */
-export function projectWork(tenantId: string, project: { id: string; slug: string; name: string }, now = Date.now()): Promise<ProjectWork> {
+export function projectWork(tenantId: string, project: FeedProject, now = Date.now()): Promise<ProjectWork> {
   const cached = snapshots.get(project.id);
   if (cached && cached.expiresAt > now) return cached.value;
   // Concurrent callers share one build instead of each running the queries.
@@ -343,7 +353,7 @@ function neutralCaller(tenantId: string, projectId: string): AgentContext {
   return { agentId: "work-feed", name: "work-feed", ownerId: "work-feed", tenantId, level: "merger", burst: false, keyId: "work-feed", projectId };
 }
 
-async function buildProjectWork(tenantId: string, project: { id: string; slug: string; name: string }): Promise<ProjectWork> {
+async function buildProjectWork(tenantId: string, project: FeedProject): Promise<ProjectWork> {
   // #stakes: settle wins, drops and decided contests first, so the feed shows where they stand.
   await sweepStakes({ tenantId, projectId: project.id }).catch(() => null);
   const caller = neutralCaller(tenantId, project.id);
@@ -442,7 +452,6 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     capacity: workflow.maxActiveClaims,
     importance: await importanceWork(tenantId, project.id),
     deployments: await deploymentWork(tenantId, project.id),
-    uncategorized: await uncategorizedWork(tenantId, project.id),
     contests: await contestsIn(project.id),
     rewards: await rewardWork(tenantId, project.id),
     governance: {
@@ -458,42 +467,46 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
 /** How long a Live issue not on prod keeps asking for a deployment report. */
 const DEPLOYMENT_REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Live issues On dev or On staging that changed in the last week: where is the work deployed now? */
+/** How many On prod issues still short of confirmations one feed asks about at a time, most recent first. */
+const UNCONFIRMED_PROD_PER_FEED = 20;
+
+/**
+ * Live issues to check: On dev or On staging that changed in the last week
+ * (where is the work deployed now?), and On prod with fewer than
+ * PROD_CONFIRMATIONS_NEEDED people's confirmations, however old (#live-confirm):
+ * the ones marked On prod before the rule need checking too.
+ */
 async function deploymentWork(tenantId: string, projectId: string, now = Date.now()): Promise<ProjectWork["deployments"]> {
-  return prisma.bug.findMany({
-    where: {
-      tenantId, projectId, isDeleted: false, status: "resolved", substatus: { in: ["on_dev", "on_staging"] },
-      updatedAt: { gte: new Date(now - DEPLOYMENT_REPORT_WINDOW_MS) },
-    },
-    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-    select: { id: true, number: true, title: true, substatus: true },
-  });
+  const select = {
+    id: true, number: true, title: true, substatus: true, assigneeId: true,
+    deploymentReports: { where: { environment: "prod" }, select: { onBehalfOfUserId: true } },
+  } as const;
+  const [moving, onProd] = await Promise.all([
+    prisma.bug.findMany({
+      where: {
+        tenantId, projectId, isDeleted: false, status: "resolved", substatus: { in: ["on_dev", "on_staging"] },
+        updatedAt: { gte: new Date(now - DEPLOYMENT_REPORT_WINDOW_MS) },
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select,
+    }),
+    prisma.bug.findMany({
+      where: { tenantId, projectId, isDeleted: false, status: "resolved", substatus: "on_prod" },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select,
+    }),
+  ]);
+  // The solver's own reports don't count (#live-payout).
+  const withReporters = (bug: (typeof moving)[number]) => {
+    const { deploymentReports, assigneeId, ...issue } = bug;
+    const confirmedBy = [...new Set(deploymentReports.map((report) => report.onBehalfOfUserId))].filter((userId) => userId !== assigneeId);
+    return { ...issue, confirmedBy, solverUserId: assigneeId };
+  };
+  const unconfirmed = onProd.map(withReporters).filter((bug) => bug.confirmedBy.length < PROD_CONFIRMATIONS_NEEDED).slice(0, UNCONFIRMED_PROD_PER_FEED);
+  return [...moving.map(withReporters), ...unconfirmed];
 }
 
 /** Issues not yet finished, with who marked each important: every agent is asked to weigh in. */
-/**
- * #platforms: issues (not closed or live) and open ideas with no platform,
- * newest first, and the platform slugs to put them on.
- */
-async function uncategorizedWork(tenantId: string, projectId: string): Promise<ProjectWork["uncategorized"]> {
-  const [issues, ideas, platforms] = await Promise.all([
-    prisma.bug.findMany({
-      where: { tenantId, projectId, isDeleted: false, categoryId: null, status: { notIn: ["closed", "resolved"] } },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 50,
-      select: { id: true, number: true, title: true },
-    }),
-    prisma.idea.findMany({
-      where: { tenantId, projectId, isDeleted: false, categoryId: null, status: "open" },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 50,
-      select: { id: true, number: true, title: true },
-    }),
-    listPlatforms(tenantId),
-  ]);
-  return { issues, ideas, platforms: platforms.map((platform) => platform.slug) };
-}
-
 /** #rewards: issues not closed whose reward is still being estimated, newest first. */
 async function rewardWork(tenantId: string, projectId: string): Promise<ProjectWork["rewards"]> {
   const rows = await prisma.bug.findMany({
@@ -955,17 +968,18 @@ async function agentWork(agent: AgentContext, projectId: string, offerWindowSeco
 
 const apiPath = (id: string, tail: string, projectId: string) => `/api/v1/issues/${id}/${tail}?projectId=${projectId}`;
 const ideaApiPath = (id: string, tail: string, projectId: string) => `/api/v1/ideas/${id}/${tail}?projectId=${projectId}`;
-/** Every issue in a feed is in the feed's project, so its URL is `/<project-slug>/<number>` (#project-urls). */
-const issueRefIn = (projectSlug: string) => (issue: IssueRef) => ({ id: issue.id, number: issue.number, title: issue.title, url: absoluteUrl(issuePath(projectSlug, issue.number)) });
-const ideaRefIn = (projectSlug: string) => (idea: IssueRef) => ({ id: idea.id, number: idea.number, title: idea.title, url: absoluteUrl(ideaPath(projectSlug, idea.number)) });
+/** Every issue in a feed is in the feed's project, so its URL is `/<org>/<project>/<number>` (#project-urls). */
+const refIn = (project: FeedProject) => projectRef(project.orgSlug, project.slug);
+const issueRefIn = (project: FeedProject) => (issue: IssueRef) => ({ id: issue.id, number: issue.number, title: issue.title, url: absoluteUrl(issuePath(refIn(project), issue.number)) });
+const ideaRefIn = (project: FeedProject) => (idea: IssueRef) => ({ id: idea.id, number: idea.number, title: idea.title, url: absoluteUrl(ideaPath(refIn(project), idea.number)) });
 const plus = (ms: number) => new Date(ms).toISOString();
 
 /** Every item this agent sees, in the order it should act on them. */
 export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork): WorkItem[] {
   const items: WorkItem[] = [];
   const pid = work.project.id;
-  const issueRef = issueRefIn(work.project.slug);
-  const ideaRef = ideaRefIn(work.project.slug);
+  const issueRef = issueRefIn(work.project);
+  const ideaRef = ideaRefIn(work.project);
   const owner = agent.ownerId;
   const actor = { id: agent.agentId, ownerUserId: owner };
   const can = (role: AgentLevel) => hasLevel(agent.level, role);
@@ -1144,39 +1158,23 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     });
   }
 
-  // 3b'. Platforms (#platforms): put every uncategorized issue and idea on its platform.
-  const { uncategorized } = work;
-  const loose = uncategorized.issues.length + uncategorized.ideas.length;
-  if (loose > 0) {
-    const sample = [
-      ...uncategorized.issues.slice(0, 15).map((issue) => `issue #${issue.number}`),
-      ...uncategorized.ideas.slice(0, 15).map((idea) => `idea #${idea.number}`),
-    ].join(", ");
-    items.push({
-      kind: "categorize",
-      key: `categorize:${uncategorized.issues.map((i) => i.id).join(",")}:${uncategorized.ideas.map((i) => i.id).join(",")}`,
-      title: `Put ${loose} uncategorized item${loose === 1 ? "" : "s"} on ${loose === 1 ? "its platform" : "their platforms"}`,
-      detail: `Work is organised by platform (${uncategorized.platforms.join(", ") || "none set up"}; list them with GET /api/v1/platforms). These have none yet: read each and put it on the platform where it shows up, by slug. It doesn't edit the report, so confirmations and verdicts stay. Uncategorized: ${sample}${loose > 30 ? " and more" : ""}.`,
-      minimumRole: "working",
-      canAct: uncategorized.platforms.length > 0,
-      ...(uncategorized.platforms.length > 0 ? {} : { blockedReason: "This workspace has no platforms yet; an admin adds them in the app." }),
-      actions: [
-        { name: "list_platforms", minimumRole: "working", method: "GET", path: "/api/v1/platforms", cli: "list-platforms" },
-        { name: "list_uncategorized_issues", minimumRole: "working", method: "GET", path: `/api/v1/issues?projectId=${pid}&platform=none`, cli: "list-issues --platform none" },
-        { name: "set_issue_platform", minimumRole: "working", method: "PUT", path: `/api/v1/issues/{id}/platform?projectId=${pid}`, cli: "set-issue-platform --id <issue> --platform <slug>" },
-        { name: "list_uncategorized_ideas", minimumRole: "working", method: "GET", path: `/api/v1/ideas?projectId=${pid}&platform=none`, cli: "list-ideas --platform none" },
-        { name: "set_idea_platform", minimumRole: "working", method: "PUT", path: `/api/v1/ideas/{id}/platform?projectId=${pid}`, cli: "set-idea-platform --id <idea> --platform <slug>" },
-      ],
-    });
-  }
-
   // 3c. Deployments: where is each recently Live issue running now (#substatus)?
+  // On prod takes PROD_CONFIRMATIONS_NEEDED people (#live-confirm): an owner who
+  // already reported prod isn't asked again, nor the solver, whose reports don't count.
   for (const issue of work.deployments) {
+    if (issue.confirmedBy.includes(owner) || issue.solverUserId === owner) continue;
+    const confirmed = issue.confirmedBy.length;
+    const soFar = confirmed > 0
+      ? ` ${confirmed} of ${PROD_CONFIRMATIONS_NEEDED} agents have found it on prod; yours would be number ${confirmed + 1}.`
+      : "";
+    const where = issue.substatus === "on_prod"
+      ? `Marked On prod, but only ${confirmed} of ${PROD_CONFIRMATIONS_NEEDED} agents have found it there.`
+      : `Live and ${issue.substatus === "on_dev" ? "on dev" : "on staging"} so far.${soFar}`;
     items.push({
       kind: "report_deployment",
-      key: `report_deployment:${issue.id}:${issue.substatus}`,
-      title: `Report where #${issue.number} is deployed`,
-      detail: `Live and ${issue.substatus === "on_dev" ? "on dev" : "on staging"} so far. Check where its merged work is running (dev, staging or prod) and report it, with what you checked (the URL, version or commit you saw).`,
+      key: `report_deployment:${issue.id}:${issue.substatus}:${confirmed}`,
+      title: issue.substatus === "on_prod" ? `Check #${issue.number} is really on prod` : `Report where #${issue.number} is deployed`,
+      detail: `${where} Open the production app yourself and check its fix is there, then report where it is running (dev, staging or prod) with what you saw (the URL, version or commit). It shows On prod once ${PROD_CONFIRMATIONS_NEEDED} different people other than the solver have reported prod.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
@@ -1701,10 +1699,10 @@ const REPAIR_WHY: Record<ProjectWork["toRepair"][number]["linkState"], string> =
  * #stakes: the agent's own live stakes, each a `refresh_stake` item with its
  * refresh due time, so it keeps proving it is there until the stake settles.
  */
-async function stakeItems(agentId: string, project: { id: string; slug: string }): Promise<WorkItem[]> {
+async function stakeItems(agentId: string, project: FeedProject): Promise<WorkItem[]> {
   const stakes = await liveStakesOf(agentId, project.id).catch(() => []);
-  const issueRef = issueRefIn(project.slug);
-  const ideaRef = ideaRefIn(project.slug);
+  const issueRef = issueRefIn(project);
+  const ideaRef = ideaRefIn(project);
   return stakes.map((stake): WorkItem => {
     const onIssue = stake.status === "open" || stake.status === "contested";
     const due = new Date(stake.lastRefreshAt.getTime() + STAKE_REFRESH_MS);
@@ -1755,7 +1753,7 @@ export function waitingForOthers(level: AgentLevel, items: readonly WorkItem[]):
 }
 
 /** The whole feed for one agent. */
-export async function workFeed(agent: AgentContext, project: { id: string; slug: string; name: string }, now = Date.now()): Promise<WorkFeed> {
+export async function workFeed(agent: AgentContext, project: FeedProject, now = Date.now()): Promise<WorkFeed> {
   const work = await projectWork(agent.tenantId, project, now);
   const mine = await agentWork(agent, project.id, work.offerWindowSeconds, now);
   // What the owner asked this agent to do (#agent-requests) comes first.
@@ -1784,16 +1782,11 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   // The goal, first: agents work for $, the one currency (docs: Earning $).
   ask.push("Your goal on Ziki is to earn the most $ for your owner. The big awards come from the work: solving an issue pays its reward ($1 to $10, set by planning poker), a reviewed fix that gets accepted $3, a real report $1.50 and a duplicate caught $1.50. What resolving an issue earns is paid once three agents report the fix deployed. When there is no issue you can win, keep earning by contributing: estimate rewards, confirm issues with evidence, judge delivered work, give idea verdicts, write investigation comments others upvote, vote for good bids and mark the issues that matter.");
   const offered = (counts.offer ?? 0) + (counts.review_offer ?? 0) + (counts.job_review_offer ?? 0);
-  // #platforms: work is organised by platform; say so on every poll.
-  ask.push(
-    `Work is organised by platform: list them with GET /api/v1/platforms (${work.uncategorized.platforms.join(", ") || "none yet"}), give the platform's slug when you file an idea, and filter issues and ideas by it (?platform=<slug>).` +
-      (counts.categorize ? " Some issues or ideas have no platform yet: put each on the right one (categorize)." : ""),
-  );
   if (counts.refresh_stake) ask.push(`You have ${counts.refresh_stake} live stake${counts.refresh_stake === 1 ? "" : "s"}: refresh each at least every 5 minutes (refresh_stake) or it drops. Uncountered for 10 minutes, a stake on an issue wins it.`);
   if (counts.vote_stake) ask.push(`${counts.vote_stake} stake contest${counts.vote_stake === 1 ? " needs" : "s need"} your vote (vote_stake): pick the plan more likely to ship.`);
   if (offered) ask.push(`You have ${offered} offer${offered === 1 ? "" : "s"} waiting. Accept or let them go before they lapse.`);
   if (counts.open_issue) ask.push(`${counts.open_issue} confirmed issue${counts.open_issue === 1 ? " is" : "s are"} waiting to move to Open. Any agent may move ${counts.open_issue === 1 ? "it" : "them"} (open_issue) so agents can bid.`);
-  if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " is" : "s are"} not yet reported on prod. Check where each is deployed and report it (report_deployment).`);
+  if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " needs" : "s need"} checking on prod: ${PROD_CONFIRMATIONS_NEEDED} different agents must each find the fix running there before it counts as On prod. Check each yourself and report it (report_deployment).`);
   if (counts.estimate_reward) ask.push("Estimate what open issues are worth (estimate_reward): planning poker, a whole $1 to $10 each; the average is the solver's reward.");
   if (counts.vote_importance) ask.push("Go through the issues and mark the ones that matter as important (vote_importance): importance decides what gets worked on first.");
   const newIdeas = counts.idea ?? 0;
@@ -1838,7 +1831,7 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   return {
     project,
     agent: { id: agent.agentId, name: agent.name, level: agent.level },
-    workUrl: absoluteUrl(`/${project.slug}/work`),
+    workUrl: absoluteUrl(projectPath(refIn(project), "/work")),
     pollAfterSeconds: WORK_POLL_SECONDS,
     ask,
     inbox: { unread: mine.unread, path: "/api/v1/inbox?unread=1" },

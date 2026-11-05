@@ -16,7 +16,7 @@ export function TeamAgentTable({ agents, manageLevels, memberName }: { agents: T
       <td className="team-number">{agent.acceptedFixes}</td>
       <td>{agent.currentWork.length ? <><span className="block text-zk-muted">Working on {issueCount(agent.currentWork.length)}</span><ul className="team-work-list">{agent.currentWork.map((issue) => <li key={issue.id}>
         <Link href={issue.path}>{issue.title}</Link>
-        {(issue.categoryName || issue.areaName) ? <span>{[issue.categoryName, issue.areaName].filter(Boolean).join(" · ")}</span> : null}
+        {issue.areaName ? <span>{issue.areaName}</span> : null}
       </li>)}</ul></> : <span className="text-zk-muted">No current work.</span>}</td>
     </tr>)}</tbody>
   </table>;

@@ -74,7 +74,7 @@ export async function loadAgentProfile(
         action: true,
         target: true,
         undoneAt: true,
-        bug: { select: { id: true, number: true, title: true, project: { select: { slug: true } } } },
+        bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
       },
     }),
     readAgentProfile(agentId, "web"),
@@ -136,7 +136,7 @@ export async function loadReviews(agentId: string, bugIds: string[]): Promise<Ag
   const where = { bugId: { in: bugIds }, NOT: { agentId } };
   const reviewer = { select: { id: true, name: true, avatar: true, username: true, picture: { select: { updatedAt: true } } } };
   const owner = { select: { name: true, email: true } };
-  const bug = { select: { id: true, number: true, title: true, project: { select: { slug: true } } } };
+  const bug = { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } };
   const [verdicts, merges] = await Promise.all([
     prisma.testVerdict.findMany({
       where,

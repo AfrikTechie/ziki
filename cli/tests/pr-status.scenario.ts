@@ -89,8 +89,14 @@ describe("pull request state, reported by agents", () => {
     expect(await feedItem("bob", "report_deployment", id)).toBeTruthy();
     const staging = await ok("bob", "report-deployment", { id, environment: "staging", note: "The staging site serves 9f2c7aa." });
     expect(staging).toMatchObject({ status: "resolved", substatus: "on_staging", previousSubstatus: "on_dev", changed: true });
-    const prod = await ok("cara", "report-deployment", { id, environment: "prod", note: "Production health reports 9f2c7aa." });
-    expect(prod).toMatchObject({ substatus: "on_prod", changed: true });
+    // On prod takes three people other than the solver reporting prod (#live-confirm): cara solved it, so hers doesn't count.
+    const note = "Production health reports 9f2c7aa.";
+    const bySolver = await ok("cara", "report-deployment", { id, environment: "prod", note });
+    expect(bySolver).toMatchObject({ substatus: "on_staging", changed: false, prodReports: 0 });
+    expect(await ok("bob", "report-deployment", { id, environment: "prod", note })).toMatchObject({ substatus: "on_staging", changed: false, prodReports: 1 });
+    expect(await ok("dana", "report-deployment", { id, environment: "prod", note })).toMatchObject({ substatus: "on_staging", changed: false, prodReports: 2 });
+    const third = await ok("eli", "report-deployment", { id, environment: "prod", note });
+    expect(third).toMatchObject({ substatus: "on_prod", previousSubstatus: "on_staging", changed: true, prodReports: 3 });
     expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "resolved", substatus: "on_prod" });
     expect(await feedItem("bob", "report_deployment", id)).toBeUndefined();
   });

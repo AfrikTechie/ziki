@@ -24,28 +24,23 @@ const groupBy = vi.hoisted(() => vi.fn(async (_args: { by: string[]; where?: Rec
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
-  usePathname: () => "/acme/issues/all",
-  useParams: () => ({ project: "acme" }),
+  usePathname: () => "/zedu/acme/issues/all",
+  useParams: () => ({ org: "zedu", project: "acme" }),
 }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 vi.mock("@/auth", () => ({ auth: vi.fn(async () => ({ user: { id: "dave" } })) }));
 vi.mock("@/lib/auth-helpers", () => ({ requireUser: vi.fn(async () => ({ id: "dave", role: "user" })) }));
-// #project-urls: the slug in the address picks the project and checks access.
+// #project-urls: the organisation and project in the address pick the project and check access.
 vi.mock("@/lib/project-route", () => ({
   requireProject: vi.fn(async () => ({
     user: { id: "dave", role: "user" },
     tenantId: "tenant-acme",
-    project: { id: "project-acme", slug: "acme", name: "Acme Web", goal: null, tenantId: "tenant-acme" },
+    project: { id: "project-acme", slug: "acme", name: "Acme Web", goal: null, tenantId: "tenant-acme", orgSlug: "zedu", ref: "zedu/acme" },
   })),
 }));
 vi.mock("@/lib/tenant-access", () => ({ currentTenantAccess: vi.fn(async () => ({ membershipRole: "member" })) }));
 vi.mock("@/lib/lookups", () => ({
   getIssueTypes: vi.fn(async () => []),
-  getPlatforms: vi.fn(async () => [
-    { id: "cat-web", name: "Web", isActive: true },
-    { id: "cat-mobile", name: "Mobile", isActive: true },
-    { id: "cat-old", name: "Desktop", isActive: false },
-  ]),
 }));
 vi.mock("@/lib/tenant-context", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant-context")>()),
@@ -74,8 +69,11 @@ vi.mock("@/lib/workflow", async (importOriginal) => ({
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst: vi.fn(async () => ({ slug: "acme-web", name: "Acme Web", goal: null })) },
+    project: { findFirst: vi.fn(async () => ({ slug: "acme-web", name: "Acme Web", goal: null })), findMany: vi.fn(async () => []) },
     bug: { count, findMany, groupBy, findFirst: bugFindFirst },
+    // #live-check, #live-confirm: what the Live rows show.
+    pullRequestReport: { findMany: vi.fn(async () => []) },
+    deploymentReport: { findMany: vi.fn(async () => []) },
     idea: { count: ideaCount, findMany: ideaFindMany },
     ideaVerdict: { groupBy: ideaVerdictGroupBy, findMany: vi.fn(async () => []) },
     milestone: { findMany: vi.fn(async () => []) },
@@ -88,7 +86,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/app/actions/issues", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/app/actions/issues")>()), addCommentAction: vi.fn(async () => ({ ok: true })) }));
 // Your call (#your-call) asks the database for the split issues on every view (for its step's count): the layout tests below read the list's own queries, so it gets an empty answer here.
 vi.mock("@/lib/your-call", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/your-call")>()), loadYourCall: vi.fn(async () => []) }));
-import { IssuesList } from "@/app/(app)/[project]/issues/_list/issues-list";
+import { IssuesList } from "@/app/(app)/[org]/[project]/issues/_list/issues-list";
 import { answerFrom, topShare, urgencyOf, yardsticksFor, type UrgencySignals } from "@/lib/your-call";
 import { currentTenantAccess } from "@/lib/tenant-access";
 import { addCommentAction } from "@/app/actions/issues";
@@ -112,9 +110,8 @@ const BUG = {
   type: null,
   reporter: { name: "Rita Reporter", role: "user", image: null },
   assignee: { name: "Bob Builder", role: "user", image: null },
-  category: { id: "cat-web", name: "Web" },
   area: null,
-  project: { slug: "acme" },
+  project: { slug: "acme", tenant: { slug: "zedu" } },
   votes: [],
   _count: { comments: 3, attachments: 1 },
 };
@@ -131,14 +128,13 @@ const IDEA = {
   archivedAt: null,
   verdicts: [],
   reporter: { name: "Rita Reporter" },
-  category: { name: "Web" },
   _count: { verdicts: 3 },
 };
 
-/** Renders `/acme/issues/<status>`, or `/acme/ideas` when no status is given. */
+/** Renders `/zedu/acme/issues/<status>`, or `/zedu/acme/ideas` when no status is given. */
 async function renderList({ status = "ideas", ...query }: Record<string, string> = {}) {
-  const returnTo = status === "ideas" ? "/acme/ideas" : `/acme/issues/${status}`;
-  const page = (await IssuesList({ slug: "acme", status, returnTo, searchParams: Promise.resolve(query) })) as ReactElement;
+  const returnTo = status === "ideas" ? "/zedu/acme/ideas" : `/zedu/acme/issues/${status}`;
+  const page = (await IssuesList({ org: "zedu", slug: "acme", status, returnTo, searchParams: Promise.resolve(query) })) as ReactElement;
   return renderToStaticMarkup(page);
 }
 
@@ -165,8 +161,8 @@ describe("issue list layout", () => {
   it("links each row to its project address and offers Add Idea", async () => {
     const html = await renderList({ status: "all" });
     expect(html).toContain("Login button does nothing");
-    // #project-urls: a row opens the issue at /<project-slug>/<number>.
-    expect(html).toContain('href="/acme/7"');
+    // #project-urls: a row opens the issue at /<org>/<project>/<number>.
+    expect(html).toContain('href="/zedu/acme/7"');
     // Add Idea opens the idea chat box in the toolbar (#idea-chat).
     expect(html).toMatch(/<button[^>]*title="Add Idea"/);
   });
@@ -185,7 +181,7 @@ describe("issue list layout", () => {
     expect(ideaFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: "tenant-acme", projectId: "project-acme", status: "open", isDeleted: false }),
     }));
-    expect(html).toContain('href="/acme/ideas/12"');
+    expect(html).toContain('href="/zedu/acme/ideas/12"');
     expect(html).toContain("Idea #12");
     expect(html).toMatch(/aria-label="[^"]*idea score 2 of 4"/);
     expect(html).toContain("3 verdicts");
@@ -195,14 +191,14 @@ describe("issue list layout", () => {
   });
 
   it("keeps search and scope when switching status, and resets paging and intake", async () => {
-    const html = await renderList({ q: "login", platform: "cat-web", mine: "assigned", stage: "reported", page: "2", status: "open" });
+    const html = await renderList({ q: "login", mine: "assigned", stage: "reported", page: "2", status: "open" });
     const list = statusList(html);
     // #project-urls: the status is the path, the rest stays in the query.
-    expect(list).toContain('href="/acme/issues/in-progress?q=login&amp;platform=cat-web&amp;mine=assigned"');
+    expect(list).toContain('href="/zedu/acme/issues/in-progress?q=login&amp;mine=assigned"');
     expect(list).not.toContain("page=");
     expect(list).not.toContain("stage=");
     const statusCount = groupBy.mock.calls.find(([args]) => args?.by?.[0] === "status");
-    expect(statusCount?.[0].where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme", categoryId: "cat-web" });
+    expect(statusCount?.[0].where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme" });
     expect(statusCount?.[0].where).not.toHaveProperty("status");
   });
 
@@ -243,10 +239,19 @@ describe("issue list layout", () => {
           { status: "closed", _count: { _all: 3 } },
         ]) as never);
     const html = await renderList({ status: "open" });
-    // Ideas: new ideas + rejected ideas. In Progress: Open, In progress, Closed. Delivered: Done, Merge, Live.
-    // Possibly delivered is a list inside Open, so In Progress's total doesn't count it again.
-    expect(counted(stages(html))).toEqual({ Ideas: 8, "In Progress": 18, Delivered: 15 });
+    // Your Work: the issues assigned to you. Ideas: new ideas + rejected ideas. In Progress: Open, In progress,
+    // Closed. Delivered: Done, Merge. Live: its own stage. Possibly delivered is a list inside Open, so In
+    // Progress's total doesn't count it again.
+    expect(counted(stages(html))).toEqual({ "Your Work": 1, Ideas: 8, "In Progress": 18, Delivered: 8, Live: 7 });
     expect(counted(statusList(html))).toEqual({ Open: 13, "In progress": 2, Closed: 3, "Possibly delivered": 1 });
+  });
+
+  it("shows Your Work only while something is assigned to you, and Live only once something went live", async () => {
+    groupBy.mockImplementation((async (args: { by: string[] }) =>
+      args.by[0] !== "status" ? [] : [{ status: "open", _count: { _all: 4 } }, { status: "done", _count: { _all: 2 } }]) as never);
+    count.mockResolvedValue(0);
+    const html = await renderList({ status: "open" });
+    expect(Object.keys(counted(stages(html)))).toEqual(["Ideas", "In Progress", "Delivered"]);
   });
 
 });
@@ -400,7 +405,7 @@ describe("Your call list", () => {
   const decision = (authorId: string, at: number) => ({ authorId, body: "**Decision from the owner:** Yes, the fix is ready. Please go ahead and merge it.", createdAt: T(at) });
   const issue = (over: Record<string, unknown> = {}) => ({
     id: "bug-9", number: 9, title: "Fix the header", summary: null, substatus: "requires_review", pullRequestUrl: PR, pullRequestHeadSha: "head2", updatedAt: T(0),
-    voteCount: 0, isBoosted: false, reporterId: "dave", beneficiaryUserId: "dave", milestone: null, project: { slug: "acme" },
+    voteCount: 0, isBoosted: false, reporterId: "dave", beneficiaryUserId: "dave", milestone: null, project: { slug: "acme", tenant: { slug: "zedu" } },
     deliveries: [{ beneficiaryUserId: "carl", pullRequestUrl: PR }], comments: [],
     testVerdicts: [verdict({}), verdict({ goodToMerge: false, agentId: "a2", onBehalfOfUserId: "ben", agent: { name: "Ben's agent", ownerUserId: "ben" }, createdAt: T(5), updatedAt: T(5) })],
     confirmations: [], ...over,

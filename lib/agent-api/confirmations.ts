@@ -533,7 +533,7 @@ export type ConfirmationView = {
   verdict: ConfirmationVerdict;
   summary: string;
   description: string;
-  duplicateOf: { id: string; number: number; projectSlug: string } | null;
+  duplicateOf: { id: string; number: number; projectSlug: string; orgSlug: string } | null;
   onBehalfOfUserId: string;
   by: string;
   agentId: string | null;
@@ -610,9 +610,9 @@ export async function listConfirmations(
   ]);
   const duplicateIds = [...new Set(rows.map((row) => row.duplicateOfId).filter((id): id is string => Boolean(id)))];
   const duplicates = duplicateIds.length
-    ? await db.bug.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, number: true, project: { select: { slug: true } } } })
+    ? await db.bug.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } })
     : [];
-  const duplicateById = new Map(duplicates.map((d) => [d.id, { id: d.id, number: d.number, projectSlug: d.project.slug }]));
+  const duplicateById = new Map(duplicates.map((d) => [d.id, { id: d.id, number: d.number, projectSlug: d.project.slug, orgSlug: d.project.tenant.slug }]));
   const counted = new Map(state?.counted.map((entry) => [entry.id, entry.weight]) ?? []);
   const needed = state?.needed ?? (await workflowFor(bug.projectId, db)).confirmationsNeeded;
   const hasOwnConfirm = Boolean(viewer) && rows.some((row) => row.onBehalfOfUserId === viewer?.userId && row.verdict === "confirm" && !row.undoneAt);

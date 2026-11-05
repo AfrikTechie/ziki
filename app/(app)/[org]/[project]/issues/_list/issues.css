@@ -1,0 +1,122 @@
+/* Scoped to the Issues list: the approved shell and Overview stay unchanged. */
+.issues-page {
+  --issues-rule: var(--zk-divider);
+  border-radius: 12px;
+  background: var(--zk-surface);
+  padding: 0 24px 24px;
+  color: var(--zk-text);
+}
+/* A thin top row: breadcrumb on the left, tools on the far right, a line under it edge to edge. */
+.issues-page .issues-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 8px; margin-inline: -24px; padding: 10px 24px; border-bottom: 1px solid var(--zk-divider); }
+.issues-heading > div:first-child { display: contents; }
+.issues-heading > div:first-child > div { grid-column: 1; grid-row: 1; }
+.issues-heading > div:first-child > p { grid-column: 1 / -1; grid-row: 2; font-size: 14px; line-height: 22px; }
+.issues-heading h1 { font-size: 14px; font-weight: 600; line-height: 20px; letter-spacing: 0; }
+/* The actions sit before the search, which is at the far right of the toolbar. */
+.issues-heading .issues-actions { grid-column: 2; grid-row: 1; align-self: center; flex-wrap: nowrap; }
+.issues-heading > .issues-filters { display: contents; }
+.issues-heading > .issues-filters > * { margin: 0; }
+.issues-heading > .issues-filters > div:first-child { grid-column: 3; grid-row: 1; align-self: center; }
+.issues-heading .issues-filters .issues-active-filters,
+.issues-heading .issues-filters .issues-selected-tags { grid-column: 1 / -1; max-width: none; width: 100%; }
+.issues-heading .issues-active-filters { align-items: center; gap: 8px; padding-top: 12px; margin-top: 4px; }
+.issues-heading .issues-active-filters > span:first-child { flex-shrink: 0; margin-right: 4px; }
+.issues-heading .issues-active-filters > span:not(:first-child) { min-height: 28px; }
+.issues-heading .issues-active-filters > button:last-child { min-height: 32px; }
+.issues-new { height: 32px; white-space: nowrap; box-shadow: none; }
+.issues-filters { position: relative; min-width: 152px; }
+.issues-filters > div:first-child { flex-wrap: nowrap; gap: 8px; }
+.issues-filters .issues-search { flex: 0 0 32px; width: 32px; }
+.issues-search [data-testid="search-box"] > div:first-child { position: relative; width: 32px; height: 32px; padding: 7px; border-radius: 8px; }
+.issues-search input, .issues-search kbd { visibility: hidden; width: 0; flex: none; padding: 0; }
+.issues-search-trigger { position: absolute; inset: 0; border-radius: 8px; cursor: pointer; }
+.issues-filters .issues-search-expanded { flex: 0 1 clamp(200px, 24vw, 320px); width: clamp(200px, 24vw, 320px); }
+.issues-search-expanded [data-testid="search-box"] > div:first-child { position: relative; width: 100%; padding: 0 12px 0 0; gap: 0; background: var(--zk-surface); border-color: var(--zk-accent); }
+.issues-search-expanded [data-testid="search-box"] > div:first-child > svg { display: none; }
+.issues-search-expanded [data-testid="search-box"] > div:first-child:focus-within { outline: 2px solid var(--zk-accent); outline-offset: 2px; }
+.issues-search-expanded input { visibility: visible; width: auto; flex: 1; }
+.issues-search-expanded .issues-search-trigger { position: static; display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; }
+.issues-search [role="listbox"] { top: 36px; right: 0; left: auto; width: max(100%, 280px); max-width: calc(100vw - 64px); }
+.issues-filters .issues-search-submit { display: none; }
+.issues-filters > div:first-child > div.ml-auto { margin-left: 0; }
+:root[data-theme="dark"] .issues-page .issues-search-trigger img { filter: invert(1); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .issues-page .issues-search-trigger img { filter: invert(1); }
+}
+.issues-search-trigger:hover { background: var(--zk-chip); }
+.issues-search svg { color: var(--zk-text2); }
+.issues-search-trigger:focus-visible { outline: 2px solid var(--zk-accent); outline-offset: 3px; }
+.issues-filters > ul, .issues-filters > div:not(:first-child) { max-width: 300px; }
+/* Status tabs, after the redesign: a 3px pill track, 34px tabs, a 26px icon disc per status. */
+/* Labels of more than one word take two lines, so the bar stays narrow at the same height. */
+/* Ideas, at the start of the status bar. */
+.issues-table { border: 1px solid var(--zk-border); border-radius: 10px; overflow: hidden; }
+/* The heading's bottom edge is stronger than the row dividers, so the header and body read apart in both themes. */
+.issues-table-heading { display: flex; align-items: center; gap: 16px; padding: 9px 18px; background: var(--zk-bg); border-bottom: 1px solid color-mix(in srgb, var(--zk-muted) 22%, transparent); font-size: 13px; line-height: 20px; color: var(--zk-muted); }
+/* Compact rows: about 60px, down from 88px. */
+.issues-row { min-height: 60px; gap: 16px; padding: 9px 18px; }
+.issues-row:hover { background: var(--zk-bg); }
+.issues-row [data-issue-link] { min-width: 0; }
+.issues-row [data-issue-type-icon] { display: none; }
+.issues-row-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; line-height: 20px; }
+.issues-row-meta { margin-top: 1px; line-height: 16px; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.issues-row-meta .font-mono { font-family: inherit; }
+/* The bids, beside the title (the status rides in the meta line). */
+.issues-status-cell { display: flex; width: 76px; flex: 0 0 76px; align-items: center; font-size: 12px; line-height: 16px; }
+/* The importance votes sit at the end of the row. */
+.issues-vote-end { display: flex; justify-content: center; width: 76px; flex: 0 0 76px; }
+.issues-vote { display: flex; justify-content: center; }
+.issues-results-summary h2 { display: none; }
+.issues-results-summary { order: 1; }
+.issues-results > nav { order: 2; }
+@media (max-width: 1279px) {
+  .issues-page { padding: 0 20px 20px; }
+  .issues-page .issues-heading { margin-inline: -20px; padding: 10px 20px; }
+  .issues-row, .issues-table-heading { gap: 14px; padding-left: 16px; padding-right: 16px; }
+}
+@media (max-width: 767px) {
+  .issues-page { padding: 0 10px 12px; border-radius: 10px; }
+  .issues-page .issues-heading { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-inline: -10px; margin-bottom: 12px; padding: 8px 12px; }
+  .issues-heading > div:first-child > div { grid-column: 1; grid-row: 1; }
+  .issues-heading > .issues-filters > div:first-child { grid-column: 1 / -1; grid-row: 2; }
+  /* The New issue + sits at the far right of the title row. */
+  .issues-heading .issues-actions { grid-column: 2; grid-row: 1; justify-content: flex-end; flex-wrap: nowrap; }
+  .issues-heading:has(.issues-search-expanded) > .issues-filters > div:first-child { grid-column: 1 / -1; }
+  .issues-heading .issues-active-filters > button:last-child { margin-left: 0; }
+  .issues-filters:has(.issues-search-expanded) { width: 100%; min-width: 0; }
+  .issues-filters .issues-search-expanded { width: auto; flex: 1 1 0; max-width: none; }
+  .issues-heading .issues-new { height: 32px; padding: 0 10px; }
+  /* Search, filter and sort sit behind the tools icon until it's opened (or a search is open). */
+  .issues-heading:not([data-tools-open]):not(:has(.issues-search-expanded)) > .issues-filters > div:first-child { display: none; }
+  .issues-heading h1 { font-size: 15px; }
+  .issues-heading > div:first-child > p { font-size: 13px; }
+  .issues-status-cell { display: none; }
+  .issues-table { border-radius: 8px; }
+  .issues-table-heading { padding: 8px 10px; gap: 10px; font-size: 12px; }
+  .issues-row { min-height: 0; gap: 10px; padding: 12px 10px; }
+  .issues-vote { width: 44px; }
+    .issues-row-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .issues-row-meta { gap: 6px; flex-wrap: wrap; }
+  .issues-row-meta time { white-space: nowrap; }
+  /* Status tabs, compact like a mobile segmented bar: text only, the selected one a white pill. */
+}
+@media print {
+  .issues-page { padding: 0; }
+  .issues-actions { display: none; }
+}
+
+/* Someone is working on it: a hammer that taps, pivoting at the handle. */
+.hammering-head { transform-origin: 5px 19px; animation: issues-hammer 0.9s ease-in-out infinite; }
+@keyframes issues-hammer {
+  0%, 100% { transform: rotate(-28deg); }
+  45% { transform: rotate(-28deg); }
+  60% { transform: rotate(8deg); }
+  70% { transform: rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hammering-head { animation: none; transform: none; }
+}
+
+/* The Add Idea chat box (#idea-chat) opens in the header bar. On phones it
+   opens in the actions, which then take the whole row so it has room. */
+.issues-heading:has(.issues-actions [data-idea-chat-open]) .issues-actions { grid-column: 1 / -1; grid-row: 1; flex-wrap: wrap; }

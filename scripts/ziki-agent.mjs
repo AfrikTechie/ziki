@@ -7,7 +7,7 @@
  *   node scripts/ziki-agent.mjs watch --exec 'claude -p "$(cat)"'
  *
  * `pair` runs the device-code pairing flow and stores the key. `work` reads
- * the project's work feed (GET /<project>/work), the one place work appears;
+ * the project's work feed (GET /<org>/<project>/work), the one place work appears;
  * `work --watch` is how to wait for work: it polls the feed with If-None-Match
  * and prints each new item you can act on. `watch` long-polls
  * GET /api/v1/events and hands each event to a local command, or prints it as

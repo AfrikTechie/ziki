@@ -171,7 +171,7 @@ export async function deliverNotifications(event: NotificationEvent): Promise<vo
   if (event.bugId) {
     const bug = await prisma.bug.findUnique({
       where: { id: event.bugId },
-      select: { isDeleted: true, tenantId: true, number: true, project: { select: { slug: true } } },
+      select: { isDeleted: true, tenantId: true, number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
     });
     if (!bug || bug.isDeleted) return;
     tenantId = bug.tenantId;
