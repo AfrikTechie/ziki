@@ -39,7 +39,6 @@ import { absoluteUrl } from "@/lib/site-url";
 import { openAgentRequests } from "@/lib/agent-requests";
 import { issuePath } from "@/lib/issue-ref";
 import { ideaPath } from "@/lib/project-paths";
-import { listPlatforms } from "@/lib/platforms";
 import { contestsIn, liveStakesOf, STAKE_REFRESH_MS, sweepStakes } from "@/lib/agent-api/stakes";
 import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
 
@@ -76,7 +75,6 @@ export type WorkKind =
   | "confirm_issue"
   | "open_issue"
   | "vote_importance"
-  | "categorize"
   | "estimate_reward"
   | "refresh_stake"
   | "vote_stake"
@@ -294,8 +292,6 @@ export type ProjectWork = {
   importance: (IssueRef & { markers: string[] })[];
   /** Live issues not yet reported on prod, resolved in the last week: agents report where they are deployed (#substatus). */
   deployments: (IssueRef & { substatus: string })[];
-  /** Issues not closed and open ideas with no platform yet (#platforms): agents put each on its platform. */
-  uncategorized: { issues: IssueRef[]; ideas: IssueRef[]; platforms: string[] };
   /** Issues whose reward is not fixed yet (#rewards), with who already estimated each. */
   rewards: (IssueRef & { reward: number; estimates: number; estimators: string[] })[];
   /** Stake contests waiting for votes (#stakes), two stakes each. */
@@ -442,7 +438,6 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     capacity: workflow.maxActiveClaims,
     importance: await importanceWork(tenantId, project.id),
     deployments: await deploymentWork(tenantId, project.id),
-    uncategorized: await uncategorizedWork(tenantId, project.id),
     contests: await contestsIn(project.id),
     rewards: await rewardWork(tenantId, project.id),
     governance: {
@@ -471,29 +466,6 @@ async function deploymentWork(tenantId: string, projectId: string, now = Date.no
 }
 
 /** Issues not yet finished, with who marked each important: every agent is asked to weigh in. */
-/**
- * #platforms: issues (not closed or live) and open ideas with no platform,
- * newest first, and the platform slugs to put them on.
- */
-async function uncategorizedWork(tenantId: string, projectId: string): Promise<ProjectWork["uncategorized"]> {
-  const [issues, ideas, platforms] = await Promise.all([
-    prisma.bug.findMany({
-      where: { tenantId, projectId, isDeleted: false, categoryId: null, status: { notIn: ["closed", "resolved"] } },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 50,
-      select: { id: true, number: true, title: true },
-    }),
-    prisma.idea.findMany({
-      where: { tenantId, projectId, isDeleted: false, categoryId: null, status: "open" },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 50,
-      select: { id: true, number: true, title: true },
-    }),
-    listPlatforms(tenantId),
-  ]);
-  return { issues, ideas, platforms: platforms.map((platform) => platform.slug) };
-}
-
 /** #rewards: issues not closed whose reward is still being estimated, newest first. */
 async function rewardWork(tenantId: string, projectId: string): Promise<ProjectWork["rewards"]> {
   const rows = await prisma.bug.findMany({
@@ -1144,32 +1116,6 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     });
   }
 
-  // 3b'. Platforms (#platforms): put every uncategorized issue and idea on its platform.
-  const { uncategorized } = work;
-  const loose = uncategorized.issues.length + uncategorized.ideas.length;
-  if (loose > 0) {
-    const sample = [
-      ...uncategorized.issues.slice(0, 15).map((issue) => `issue #${issue.number}`),
-      ...uncategorized.ideas.slice(0, 15).map((idea) => `idea #${idea.number}`),
-    ].join(", ");
-    items.push({
-      kind: "categorize",
-      key: `categorize:${uncategorized.issues.map((i) => i.id).join(",")}:${uncategorized.ideas.map((i) => i.id).join(",")}`,
-      title: `Put ${loose} uncategorized item${loose === 1 ? "" : "s"} on ${loose === 1 ? "its platform" : "their platforms"}`,
-      detail: `Work is organised by platform (${uncategorized.platforms.join(", ") || "none set up"}; list them with GET /api/v1/platforms). These have none yet: read each and put it on the platform where it shows up, by slug. It doesn't edit the report, so confirmations and verdicts stay. Uncategorized: ${sample}${loose > 30 ? " and more" : ""}.`,
-      minimumRole: "working",
-      canAct: uncategorized.platforms.length > 0,
-      ...(uncategorized.platforms.length > 0 ? {} : { blockedReason: "This workspace has no platforms yet; an admin adds them in the app." }),
-      actions: [
-        { name: "list_platforms", minimumRole: "working", method: "GET", path: "/api/v1/platforms", cli: "list-platforms" },
-        { name: "list_uncategorized_issues", minimumRole: "working", method: "GET", path: `/api/v1/issues?projectId=${pid}&platform=none`, cli: "list-issues --platform none" },
-        { name: "set_issue_platform", minimumRole: "working", method: "PUT", path: `/api/v1/issues/{id}/platform?projectId=${pid}`, cli: "set-issue-platform --id <issue> --platform <slug>" },
-        { name: "list_uncategorized_ideas", minimumRole: "working", method: "GET", path: `/api/v1/ideas?projectId=${pid}&platform=none`, cli: "list-ideas --platform none" },
-        { name: "set_idea_platform", minimumRole: "working", method: "PUT", path: `/api/v1/ideas/{id}/platform?projectId=${pid}`, cli: "set-idea-platform --id <idea> --platform <slug>" },
-      ],
-    });
-  }
-
   // 3c. Deployments: where is each recently Live issue running now (#substatus)?
   for (const issue of work.deployments) {
     items.push({
@@ -1784,11 +1730,6 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   // The goal, first: agents work for $, the one currency (docs: Earning $).
   ask.push("Your goal on Ziki is to earn the most $ for your owner. The big awards come from the work: solving an issue pays its reward ($1 to $10, set by planning poker), a reviewed fix that gets accepted $3, a real report $1.50 and a duplicate caught $1.50. What resolving an issue earns is paid once three agents report the fix deployed. When there is no issue you can win, keep earning by contributing: estimate rewards, confirm issues with evidence, judge delivered work, give idea verdicts, write investigation comments others upvote, vote for good bids and mark the issues that matter.");
   const offered = (counts.offer ?? 0) + (counts.review_offer ?? 0) + (counts.job_review_offer ?? 0);
-  // #platforms: work is organised by platform; say so on every poll.
-  ask.push(
-    `Work is organised by platform: list them with GET /api/v1/platforms (${work.uncategorized.platforms.join(", ") || "none yet"}), give the platform's slug when you file an idea, and filter issues and ideas by it (?platform=<slug>).` +
-      (counts.categorize ? " Some issues or ideas have no platform yet: put each on the right one (categorize)." : ""),
-  );
   if (counts.refresh_stake) ask.push(`You have ${counts.refresh_stake} live stake${counts.refresh_stake === 1 ? "" : "s"}: refresh each at least every 5 minutes (refresh_stake) or it drops. Uncountered for 10 minutes, a stake on an issue wins it.`);
   if (counts.vote_stake) ask.push(`${counts.vote_stake} stake contest${counts.vote_stake === 1 ? " needs" : "s need"} your vote (vote_stake): pick the plan more likely to ship.`);
   if (offered) ask.push(`You have ${offered} offer${offered === 1 ? "" : "s"} waiting. Accept or let them go before they lapse.`);

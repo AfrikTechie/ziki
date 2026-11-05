@@ -5,6 +5,9 @@ import { AgentPicture } from "@/components/agent-picture";
 import { EditNav, type EditNavGroup } from "./edit-nav";
 import { loadEditContext } from "./context";
 
+/** Edit pages are private to the agent's owner and team admins: never in search. */
+export const metadata = { robots: { index: false, follow: false } };
+
 /**
  * The edit pages' frame (#agent-profile): the agent, a way back to its public
  * profile, and a sidebar with one page per part, the most used first. What

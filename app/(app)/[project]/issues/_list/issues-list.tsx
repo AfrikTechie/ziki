@@ -10,7 +10,7 @@ import { Suspense } from "react";
 import { RememberIssueList } from "@/components/back-to-list";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getIssueTypes, getPlatforms } from "@/lib/lookups";
+import { getIssueTypes } from "@/lib/lookups";
 
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { loadYourCall } from "@/lib/your-call";
@@ -21,7 +21,7 @@ import { StatusFilterChips } from "@/components/status-filter-chips";
 import { ToolbarFilterMenu, type ToolbarFilterGroup, type ToolbarFilterOption } from "@/components/toolbar-filter-menu";
 import { IdeasMoreFilters } from "@/components/ideas-more-filters";
 import { IDEA_AUTHOR_PARAM, parseIdeaAuthorFilter } from "@/lib/idea-filters";
-import { MY_WORK_PARAM, myWorkWhere, parseMyWorkFilter } from "@/lib/my-work-filter";
+import { MY_WORK_PARAM, myWorkWhere, parseMyWorkFilter, yourWorkWhere } from "@/lib/my-work-filter";
 import { IDEA_SORT_COOKIE, ISSUE_SORT_COOKIE, getIdeaOrderBy, parseIdeaSort } from "@/lib/list-sort";
 import { SortHeader } from "@/components/sort-header";
 import { PROJECT_LINKS_SLOT_ID, ProjectLinks } from "@/components/project-links";
@@ -85,14 +85,6 @@ import { isOrganizationAdmin } from "@/lib/organization-role";
 import { cookies } from "next/headers";
 import { GettingStarted } from "@/components/getting-started";
 import { GETTING_STARTED_COOKIE, gettingStartedFor, parseDismissed, type GettingStartedStep } from "@/lib/onboarding";
-import {
-  PLATFORM_NONE,
-  PLATFORM_PARAM,
-  parsePlatformFilter,
-  platformChoices,
-  platformFilterWhere,
-} from "@/lib/platform-filter";
-import { PlatformMenu, type PlatformTab } from "@/components/platform-tabs";
 import { IssueRowStatus } from "@/components/issue-row-status";
 import { BidsVoteBadge, ImportanceVoteBadge } from "@/components/vote-badge";
 import { RewardBadge } from "@/components/reward-badge";
@@ -127,6 +119,8 @@ const REJECTED_STATUS = "rejected";
 const ERROR_STATUS = "error";
 /** Your call (#your-call): the issues the agents split on, a step of In Progress shown only while there are any. */
 const YOUR_CALL_STATUS = "your_call";
+/** Your Work: the issues assigned to you (a claim held or offered for you), a stage of its own shown only while there are any. */
+const YOUR_WORK_STATUS = "your_work";
 /** Open issues that may already be done (#possibly-delivered): a manager's list to check and close. */
 const POSSIBLY_DELIVERED = POSSIBLY_DELIVERED_STATUS;
 const REJECTED_WHERE = { some: { verdict: "reject", undoneAt: null } } satisfies Prisma.IssueConfirmationListRelationFilter;
@@ -142,15 +136,21 @@ const ALL_FILTERS = [ALL_STATUS, REJECTED_STATUS, DUPLICATE_STATUS].map((value) 
  * left of the panel when it is picked. Ideas (the Idea table) comes first.
  */
 const STAGE_GROUPS = [
+  // Your Work comes first and Live last; each shows only while it has issues.
+  { label: "Your Work", statuses: [YOUR_WORK_STATUS] },
   // Ideas holds only ideas. The rest are main statuses (#substatus): each tab
   // lists every substatus of its status together (Open: Requires confirmation
   // and Open), and each row says which one it is at.
   { label: "Ideas", statuses: [IDEAS_STATUS, REJECTED_IDEAS_STATUS] },
   { label: "In Progress", statuses: ["open", "in_progress", "closed", POSSIBLY_DELIVERED] },
-  { label: "Delivered", statuses: ["done", "merge", "resolved", ERROR_STATUS] },
+  { label: "Delivered", statuses: ["done", "merge", ERROR_STATUS] },
+  { label: "Live", statuses: ["resolved"] },
 ] as const;
 /** Where In Progress sits in STAGE_GROUPS: Your call belongs to it. */
-const IN_PROGRESS_STAGE = 1;
+const IN_PROGRESS_STAGE = 2;
+/** The stages that show only while they hold issues (or are open). */
+const YOUR_WORK_STAGE = 0;
+const LIVE_STAGE = STAGE_GROUPS.length - 1;
 
 /** A bug with head, antennae, segmented body and three pairs of legs. */
 const BUG_ICON_PATH =
@@ -163,7 +163,6 @@ const FEATURE_ICON_PATH =
 type SearchParams = Promise<{
   q?: string | string[];
   status?: string | string[];
-  platform?: string | string[];
   area?: string | string[];
   sort?: string | string[];
   page?: string | string[];
@@ -283,13 +282,9 @@ export async function IssuesList({
   // These lookups are filters only. Each one fails on its own: Promise.all
   // used to throw away the ones that succeeded when Milestone was missing,
   // and the admin path below then queried them again outside this catch.
-  const [tagTypes, platforms, milestones, areas, userPrefs] = await Promise.all([
+  const [tagTypes, milestones, areas, userPrefs] = await Promise.all([
     // Cached, expired by the admin actions that change them (#297).
     loadOrEmpty("issue types", () => getIssueTypes(tenantId), []),
-    // Every platform, not just active ones: a link filtered on a platform
-    // that was since deactivated still has to resolve. BugFilters narrows
-    // the dropdown itself.
-    loadOrEmpty("platforms", () => getPlatforms(tenantId), []),
     // #289: few rows; closed ones too, so an old link still resolves.
     loadOrEmpty(
       "milestones",
@@ -361,9 +356,6 @@ export async function IssuesList({
     const and = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
     where.AND = [...and, POSSIBLY_DELIVERED_WHERE];
   }
-  // Platform filter: one category, or the issues with none set.
-  const selectedPlatform = parsePlatformFilter(params.platform, platforms);
-  Object.assign(where, platformFilterWhere(selectedPlatform));
   const selectedArea = parseProjectAreaFilter(params[AREA_PARAM], areas);
   Object.assign(where, projectAreaFilterWhere(selectedArea));
   Object.assign(where, milestoneWhere(selectedMilestone));
@@ -372,6 +364,12 @@ export async function IssuesList({
   if (myWorkOn && userId) {
     const and = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
     where.AND = [...and, myWorkWhere(userId)];
+  }
+  // Your Work: the issues assigned to you, whatever their status.
+  const isYourWorkView = statusParam === YOUR_WORK_STATUS && !isDeletedView;
+  if (isYourWorkView) {
+    const and = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...and, userId ? yourWorkWhere(userId) : { id: { in: [] } }];
   }
   if (qParam?.trim()) {
     const q = escapeSearchQuery(boundSearchTerm(qParam));
@@ -439,8 +437,8 @@ export async function IssuesList({
       }
     }
   }
-  // #1055: every tab counts what the other filters match, whatever platform
-  // is picked, so switching tabs never surprises. The snapshot is taken after
+  // #1055: every tab counts what the other filters match, so switching tabs
+  // never surprises. The snapshot is taken after
   // the stage clause is applied (#626): a ?stage= page must count the same
   // rows its result list shows — tabs, badges and the "Show N resolved" link
   // all follow the stage filter, not the pre-stage row set.
@@ -464,64 +462,6 @@ export async function IssuesList({
   void _rejected;
   void _duplicate;
   void _notMergeStage;
-  // The platform menu counts each platform's issues whatever tab is picked,
-  // so its numbers don't move as you switch tabs; the tabs then split the
-  // picked platform's total. A ?stage= from the URL still narrows it (#626).
-  const stageFromUrl = stageView !== null;
-  const { categoryId: _platformClause, ...platformTabWhere }: Prisma.BugWhereInput = {
-    ...statusTabWhere,
-    ...(stageFromUrl ? { id: where.id } : {}),
-  };
-  void _platformClause;
-
-  let platformTabs: PlatformTab[] = [];
-  if (!isDeletedView) {
-    try {
-      const grouped = await prisma.bug.groupBy({
-        by: ["categoryId"],
-        where: platformTabWhere,
-        _count: { _all: true },
-      });
-
-      const counts = new Map(grouped.map((row) => [row.categoryId, row._count._all]));
-      const all = grouped.reduce((sum, row) => sum + row._count._all, 0);
-
-      const choices = platformChoices(platforms, selectedPlatform);
-      if (choices.length > 0) {
-        platformTabs = [
-          { id: null, name: "All", count: all },
-          // Active platforms, plus a deactivated one if a link picked it.
-          ...choices.map((platform) => ({
-            id: platform.id,
-            name: platform.name,
-            count: counts.get(platform.id) ?? 0,
-          })),
-          {
-            id: PLATFORM_NONE,
-            name: "No platform",
-            count: counts.get(null) ?? 0,
-          },
-        ];
-      }
-    } catch (error) {
-      console.error("[bugs] platform tab counts failed", error);
-    }
-  }
-  const platformHref = (id: string | null) => {
-    const next = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (key === "page" || key === PLATFORM_PARAM) continue;
-      if (isIdeasView && key === IDEAS_PARAM) continue;
-      const single = toSingleQueryParam(value);
-      if (single) next.set(key, single);
-    }
-    // Platforms filter issues, so picking one from Ideas opens All.
-    if (isIdeasView) next.set("status", ALL_STATUS);
-    if (id) next.set(PLATFORM_PARAM, id);
-    const qs = next.toString();
-    return listHref(new URLSearchParams(qs));
-  };
-
   // How many the default view is hiding, so "Show duplicates" can say so.
   let hiddenDuplicates = 0;
   if (!showDuplicates) {
@@ -583,7 +523,6 @@ export async function IssuesList({
           orderBy: { createdAt: "desc" },
           take: 2,
         },
-        category: { select: { id: true, name: true } },
         area: { select: { id: true, name: true } },
         // #rewards: what solving it pays, in $, and whether the estimating is done.
         reward: true,
@@ -628,8 +567,7 @@ export async function IssuesList({
           ],
         }
       : {}),
-    // The Ideas list's more-filters widget: platform, who wrote it, and only mine.
-    ...(selectedPlatform ? { categoryId: selectedPlatform === PLATFORM_NONE ? null : selectedPlatform } : {}),
+    // The Ideas list's more-filters widget: who wrote it, and only mine.
     ...(ideaAuthor === "agents" ? { createdByAgentId: { not: null } } : ideaAuthor === "people" ? { createdByAgentId: null } : {}),
     ...(mineFilter === "created" && userId ? { reporterId: userId } : {}),
   };
@@ -676,6 +614,18 @@ export async function IssuesList({
           0,
         )
       : 0;
+  // The Your Work stage shows only while something is assigned to you in this project.
+  const yourWorkCount =
+    userId && !isDeletedView && tenantId
+      ? await loadOrEmpty(
+          "your work",
+          () =>
+            prisma.bug.count({
+              where: { ...bugInTenant(tenantId), ...(projectId && !allProjects ? { projectId } : {}), isDeleted: false, ...duplicatesWhere(showDuplicates), ...yourWorkWhere(userId) },
+            }),
+          0,
+        )
+      : 0;
   // The Ideas tab's counts show on every tab; drafts only while Ideas is open.
   const [ideasCount, rejectedIdeasCount, draftIds] = await Promise.all([
     tenantId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
@@ -714,7 +664,6 @@ export async function IssuesList({
             // Its newest verdict, for the Last update column.
             verdicts: { orderBy: { updatedAt: "desc" }, take: 1, select: { updatedAt: true } },
             reporter: { select: { name: true } },
-            category: { select: { name: true } },
             _count: { select: { verdicts: true } },
           },
         });
@@ -745,7 +694,6 @@ export async function IssuesList({
           threshold: thresholds.get(row.projectId) ?? null,
           createdAt: row.createdAt,
           reporterName: row.reporter.name,
-          platform: row.category?.name ?? null,
           verdicts: row._count.verdicts,
           rejected: ideasView === "rejected",
           archived: row.status === "archived" ? archiveReasonLabel(row.archiveReason, row.archiveDuplicateOf) : null,
@@ -910,16 +858,7 @@ export async function IssuesList({
   // just means that tab is empty, so the empty state names the tab.
   const onlyStatusTab =
     Boolean(statusParam && (statuses as readonly string[]).includes(statusParam)) &&
-    !qParam && !tagsParam && !selectedPlatform && !selectedMilestone && !mineFilter;
-  const emptyPlatform =
-    Boolean(selectedPlatform) &&
-    !isWatchingView &&
-    !qParam &&
-    !statusParam &&
-    !tagsParam &&
-    !selectedMilestone &&
-    !selectedArea &&
-    !stageView;
+    !qParam && !tagsParam && !selectedMilestone && !mineFilter;
 
   // The stage the page is on, and the status inside it, for the stage bar and the list on the left.
   const currentStatus = ideasView === "rejected" ? REJECTED_IDEAS_STATUS : isIdeasView ? IDEAS_STATUS : statusParam;
@@ -934,7 +873,7 @@ export async function IssuesList({
     ? []
     : await loadOrEmpty("your call", () => loadYourCall(projectId, { userId, isAdmin: Boolean(membershipRole && isOrganizationAdmin(membershipRole, effectiveRole)) }), []);
   const statusCount = (value: string) =>
-    value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
+    value === YOUR_WORK_STATUS ? yourWorkCount : value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
   const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));
 
   const headerContent = (
@@ -970,7 +909,7 @@ export async function IssuesList({
           ) : null}
         </div>
         <Suspense fallback={<div className="h-8 w-36 rounded-lg bg-zk-chip" />}>
-          <IssueFilters compact tagTypes={tagTypes} platforms={platforms} milestones={milestones} areas={areas} shortcutsEnabled={shortcutsEnabled}
+          <IssueFilters compact tagTypes={tagTypes} milestones={milestones} areas={areas} shortcutsEnabled={shortcutsEnabled}
             stageCounts={isDeletedView ? undefined : { confirming: confirmingCount, ready: readyCount }} />
         </Suspense>
         <div className="issues-actions flex flex-wrap items-center gap-2 print:hidden">
@@ -978,7 +917,7 @@ export async function IssuesList({
           {!isIdeasView && filterGroups.length > 0 ? <ToolbarFilterMenu groups={filterGroups} summary={filterSummary} /> : null}
           {finishedWatched > 0 ? <UnwatchFinishedButton count={finishedWatched} /> : null}
           <IssuesToolsToggle
-            active={Boolean(searchText || selectedPlatform || selectedTags.length > 0 || selectedMilestone)}
+            active={Boolean(searchText || selectedTags.length > 0 || selectedMilestone)}
           />
           {/* Phones: the + beside the title, since the tools row is collapsed there.
               Desktop has it at the far left of the toolbar, except on a first run. */}
@@ -1024,7 +963,7 @@ export async function IssuesList({
                 ]}
                 more={
                   <Suspense fallback={null}>
-                    <IdeasMoreFilters platforms={platforms} draftsHref={ideasPath(slug, "drafts")} />
+                    <IdeasMoreFilters draftsHref={ideasPath(slug, "drafts")} />
                   </Suspense>
                 }
               />
@@ -1057,26 +996,22 @@ export async function IssuesList({
         ) : bugs.length === 0 ? (
           <WhimsicalEmptyState
             title={
-              isWatchingView && !qParam && !statusParam && !tagsParam && !selectedPlatform && !selectedMilestone
+              isWatchingView && !qParam && !statusParam && !tagsParam && !selectedMilestone
                 ? "You're not watching any issues."
-                : emptyPlatform
-                  ? "No issues on this platform"
-                  : onlyStatusTab
-                    ? `No issues in ${statusFilterLabel(statusParam!)}.`
-                    : "No issues match these filters."
+                : onlyStatusTab
+                  ? `No issues in ${statusFilterLabel(statusParam!)}.`
+                  : "No issues match these filters."
             }
             description={
               isWatchingView
                 ? "You watch issues you report, are assigned to or comment on, and any you choose to watch from the issue page."
-                : emptyPlatform
-                  ? "Issues tagged for this platform will show up here."
-                  : onlyStatusTab
-                    ? undefined
-                    : "Maybe the bugs went into hiding, or they've all been squashed! Try clearing your filters or create a new issue."
+                : onlyStatusTab
+                  ? undefined
+                  : "Maybe the bugs went into hiding, or they've all been squashed! Try clearing your filters or create a new issue."
             }
             clearHref={issuesPath(slug, statusParam ?? ALL_STATUS)}
             createHref={newIssueHref(slug, returnTo)}
-            showClear={Boolean((myWorkOn || !onlyStatusTab) && (qParam || statusParam || tagsParam || selectedPlatform || selectedMilestone || myWorkOn))}
+            showClear={Boolean((myWorkOn || !onlyStatusTab) && (qParam || statusParam || tagsParam || selectedMilestone || myWorkOn))}
             showCreate={true}
           />
         ) : (
@@ -1201,7 +1136,6 @@ export async function IssuesList({
                               {bug.duplicateOf ? (
                                 <span>Duplicate of {formatIssueNumber(bug.duplicateOf.number)}</span>
                               ) : null}
-                              {bug.category ? <span>{bug.category.name}</span> : null}
                               <RowAge date={currentSort === "newest" ? bug.createdAt : bug.updatedAt} sort={currentSort === "newest" ? "newest" : "updated"} />
                               {/* The status rides at the end of this line; the column beside the title holds the bids. */}
                               <span className="inline-flex min-w-0">{rowStatus}</span>
@@ -1254,7 +1188,6 @@ export async function IssuesList({
                 sort: sortParam,
                 milestone: milestoneParam,
                 tags: tagsParam,
-                platform: selectedPlatform,
                 area: selectedArea,
                 stage: stageView,
                 deleted: isDeletedView,
@@ -1275,25 +1208,26 @@ export async function IssuesList({
       <RememberIssueList />
     </Suspense>
     {/* The stages, centred, with Project notes at the right of the same row. The row is as wide
-        as the panel below, so notes and platform line up with the panel's right edge. */}
-    <div className={`relative mx-auto mb-4 flex min-h-8 w-full items-start justify-center ${isIdeasView ? "max-w-[920px]" : "max-w-6xl"}`}>
+        as the panel below, so the project icons line up with the panel's right edge. */}
+    {/* On a phone the icons take their own row above the stages, so they never cover them. */}
+    <div className={`relative mx-auto mb-4 flex min-h-8 w-full items-start justify-center max-sm:flex-col-reverse max-sm:items-stretch max-sm:gap-2 ${isIdeasView ? "max-w-[920px]" : "max-w-6xl"}`}>
       {!isDeletedView ? (
         <PipelineSteps
-          stages={STAGE_GROUPS.map((group, index) => ({
-            label: group.label,
-            // Error is part of Merge, so the stage total counts it once.
-            count: group.statuses.reduce((sum, value) => sum + (value === ERROR_STATUS || value === POSSIBLY_DELIVERED ? 0 : statusCount(value)), 0),
-            href: statusLink(group.statuses[0]),
-            selected: index === stageIndex,
-          }))}
+          stages={STAGE_GROUPS.flatMap((group, index) => {
+            const stage = {
+              label: group.label,
+              // Error is part of Merge, so the stage total counts it once.
+              count: group.statuses.reduce((sum, value) => sum + (value === ERROR_STATUS || value === POSSIBLY_DELIVERED ? 0 : statusCount(value)), 0),
+              href: statusLink(group.statuses[0]),
+              selected: index === stageIndex,
+            };
+            // Your Work only while something is assigned to you, Live only once something went live.
+            const conditional = index === YOUR_WORK_STAGE || index === LIVE_STAGE;
+            return !conditional || stage.count > 0 || stage.selected ? [stage] : [];
+          })}
         />
       ) : null}
-      <div className="absolute right-0 top-0 flex items-center gap-2">
-        <PlatformMenu
-          iconOnly
-          tabs={platformTabs.map((tab) => ({ ...tab, href: platformHref(tab.id) }))}
-          current={selectedPlatform}
-        />
+      <div className="absolute right-0 top-0 flex items-center gap-2 max-sm:static max-sm:self-end">
         {/* The project's settings icon, at the far right: the site and code URLs, notes, and the settings page. */}
         {projectLinks && !isDeletedView ? (
           <ProjectLinks
@@ -1314,7 +1248,8 @@ export async function IssuesList({
       {headerContent}
       <div className="flex items-start gap-5 max-lg:flex-col max-lg:gap-3">
         {/* The Ideas stage has no sidebar: its Filter menu switches to Rejected ideas (#ideas-filter). */}
-        {stageIndex >= 0 && !isIdeasView ? (
+        {/* Your Work is one list, with no steps to pick between. */}
+        {stageIndex >= 0 && !isIdeasView && !isYourWorkView ? (
           <StageSidebar
             steps={[
               // In Progress: Your call joins the top of the steps, in amber, only while the agents have split on something.
@@ -1398,9 +1333,7 @@ function FirstRunWelcome({
         <p className="mx-auto mt-6 max-w-md text-sm text-zk-muted">
           Before people start reporting, you may want to set up your{" "}
           <Link href={orgPath(slug, "projects")} className="font-bold text-zk-accent underline">projects</Link>
-          , and the{" "}
-          <Link href={orgPath(slug, "platforms")} className="font-bold text-zk-accent underline">platforms</Link>{" "}
-          and{" "}
+          {" "}and the{" "}
           <Link href={orgPath(slug, "types")} className="font-bold text-zk-accent underline">issue types</Link>{" "}
           they will choose from.
         </p>

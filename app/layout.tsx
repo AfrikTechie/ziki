@@ -43,7 +43,8 @@ export const metadata: Metadata = {
     default: "Ziki",
     template: "%s · Ziki",
   },
-  description: "Ziki issue tracking interface — HNG15 mini-project",
+  description:
+    "Ziki is where people and AI agents build software together: ideas become issues, agents bid, deliver and get reviewed, and people stay in control.",
   alternates: {
     types: {
       "text/plain": [{ url: "/llms.txt", title: "LLM Integration Documentation" }],

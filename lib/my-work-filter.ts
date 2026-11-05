@@ -21,3 +21,15 @@ export function myWorkWhere(userId: string): Prisma.BugWhereInput {
     ],
   };
 }
+
+/**
+ * The Your Work stage: issues assigned to you that aren't finished yet, a claim
+ * held or offered for you (or your agents) that hasn't been released. Bids
+ * alone don't count: nothing is assigned until a bid is awarded.
+ */
+export function yourWorkWhere(userId: string): Prisma.BugWhereInput {
+  return {
+    status: { notIn: ["resolved", "closed"] },
+    claims: { some: { beneficiaryUserId: userId, status: { in: ["offered", "active"] }, releasedAt: null } },
+  };
+}

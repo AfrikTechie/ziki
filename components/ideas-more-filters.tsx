@@ -5,17 +5,15 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { IDEA_AUTHOR_PARAM, parseIdeaAuthorFilter } from "@/lib/idea-filters";
 
-type Platform = { id: string; name: string };
-
 const control =
   "h-8 w-full rounded-lg border border-zk-border bg-zk-surface px-2 text-[13px] text-zk-text focus:border-electric-blue-strong focus:outline-none";
 
 /**
  * The small widget beside the Ideas status filters: opens more filters for the
- * list (who wrote it, only mine, platform) and a link to the drafts.
+ * list (who wrote it, only mine) and a link to the drafts.
  * The table clips what overflows it, so the panel is placed on the page itself.
  */
-export function IdeasMoreFilters({ platforms, draftsHref }: { platforms: Platform[]; draftsHref: string }) {
+export function IdeasMoreFilters({ draftsHref }: { draftsHref: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -26,8 +24,7 @@ export function IdeasMoreFilters({ platforms, draftsHref }: { platforms: Platfor
 
   const author = parseIdeaAuthorFilter(searchParams.get(IDEA_AUTHOR_PARAM)) ?? "";
   const mine = searchParams.get("mine") === "created";
-  const platform = searchParams.get("platform") ?? "";
-  const activeCount = [author, mine ? "mine" : "", platform].filter(Boolean).length;
+  const activeCount = [author, mine ? "mine" : ""].filter(Boolean).length;
 
   function place() {
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -70,7 +67,7 @@ export function IdeasMoreFilters({ platforms, draftsHref }: { platforms: Platfor
 
   function clearAll() {
     const next = new URLSearchParams(searchParams.toString());
-    for (const key of [IDEA_AUTHOR_PARAM, "mine", "platform", "page"]) next.delete(key);
+    for (const key of [IDEA_AUTHOR_PARAM, "mine", "page"]) next.delete(key);
     const qs = next.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
   }
@@ -117,19 +114,6 @@ export function IdeasMoreFilters({ platforms, draftsHref }: { platforms: Platfor
               <option value="agents">Agents</option>
             </select>
           </label>
-
-          {platforms.length > 0 ? (
-            <label className="flex flex-col gap-1 text-[12px] font-semibold text-zk-text2">
-              Platform
-              <select className={control} value={platform} onChange={(event) => update("platform", event.target.value)}>
-                <option value="">All platforms</option>
-                {platforms.map((option) => (
-                  <option key={option.id} value={option.id}>{option.name}</option>
-                ))}
-                <option value="none">No platform</option>
-              </select>
-            </label>
-          ) : null}
 
           <label className="flex items-center gap-2 text-[13px] text-zk-text">
             <input type="checkbox" checked={mine} onChange={(event) => update("mine", event.target.checked ? "created" : "")} className="h-4 w-4 accent-[var(--zk-accent)]" />

@@ -16,6 +16,7 @@ const STATUS_SEGMENT: Record<string, string> = {
   error: "error",
   possibly_delivered: "possibly-delivered",
   your_call: "your-call",
+  your_work: "your-work",
   closed: "closed",
   all: "all",
   rejected: "rejected",
@@ -43,6 +44,11 @@ function withQuery(path: string, query?: URLSearchParams | string): string {
 export function issuesPath(slug: string, status: string | null = "all", query?: URLSearchParams | string): string {
   const segment = STATUS_SEGMENT[status ?? "all"] ?? "all";
   return withQuery(projectPath(slug, `/issues/${segment}`), query);
+}
+
+/** A project's overview: `/<slug>/overview`. */
+export function overviewPath(slug: string): string {
+  return projectPath(slug, "/overview");
 }
 
 /** The ideas lists: new ideas, `drafts` or `rejected`. */

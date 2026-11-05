@@ -1,13 +1,13 @@
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { currentTenantAccess } from "@/lib/tenant-access";
-import { getActiveIssueTypesCached, getActivePlatforms } from "@/lib/lookups";
+import { getActiveIssueTypesCached } from "@/lib/lookups";
 import { tenantMemberWhere } from "@/lib/tenant-mentions";
 import { requireProject } from "@/lib/project-route";
 
 /**
  * Everything the report form needs, shared by the full page and the quick
- * report modal so both always load the same people, platforms and types.
+ * report modal so both always load the same people and types.
  */
 type MentionUser = { id: string; name: string; role: Role; image: string | null };
 
@@ -62,11 +62,10 @@ async function loadAssigneeUsers(tenantId: string | null): Promise<MentionUser[]
 export async function loadReportFormData(slug: string) {
   const { user, tenantId, project } = await requireProject(slug, `/${slug}/issues/new`);
   const admin = (await currentTenantAccess(user.id, user.role)).admin;
-  const [users, assigneeUsers, categories, types] = await Promise.all([
+  const [users, assigneeUsers, types] = await Promise.all([
     loadMentionUsers(tenantId),
     loadAssigneeUsers(tenantId),
-    loadOrEmpty("platforms", async () => getActivePlatforms(tenantId), []),
     loadOrEmpty("issue types", () => getActiveIssueTypesCached(tenantId), []),
   ]);
-  return { user, admin, users, assigneeUsers, categories, types, projectId: project.id, projectSlug: project.slug };
+  return { user, admin, users, assigneeUsers, types, projectId: project.id, projectSlug: project.slug };
 }

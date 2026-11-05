@@ -28,7 +28,6 @@ import { initialDescription, templateSwitch } from "@/lib/issue-templates";
 const TITLE_MAX_LENGTH = 200;
 
 type UserOption = { id: string; name: string; role: AppRole; image?: string | null };
-type CategoryOption = { id: string; name: string };
 type TypeOption = {
   id: string;
   name: string;
@@ -41,14 +40,12 @@ type TypeOption = {
 const FIELD_LABELS: Record<string, string> = {
   title: "Title",
   typeId: "Type",
-  categoryId: "Platform",
   description: "Description",
   proofLinks: "GitHub PR",
 };
 
 export function CreateIssueForm({
   users,
-  categories = [],
   types = [],
   currentUserId,
   projectId,
@@ -60,7 +57,6 @@ export function CreateIssueForm({
 }: {
   users: UserOption[];
   assigneeUsers?: UserOption[];
-  categories?: CategoryOption[];
   types?: TypeOption[];
   isAdmin: boolean;
   currentUserId?: string;
@@ -118,7 +114,6 @@ export function CreateIssueForm({
       title: "",
       typeId: defaultTypeId,
       description: initialDescription(templateOf(defaultTypeId)),
-      categoryId: "",
       proofLinks: "",
     },
   );
@@ -175,7 +170,6 @@ export function CreateIssueForm({
         if (projectId) formData.set("projectId", projectId);
         if (mode === "detailed") {
           formData.set("typeId", values.typeId);
-          formData.set("categoryId", values.categoryId);
           formData.set("proofLinks", values.proofLinks);
         }
         startTransition(async () => {
@@ -347,31 +341,6 @@ export function CreateIssueForm({
                 <FieldError formId={errs.formId} field="typeId" errors={errs.fieldErrors} />
               </div>
             ) : null}
-          {mode === "detailed" ? (
-            <div className="space-y-1.5">
-              <label
-                htmlFor="categoryId"
-                className="text-sm font-medium text-slate-700"
-              >
-                Platform
-              </label>
-              <Select
-                id="categoryId"
-                name="categoryId"
-                value={values.categoryId}
-                onChange={(event) => setValue("categoryId", event.target.value)}
-                {...errs.attrs("categoryId")}
-              >
-                <option value="">Select a platform</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
-              </Select>
-              <FieldError formId={errs.formId} field="categoryId" errors={errs.fieldErrors} />
-            </div>
-          ) : null}
           {mode === "detailed" ? (
             <div className="space-y-1.5">
               <label

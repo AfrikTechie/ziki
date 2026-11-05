@@ -86,7 +86,7 @@
   .issues-filters:has(.issues-search-expanded) { width: 100%; min-width: 0; }
   .issues-filters .issues-search-expanded { width: auto; flex: 1 1 0; max-width: none; }
   .issues-heading .issues-new { height: 32px; padding: 0 10px; }
-  /* Search, filter, sort and platform sit behind the tools icon until it's opened (or a search is open). */
+  /* Search, filter and sort sit behind the tools icon until it's opened (or a search is open). */
   .issues-heading:not([data-tools-open]):not(:has(.issues-search-expanded)) > .issues-filters > div:first-child { display: none; }
   .issues-heading h1 { font-size: 15px; }
   .issues-heading > div:first-child > p { font-size: 13px; }

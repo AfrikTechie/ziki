@@ -87,7 +87,6 @@ export default async function IdeaPage({ params, searchParams }: {
       reporter: { select: { name: true, role: true, image: true } },
       beneficiary: { select: { name: true, role: true, image: true } },
       createdByAgent: { select: { name: true, ownerUserId: true } },
-      category: { select: { name: true } },
       type: { select: { name: true } },
       area: { select: { name: true } },
       issue: { select: { number: true, title: true, project: { select: { slug: true } } } },
@@ -358,19 +357,13 @@ export default async function IdeaPage({ params, searchParams }: {
             ) : null}
           </section>
 
-          {idea.type || idea.category || idea.area ? (
+          {idea.type || idea.area ? (
             <section aria-label="Details" className="flex flex-col gap-2 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
               <span className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Details</span>
               {idea.type ? (
                 <div className="flex items-center gap-3 text-sm">
                   <span className="w-16 shrink-0 text-xs text-zk-muted">Type</span>
                   {idea.type.name}
-                </div>
-              ) : null}
-              {idea.category ? (
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="w-16 shrink-0 text-xs text-zk-muted">Platform</span>
-                  {idea.category.name}
                 </div>
               ) : null}
               {idea.area ? (

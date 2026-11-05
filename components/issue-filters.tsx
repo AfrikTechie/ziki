@@ -24,13 +24,6 @@ import {
   parseMineFilter,
   defaultSortFor,
 } from "@/lib/mine-filter";
-import {
-  PLATFORM_NONE,
-  PLATFORM_PARAM,
-  parsePlatformFilter,
-  platformChoices,
-  type PlatformOption,
-} from "@/lib/platform-filter";
 import { AREA_NONE, AREA_PARAM, parseProjectAreaFilter, type ProjectAreaOption } from "@/lib/project-area-filter";
 import { MILESTONE_NONE, MILESTONE_PARAM } from "@/lib/milestones";
 import {
@@ -84,7 +77,6 @@ const FILTER_PARAMS = [
   TAGS_PARAM,
   "mine",
   "status",
-  PLATFORM_PARAM,
   AREA_PARAM,
   MILESTONE_PARAM,
 ];
@@ -123,7 +115,6 @@ function hrefWithChanges(
 
 export function IssueFilters({
   tagTypes = [],
-  platforms = [],
   milestones = [],
   areas = [],
   shortcutsEnabled = true,
@@ -131,7 +122,6 @@ export function IssueFilters({
   compact = false,
 }: {
   tagTypes?: TagType[];
-  platforms?: PlatformOption[];
   /** #289: open milestones first; closed ones stay selectable for history. */
   milestones?: { id: string; title: string; isClosed: boolean }[];
   areas?: ProjectAreaOption[];
@@ -415,8 +405,6 @@ export function IssueFilters({
     params.get("sort"),
     defaultSortFor(parseMineFilter(params.get("mine"))),
   );
-  const currentPlatform = parsePlatformFilter(params.get(PLATFORM_PARAM), platforms) ?? "";
-  const platformOptions = platformChoices(platforms, currentPlatform || null);
   const currentArea = parseProjectAreaFilter(params.get(AREA_PARAM), areas) ?? "";
   const currentMine = parseMineFilter(params.get("mine")) ?? "";
   const currentMilestone = params.get(MILESTONE_PARAM) ?? "";
@@ -428,7 +416,6 @@ export function IssueFilters({
     Boolean(params.get("status")),
     Boolean(currentMine),
     selectedNames.length > 0,
-    currentPlatform === PLATFORM_NONE,
     Boolean(currentArea),
     Boolean(currentMilestone),
   ].filter(Boolean).length;
@@ -560,7 +547,7 @@ export function IssueFilters({
         </button>
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {/* The Issues page (compact) has no Filter button: the stages and the platform icon replace it. */}
+          {/* The Issues page (compact) has no Filter button: the stages replace it. */}
           {compact ? null : (
           <div className="relative shrink-0">
             <button
@@ -631,16 +618,6 @@ export function IssueFilters({
                       ))}
                     </FilterSelect>
                   </div>
-                  {platformOptions.length > 0 ? (
-                    <div>
-                      <label htmlFor="platform" className={fieldLabelClass}>Platform</label>
-                      <FilterSelect aria-label="Platform" id="platform" className={selectClass} value={currentPlatform} onValueChange={(value) => update(PLATFORM_PARAM, value)}>
-                        <option value="">All</option>
-                        {platformOptions.map((platform) => (<option key={platform.id} value={platform.id}>{platform.name}</option>))}
-                        <option value={PLATFORM_NONE}>No platform</option>
-                      </FilterSelect>
-                    </div>
-                  ) : null}
                   {areas.length > 0 ? (
                     <div>
                       <label htmlFor="area" className={fieldLabelClass}>Area</label>
@@ -722,12 +699,6 @@ export function IssueFilters({
               <button type="button" onClick={() => removeTag(type.name)} aria-label={`Remove tag ${type.name}`} className="ml-0.5 rounded-full p-0.5 hover:bg-zk-chip">✕</button>
             </span>
           ))}
-          {currentPlatform === PLATFORM_NONE ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-transparent bg-zk-info-bg py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-info-fg">
-              Platform: No platform
-              <button type="button" onClick={() => update(PLATFORM_PARAM, "")} aria-label="Remove platform filter" className="ml-0.5 rounded-full p-0.5 hover:bg-zk-chip">✕</button>
-            </span>
-          ) : null}
           {currentArea ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-zk-border bg-zk-tint py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-accent">
               Area: {currentArea === AREA_NONE ? "No area" : areas.find((area) => area.id === currentArea)?.name ?? currentArea}

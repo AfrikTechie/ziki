@@ -332,7 +332,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         idea: { select: { id: true, number: true, convertedAt: true, _count: { select: { verdicts: true } } } },
         milestone: { select: { id: true, title: true, dueDate: true, isClosed: true } },
         assignee: { select: { id: true, name: true, role: true, image: true } },
-        category: { select: { id: true, name: true, isActive: true } },
         area: { select: { id: true, name: true } },
         project: { select: { slug: true } },
         votes: { where: { userId }, select: { id: true, value: true }, take: 1 },
@@ -367,7 +366,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           createdByAgent: { select: { id: true, name: true, ownerUserId: true } },
           idea: { select: { id: true, number: true, convertedAt: true, _count: { select: { verdicts: true } } } },
           assignee: { select: { id: true, name: true, role: true, image: true } },
-          category: { select: { id: true, name: true, isActive: true } },
           area: { select: { id: true, name: true } },
           project: { select: { slug: true } },
           votes: { where: { userId }, select: { id: true, value: true }, take: 1 },
@@ -1173,14 +1171,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             ) : null}
 
             {/* Taxonomy (#687). Status, stage and the opened date are in the Status box. */}
-            {bug.type || bug.category ? (
+            {bug.type ? (
               <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-zk-muted">
-                {bug.type ? (
-                  <span className={`${issueChipBaseClass} bg-zk-chip text-zk-text2`}>{bug.type.name}</span>
-                ) : null}
-                {bug.category ? (
-                  <span className={`${issueChipBaseClass} bg-zk-chip text-zk-text2`}>{bug.category.name}</span>
-                ) : null}
+                <span className={`${issueChipBaseClass} bg-zk-chip text-zk-text2`}>{bug.type.name}</span>
               </p>
             ) : null}
           </div>

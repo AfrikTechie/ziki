@@ -58,7 +58,7 @@ const input = (overrides: Partial<CreatePolicyInput> = {}): CreatePolicyInput =>
 const similarRow = { id: "b1", number: 12, title: "Login button does nothing in Safari", status: "open", voteCount: 3, score: 0.8 };
 const idea = {
   id: "i1", number: 12, title: "Export activity as CSV", summary: "People want a CSV.", description: "People want their data.",
-  status: "open" as const, score: 3, typeId: null, categoryId: null, areaId: null, proofLinks: [], projectId: "p1",
+  status: "open" as const, score: 3, typeId: null, areaId: null, proofLinks: [], projectId: "p1",
   reporterId: "ada", beneficiaryUserId: "ada", createdByAgentId: null, convertedAt: null, archiveReason: null,
   archiveEvidence: null, archiveDuplicateOf: null, archivedAt: null, archivedByAgentId: null,
   createdAt: new Date("2026-10-20T10:00:00Z"), updatedAt: new Date("2026-10-20T10:00:00Z"), area: null, issue: null,

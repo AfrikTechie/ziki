@@ -90,7 +90,7 @@ export default async function OrgOverviewPage({
           }))}
           total={statusTotal}
         />
-        <BreakdownCard title="By platform" rows={data.byPlatform} total={statusTotal} />
+        <BreakdownCard title="By project" rows={data.byProject} total={statusTotal} />
       </div>
 
       <BreakdownCard title="By type" rows={data.byType} total={statusTotal} wide />

@@ -11,10 +11,12 @@ import { AgentActivity, AgentProfileHeader, AgentSideCard, AgentStats } from "./
 import { AgentReviews } from "./agent-reviews";
 import { AgentTabs } from "./agent-tabs";
 import { findAgentByUsername, loadAgentProfile, loadOwnAgents, loadReviews } from "./data";
+import { agentProfileJsonLd, agentProfileMetadata } from "@/lib/seo/agents";
+import { JsonLd } from "@/components/json-ld";
 
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
-  return { title: `@${decodeURIComponent(username)}` };
+  return agentProfileMetadata(username);
 }
 
 /**
@@ -49,11 +51,14 @@ export default async function AgentProfilePage({ params }: { params: Promise<{ u
     viewer ? loadOwnAgents(viewer.id, profile.tenantId, found.id) : Promise.resolve([]),
   ]);
   const reviewCount = isMember ? reviews.length : 0;
+  // #seo-agents: structured data for a public (set-up, not revoked) profile only.
+  const jsonLd = await agentProfileJsonLd(username);
   const missing = missingProfileFields({ ...profile.agent, skillCount: profile.agent.skills.length });
   const blocked = !profile.agent.revokedAt && missing.length > 0;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      {jsonLd ? <JsonLd data={jsonLd} /> : null}
       {/* The way back on the left and your agents' tabs centred on one line; stacked on a phone. */}
       <div className="grid items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
         <Link href={AGENTS_DIRECTORY_HREF} className={`justify-self-start text-sm ${agentsLink}`}>

@@ -186,12 +186,12 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_list_issues",
     summary:
-      "List issues in a project, newest first. Page with `nextCursor`. Filter by `status`, one per pipeline step, and by `platform` (a slug from ziki_list_platforms): work platform by platform, and use platform=none to find uncategorized issues and put each on its platform (ziki_set_issue_platform). Ideas are not issues: list them with ziki_list_ideas.",
+      "List issues in a project, newest first. Page with `nextCursor`. Filter by `status`, one per pipeline step. Ideas are not issues: list them with ziki_list_ideas.",
     level: "working",
     method: "GET",
     route: "/issues",
     projectScoped: true,
-    query: ["status", "substatus", "assignee", "platform", "area", "limit", "cursor"],
+    query: ["status", "substatus", "assignee", "area", "limit", "cursor"],
     input: {
       projectId,
       status: z
@@ -203,7 +203,6 @@ export const TOOLS: readonly ToolDef[] = [
         .optional()
         .describe("Only issues at this substatus, the step within the main status."),
       assignee: z.string().optional().describe("An assignee's user id, or `none` for unassigned issues."),
-      platform: z.string().optional().describe("A platform slug from ziki_list_platforms (e.g. desktop), or `none` for issues with no platform yet."),
       area: z.string().optional().describe("A project area id, or `none` for issues without an area."),
       limit: z.number().int().min(1).max(100).optional().describe("Page size (default 25, maximum 100)."),
       cursor,
@@ -231,15 +230,14 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_list_ideas",
     summary:
-      "List ideas in a project, newest first. Every report starts as an idea; it takes verdicts until an agent converts it to an issue (or, in a threshold-only project, enough votes do it). Page with `nextCursor`. Filter by `platform` (a slug from ziki_list_platforms, or none for uncategorized ideas, which you should put on their platform with ziki_set_idea_platform).",
+      "List ideas in a project, newest first. Every report starts as an idea; it takes verdicts until an agent converts it to an issue (or, in a threshold-only project, enough votes do it). Page with `nextCursor`.",
     level: "working",
     method: "GET",
     route: "/ideas",
     projectScoped: true,
-    query: ["status", "convertible", "platform", "q", "limit", "cursor"],
+    query: ["status", "convertible", "q", "limit", "cursor"],
     input: {
       projectId,
-      platform: z.string().optional().describe("A platform slug from ziki_list_platforms (e.g. desktop), or `none` for ideas with no platform yet."),
       status: z.enum(["open", "converted", "rejected", "archived"]).optional().describe("Only ideas in this status. `rejected`: a manager agent rejected it, or in a threshold-only project its verdicts did. `archived`: a manager agent archived it as obsolete."),
       convertible: z.boolean().optional().describe("true: only open ideas whose score reached the project's threshold."),
       q: z.string().optional().describe("Search titles and descriptions."),
@@ -257,47 +255,6 @@ export const TOOLS: readonly ToolDef[] = [
     input: { id: ideaId, projectId },
   },
   {
-    name: "ziki_list_platforms",
-    summary:
-      "List the workspace's platforms, each { id, slug, name } (e.g. desktop, web, mobile). Call it before you file, list or sort work: issues and ideas are organised by platform, and every tool that names a platform takes its slug.",
-    level: "working",
-    method: "GET",
-    route: "/platforms",
-    input: {},
-  },
-  {
-    name: "ziki_set_issue_platform",
-    summary:
-      "Put an issue on its platform, by slug (from ziki_list_platforms). When you find an uncategorized issue (platform null; ziki_list_issues with platform=none), put it on the right platform. It doesn't edit the report, so confirmations and verdicts stay. Moving one that already has a platform needs a manager or merger agent and a reason (409 already_categorized).",
-    level: "working",
-    method: "PUT",
-    route: "/issues/{id}/platform",
-    projectScoped: true,
-    body: ["platform", "reason"],
-    input: {
-      id: issueId,
-      projectId,
-      platform: z.string().trim().min(1).max(191).describe("The platform's slug, e.g. desktop."),
-      reason: z.string().trim().min(1).max(500).optional().describe("Why, when moving it from another platform."),
-    },
-  },
-  {
-    name: "ziki_set_idea_platform",
-    summary:
-      "Put an idea on its platform, by slug (from ziki_list_platforms). When you find an uncategorized idea (platform null; ziki_list_ideas with platform=none), put it on the right platform. Moving one that already has a platform needs a manager or merger agent and a reason (409 already_categorized).",
-    level: "working",
-    method: "PUT",
-    route: "/ideas/{id}/platform",
-    projectScoped: true,
-    body: ["platform", "reason"],
-    input: {
-      id: ideaId,
-      projectId,
-      platform: z.string().trim().min(1).max(191).describe("The platform's slug, e.g. desktop."),
-      reason: z.string().trim().min(1).max(500).optional().describe("Why, when moving it from another platform."),
-    },
-  },
-  {
     name: "ziki_create_idea",
     summary:
       "File a report on behalf of the owner. Every report is an idea: people and agents give it verdicts, and any agent converts it to an issue once its score reaches the threshold (or, in a threshold-only project, enough votes do it). Check for a duplicate with ziki_list_ideas and ziki_list_issues first.",
@@ -305,7 +262,7 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/ideas",
     projectScoped: true,
-    body: ["title", "summary", "description", "platform", "areaId", "proofLinks", "attachmentIds", "acknowledgeSimilar", "alreadyVetted", "vettedNote"],
+    body: ["title", "summary", "description", "areaId", "proofLinks", "attachmentIds", "acknowledgeSimilar", "alreadyVetted", "vettedNote"],
     headers: { "Idempotency-Key": "idempotencyKey" },
     input: {
       idempotencyKey,
@@ -325,7 +282,6 @@ export const TOOLS: readonly ToolDef[] = [
         .min(10)
         .max(5000)
         .describe("Markdown description, 10-5000 characters: steps to reproduce, expected and actual result."),
-      platform: z.string().trim().min(1).max(191).optional().describe("Where it shows up: a platform slug from ziki_list_platforms, e.g. desktop, web or mobile. Always give one when you know it."),
       areaId: z.string().optional().describe("Project area id (for example front end or back end)."),
       proofLinks: z
         .string()
@@ -1331,12 +1287,12 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_structure_issue",
-    summary: "Fill in a report's structure: steps, expected and actual behaviour, platform and type. Can check for duplicates.",
+    summary: "Fill in a report's structure: steps, expected and actual behaviour, and type. Can check for duplicates.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/structure",
     projectScoped: true,
-    body: ["title", "stepsToReproduce", "expectedBehavior", "actualBehavior", "environment", "description", "platform", "type", "typeId", "duplicateOfId", "checkDuplicates"],
+    body: ["title", "stepsToReproduce", "expectedBehavior", "actualBehavior", "environment", "description", "type", "typeId", "duplicateOfId", "checkDuplicates"],
     input: {
       id: issueId,
       projectId,
@@ -1346,7 +1302,6 @@ export const TOOLS: readonly ToolDef[] = [
       actualBehavior: z.string().trim().optional().describe("What happened instead."),
       environment: z.string().trim().optional().describe("Where it happened."),
       description: z.string().trim().max(5000).optional().describe("Replacement description, at most 5000 characters."),
-      platform: z.string().trim().min(1).max(191).optional().describe("A platform slug from ziki_list_platforms (e.g. desktop). To only categorize an issue, use ziki_set_issue_platform, which doesn't touch the report."),
       type: z.string().trim().optional().describe("Issue type name."),
       typeId: z.string().optional().describe("Issue type id."),
       duplicateOfId: z.string().optional().describe("Canonical issue id when this is a duplicate."),

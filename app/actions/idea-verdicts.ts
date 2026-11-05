@@ -21,6 +21,24 @@ export type IdeaVerdictActionResult = {
 };
 
 /**
+ * The idea a verdict is for, in any workspace the person belongs to (any for
+ * the site super admin). Not scoped by the active-workspace cookie: a tab
+ * left open on one workspace while another tab switched the cookie would
+ * otherwise get "Idea not found" for an idea it is showing.
+ */
+async function ideaForVerdict(user: { id: string; role?: string | null }, ideaId: string) {
+  if (typeof ideaId !== "string" || !ideaId) return null;
+  return prisma.idea.findFirst({
+    where: {
+      id: ideaId,
+      isDeleted: false,
+      tenant: { archivedAt: null, ...(user.role === "super_admin" ? {} : { memberships: { some: { userId: user.id } } }) },
+    },
+    select: { id: true, number: true, projectId: true, tenantId: true },
+  });
+}
+
+/**
  * A person gives an idea their verdict from the web app (#idea-verdicts):
  * good, bad or neutral, a summary of two sentences at most, and a full description.
  * Always one vote. A newer verdict replaces their earlier one.
@@ -35,14 +53,9 @@ export async function giveIdeaVerdictAction(
   const limit = await consumeRateLimit(`idea-verdict:${userId}`, ACTION_RATE_LIMITS.addComment);
   if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
 
-  const tenantId = await currentTenantIdFor(userId);
-  if (!tenantId || typeof ideaId !== "string" || !ideaId) return { error: "Idea not found" };
-
-  const idea = await prisma.idea.findFirst({
-    where: { id: ideaId, tenantId, isDeleted: false },
-    select: { id: true, number: true, projectId: true },
-  });
+  const idea = await ideaForVerdict(user, ideaId);
   if (!idea) return { error: "Idea not found" };
+  const tenantId = idea.tenantId;
 
   const parsed = ideaVerdictSchema.safeParse({
     opinion: formData.get("opinion") ?? undefined,
@@ -82,10 +95,10 @@ export async function quickIdeaVerdictAction(ideaId: string, opinion: "good" | "
   const limit = await consumeRateLimit(`idea-verdict:${user.id}`, ACTION_RATE_LIMITS.addComment);
   if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
 
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId || typeof ideaId !== "string" || !ideaId || (opinion !== "good" && opinion !== "bad")) return { error: "Idea not found" };
-  const idea = await prisma.idea.findFirst({ where: { id: ideaId, tenantId, isDeleted: false }, select: { id: true, projectId: true } });
+  if (opinion !== "good" && opinion !== "bad") return { error: "Idea not found" };
+  const idea = await ideaForVerdict(user, ideaId);
   if (!idea) return { error: "Idea not found" };
+  const tenantId = idea.tenantId;
 
   try {
     const input = ideaVerdictSchema.parse({ opinion, ...QUICK_VERDICT[opinion] });

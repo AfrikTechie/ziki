@@ -16,7 +16,6 @@ export type IdeaListRow = {
   threshold: number | null;
   createdAt: Date;
   reporterName: string | null;
-  platform: string | null;
   verdicts: number;
   /** A manager agent rejected it (#idea-rejected). */
   rejected?: boolean;
@@ -110,7 +109,6 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                     <span>
                       {idea.verdicts} verdict{idea.verdicts === 1 ? "" : "s"}
                     </span>
-                    {idea.platform ? <span>{idea.platform}</span> : null}
                     <LocalTime date={idea.createdAt} />
                     <span className="inline-flex min-w-0 md:sr-only">
                       <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />

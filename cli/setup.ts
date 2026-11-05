@@ -80,14 +80,6 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
     (await prisma.project.create({
       data: { tenantId: tenant.id, slug: SANDBOX.projectSlug, name: SANDBOX.name, workflow: { create: {} } },
     }));
-  // #platforms: the standard platforms, named by slug in the scenarios.
-  for (const name of ["Desktop", "Web", "Mobile"]) {
-    await prisma.category.upsert({
-      where: { tenantId_slug: { tenantId: tenant.id, slug: name.toLowerCase() } },
-      update: {},
-      create: { tenantId: tenant.id, name, slug: name.toLowerCase(), isActive: true },
-    });
-  }
   // Work in progress is up for a sense check at once (#abandon), so the scenarios need not wait two hours.
   await prisma.projectWorkflow.upsert({
     where: { projectId: project.id },

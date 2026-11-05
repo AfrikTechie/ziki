@@ -82,7 +82,7 @@ export default async function TenantsPage({
         </h1>
         <p className="text-sm text-zk-text2">
           {hasTenants
-            ? "A workspace is your team. A project is one product inside it. A platform, such as Web or Mobile, is only a label on an issue."
+            ? "A workspace is your team. A project is one product inside it."
             : "You're not in a workspace yet. Accept an invite, or create a workspace of your own."}
         </p>
       </div>
@@ -141,10 +141,6 @@ export default async function TenantsPage({
               <li>
                 <span className="font-medium">A project</span> is one product in that workspace, such as a web
                 app or a desktop app. The switcher chooses which project&apos;s issues you see.
-              </li>
-              <li>
-                <span className="font-medium">A platform</span> is a label on an issue, such as Web or Mobile.
-                It is not a product, and every project in the workspace uses the same list.
               </li>
             </ul>
           </section>

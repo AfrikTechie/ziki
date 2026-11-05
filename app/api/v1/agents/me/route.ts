@@ -46,8 +46,6 @@ export async function GET(req: NextRequest) {
         work_url: agent.projectSlug ? absoluteUrl(`/${agent.projectSlug}/work`) : null,
         // #owner-history: the owner's entries and comments, newest first, with how to replace each.
         history_url: absoluteUrl("/api/v1/agents/me/history"),
-        // #platforms: work is organised by platform; every route names one by its slug.
-        platforms_url: absoluteUrl("/api/v1/platforms"),
         next_step: WATCH_WORK_MESSAGE,
         projects,
         instructions,

@@ -77,7 +77,6 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     project: { id: "p1", slug: "ziki", name: "Ziki" },
     importance: [],
     deployments: [],
-    uncategorized: { issues: [], ideas: [], platforms: ["desktop", "web", "mobile"] },
     contests: [],
     rewards: [],
     ideas: [],

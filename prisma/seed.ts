@@ -274,23 +274,6 @@ async function seedDemoData() {
   console.log("Demo login: alice@zendor.dev / 12345678 (admin)");
 }
 
-async function ensureDefaultCategories() {
-  const tenant = await prisma.tenant.findUnique({ where: { slug: "zedu" }, select: { id: true } });
-  if (!tenant) {
-    console.log("Skipping default platforms: the Zedu organization is missing.");
-    return;
-  }
-  const defaults = ["Desktop", "Web", "Mobile"];
-  for (const name of defaults) {
-    await prisma.category.upsert({
-      where: { tenantId_name: { tenantId: tenant.id, name } },
-      update: {},
-      // #platforms: the slug agents name it by ("desktop").
-      create: { tenantId: tenant.id, name, slug: name.toLowerCase(), isActive: true },
-    });
-  }
-}
-
 async function ensureDefaultTypes() {
   const tenant = await prisma.tenant.findUnique({ where: { slug: "zedu" }, select: { id: true } });
   if (!tenant) {
@@ -329,7 +312,6 @@ async function main() {
 
   // Always idempotent; safe when a DB already has real accounts.
   await ensureSuperAdmin();
-  await ensureDefaultCategories();
   await ensureDefaultTypes();
 
   const seedDemo =

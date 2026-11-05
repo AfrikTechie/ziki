@@ -51,7 +51,6 @@ export function TeamAgentList({
                     <Link href={issue.path} className="text-teal-700 underline decoration-teal-300 underline-offset-2 hover:text-teal-900">
                       {issue.title}
                     </Link>
-                    {issue.categoryName ? <span className="text-slate-500"> · {issue.categoryName}</span> : null}
                     {issue.areaName ? <span className="text-slate-500"> · {issue.areaName}</span> : null}
                   </li>
                 ))}

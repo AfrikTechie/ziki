@@ -11,8 +11,6 @@ export type TeamAgentWork = {
   /** The issue's address, `/<project-slug>/<number>`. */
   path: string;
   title: string;
-  categoryId: string | null;
-  categoryName: string | null;
   /** The project area (#609) the issue is in, which the Team page filters on. */
   areaId: string | null;
   areaName: string | null;
@@ -72,8 +70,6 @@ export async function teamAgentsForMembers(
               number: true,
               project: { select: { slug: true } },
               title: true,
-              categoryId: true,
-              category: { select: { name: true } },
               areaId: true,
               area: { select: { name: true } },
             },
@@ -117,8 +113,6 @@ export async function teamAgentsForMembers(
       id: bug.id,
       path: issueHref(bug),
       title: bug.title,
-      categoryId: bug.categoryId,
-      categoryName: bug.category?.name ?? null,
       areaId: bug.areaId ?? null,
       areaName: bug.area?.name ?? null,
     }));
@@ -182,8 +176,6 @@ export async function teamAssignedWorkForMembers(
       project: { select: { slug: true } },
       title: true,
       assigneeId: true,
-      categoryId: true,
-      category: { select: { name: true } },
       areaId: true,
       area: { select: { name: true } },
     },
@@ -198,8 +190,6 @@ export async function teamAssignedWorkForMembers(
       id: bug.id,
       path: issueHref(bug),
       title: bug.title,
-      categoryId: bug.categoryId,
-      categoryName: bug.category?.name ?? null,
       areaId: bug.areaId ?? null,
       areaName: bug.area?.name ?? null,
     });

@@ -9,7 +9,6 @@ import { revalidateTag, updateTag } from "next/cache";
 
 export const TAGS = {
   issueTypes: "lookup:issue-types",
-  platforms: "lookup:platforms",
   unread: (userId: string) => `notifications:unread:${userId}`,
 } as const;
 

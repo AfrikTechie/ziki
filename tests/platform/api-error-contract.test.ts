@@ -20,7 +20,6 @@ import { penaltySchema } from "@/lib/agent-api/confirmation-penalties";
 import { ideaVerdictFields } from "@/lib/agent-api/idea-verdicts";
 import { recordMistakeSchema } from "@/lib/agent-api/mistakes";
 import { createIdeaSchema } from "@/lib/agent-api/ideas";
-import { platformAssignSchema } from "@/lib/agent-api/platform-assign";
 import { stakeSchema } from "@/lib/agent-api/stakes";
 import { estimateSchema } from "@/lib/agent-api/reward-estimates";
 import { abandonVoteSchema } from "@/lib/agent-api/abandon";
@@ -76,8 +75,6 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_set_skill: agentSkillUpsertSchema,
   ziki_deliver: deliveryBodySchema,
   ziki_create_idea: createIdeaSchema,
-  ziki_set_issue_platform: platformAssignSchema,
-  ziki_set_idea_platform: platformAssignSchema,
   ziki_stake_issue: stakeSchema,
   ziki_stake_idea: stakeSchema,
   ziki_estimate_reward: estimateSchema,

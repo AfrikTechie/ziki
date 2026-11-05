@@ -11,7 +11,6 @@ export const ORG_TABS = [
   { section: "invites", label: "Invites" },
   { section: "projects", label: "Projects" },
   { section: "types", label: "Issue types" },
-  { section: "platforms", label: "Platforms" },
   { section: "milestones", label: "Milestones" },
   { section: "settings", label: "Settings" },
 ] as const;

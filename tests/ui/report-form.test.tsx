@@ -33,10 +33,6 @@ afterEach(() => {
 
 const defaultProps = {
   users: [{ id: "u1", name: "Alice", role: "user" as const }],
-  categories: [
-    { id: "c1", name: "macOS" },
-    { id: "c2", name: "Windows" },
-  ],
   types: [{ id: "t1", name: "Bug" }, { id: "t2", name: "Feature" }],
   isAdmin: false,
   projectSlug: "acme",
@@ -116,7 +112,6 @@ describe("CreateBugForm optimistic submission", () => {
     );
     // Default type is the first option ("Bug").
     expect(capturedFormData?.get("typeId")).toBe("t1");
-    expect(capturedFormData?.get("categoryId")).toBe("");
     expect(capturedFormData?.get("proofLinks")).toBe("");
 
     expect(screen.queryByRole("alert")).toBeNull();

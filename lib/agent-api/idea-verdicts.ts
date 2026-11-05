@@ -386,7 +386,7 @@ async function convertLocked(
   const idea = await tx.idea.findUniqueOrThrow({
     where: { id: locked.id },
     select: {
-      title: true, summary: true, description: true, typeId: true, categoryId: true, areaId: true, proofLinks: true,
+      title: true, summary: true, description: true, typeId: true, areaId: true, proofLinks: true,
       reporterId: true, beneficiaryUserId: true, createdByAgentId: true,
     },
   });
@@ -399,7 +399,6 @@ async function convertLocked(
       summary: idea.summary,
       description: idea.description,
       typeId: idea.typeId,
-      categoryId: idea.categoryId,
       areaId: idea.areaId,
       proofLinks: idea.proofLinks,
       reporterId: idea.reporterId,

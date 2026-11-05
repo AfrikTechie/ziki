@@ -17,14 +17,13 @@ export default async function ReportIssueModalRoute({
 }) {
   const { project } = await params;
   const { from } = await searchParams;
-  const { user, admin, users, assigneeUsers, categories, types, projectId, projectSlug } =
+  const { user, admin, users, assigneeUsers, types, projectId, projectSlug } =
     await loadReportFormData(project);
 
   return (
     <ReportIssueModal
       users={users}
       assigneeUsers={assigneeUsers}
-      categories={categories}
       types={types}
       isAdmin={admin}
       currentUserId={user.id}

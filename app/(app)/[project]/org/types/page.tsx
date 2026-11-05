@@ -51,7 +51,7 @@ export default async function OrgTypesPage() {
         },
       },
     }),
-    // As for platforms: deleted issues block deletion but the list hides them.
+    // Deleted issues block deletion but the list hides them.
     prisma.bug.groupBy({
       by: ["typeId"],
       where: { tenantId: scope.tenantId, isDeleted: true, typeId: { not: null } },

@@ -36,6 +36,7 @@ const STATUS_FILTER_LABELS: Record<string, string> = {
   resolved: "Live",
   error: "Error",
   possibly_delivered: "Possibly delivered",
+  your_work: "Your work",
   all: "All",
   closed: "Closed",
   rejected: "Rejected",

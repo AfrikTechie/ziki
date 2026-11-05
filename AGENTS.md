@@ -45,7 +45,7 @@ docker compose up -d
 cp .env.example .env   # never commit .env
 pnpm db:migrate
 # pnpm db:seed   # ONLY on empty first-time setup — never if real signups exist
-pnpm db:fixtures       # the Demo workspace: 220 realistic issues in every state (safe to rerun)
+pnpm db:fixtures       # the Demo workspace (220 issues in every state) + an empty just-signed-up one (safe to rerun)
 pnpm dev               # http://localhost:3001
 pnpm verify:ready      # once, after the whole change: lint + typecheck + full unit suite
 pnpm verify:recheck    # after repairs: failing tests + tests affected by the repairs
@@ -121,7 +121,7 @@ The sequence is: **complete the implementation → collect every failure once �
 
 **Code locally without running tests.** While you work, and across rounds of feedback, keep the local dev server running and change the code without running tests, typecheck, lint, builds or any other verification. Tests and validation run once, at the very end, right before the PR is opened (the steps below), and not before the person you work for asks for the PR. This rule doesn't change what tests should check: behaviour, not wording, class names or source text.
 
-**Realistic local data:** `pnpm db:fixtures` loads the **Demo** workspace from the checked-in `scripts/dev/fixtures/local-ziki.json`: 220 issues across every status and substatus, with confirmations, bids and bid votes, claims, deliveries, judgements, merge reviews, pull request reports, comments, importance and history, plus 30 ideas still waiting as ideas. Sign in as `demo@fixtures.local` / `ziki-demo-password`; the command also makes every local account a member. It replaces only its own workspace (slug `demo`, ids `fx-*`, users `*@fixtures.local`) and refuses a non-local database. The CLI scenarios and the end-to-end seed load it on every run. To change the data, edit `scripts/dev/fixtures/generate.ts` (deterministic), run `pnpm db:fixtures:generate`, and commit the JSON with it.
+**Realistic local data:** `pnpm db:fixtures` loads the **Demo** workspace from the checked-in `scripts/dev/fixtures/local-ziki.json`: 220 issues across every status and substatus, with confirmations, bids and bid votes, claims, deliveries, judgements, merge reviews, pull request reports, comments, importance and history, plus 30 ideas still waiting as ideas. Sign in as `demo@fixtures.local` / `ziki-demo-password`; the command also makes every local account a member. It also loads **Fresh Start**, an empty workspace as it is right after signing up (one owner, one project, nothing else): sign in as `fresh@fixtures.local` with the same password. The Demo owner also gets **Demo Work** (issues assigned to them, nothing live) and **Demo Live** (assigned work and live issues), to see the Your Work and Live stages. It replaces only its own workspace (slug `demo`, ids `fx-*`, users `*@fixtures.local`) and refuses a non-local database. The CLI scenarios and the end-to-end seed load it on every run. To change the data, edit `scripts/dev/fixtures/generate.ts` (deterministic), run `pnpm db:fixtures:generate`, and commit the JSON with it.
 
 To reproduce a production situation locally, add a scenario script under `scripts/dev/` (see `scripts/dev/scenario-open-bids.ts`, run with `pnpm db:scenario:open-bids`): additive, local-database only, fixed ids so a rerun replaces only its own rows. Never reseed or reset to get data.
 

@@ -16,10 +16,6 @@ import { parseProjectAreaFilter, projectAreaFilterWhere, type ProjectAreaOption 
 export type RawParams = Record<string, string | string[] | undefined>;
 
 export type TagType = { id: string; name: string };
-export type PlatformLike = { id: string };
-
-/** Value of `?platform=` that selects issues with no platform set. */
-export const PLATFORM_NONE = "none";
 
 /**
  * `?project=all` widens the Issues list to the whole workspace. It is an
@@ -58,7 +54,6 @@ export function parseBugListFilters({
   userId,
   canSeeDeleted,
   tagTypes = [],
-  platforms = [],
   areas = [],
   milestones = [],
 }: {
@@ -67,11 +62,9 @@ export function parseBugListFilters({
   /** Only admins may list deleted issues; everyone else gets the live ones. */
   canSeeDeleted: boolean;
   tagTypes?: readonly TagType[];
-  /** Known platforms, so an id that no longer exists falls back to no filter. */
-  platforms?: readonly PlatformLike[];
   /** Areas belonging to the active project, so stale/foreign ids mean no filter. */
   areas?: readonly ProjectAreaOption[];
-  /** Known milestones (#289); an unknown id means no filter, like platforms. */
+  /** Known milestones (#289); an unknown id means no filter, like areas. */
   milestones?: readonly { id: string }[];
 }): ParsedBugFilters {
   const q = toSingleQueryParam(params.q);
@@ -99,16 +92,6 @@ export function parseBugListFilters({
   const statusWhere = statusFilterWhere(status);
   if (statusWhere !== undefined) {
     where.status = statusWhere;
-  }
-
-  // Platform filter. An id that no longer exists resolves to no filter
-  // rather than an empty result, matching what the list does — a bookmark
-  // pointing at a deleted platform should show issues, not a blank page.
-  const platform = toSingleQueryParam(params.platform);
-  if (platform === PLATFORM_NONE) {
-    where.categoryId = null;
-  } else if (platform && platforms.some((p) => p.id === platform)) {
-    where.categoryId = platform;
   }
 
   Object.assign(where, projectAreaFilterWhere(parseProjectAreaFilter(params.area, areas)));

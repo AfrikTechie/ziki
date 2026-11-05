@@ -72,8 +72,7 @@ export function CreateTenantForm({ nameMax }: { nameMax: number }) {
           First project <span className="font-normal text-zk-muted">(optional)</span>
         </label>
         <p id="tenant-project-hint" className="text-xs text-zk-muted">
-          One product in this workspace, such as Acme Web. A platform such as Web or Mobile
-          is a label on an issue, not a project. Left blank, the project is named after the workspace.
+          One product in this workspace, such as Acme Web. Left blank, the project is named after the workspace.
         </p>
         <Input
           id="tenant-project"

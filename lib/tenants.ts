@@ -417,12 +417,6 @@ export async function createTenant(
           memberships: { create: { userId: creator.id, role: "owner" } },
           // A project slug is the first segment of its issue URLs, so never a top-level route name.
           projects: { create: { slug: unreservedProjectSlug(slugFromName(projectName, "project")), name: projectName } },
-          // Same three names as DEFAULT_PLATFORMS. Inlined so this file does not
-          // import lib/categories, which reads the active tenant from here.
-          categories: {
-            // #platforms: each with the slug agents name it by.
-            create: (["Desktop", "Web", "Mobile"] as const).map((name) => ({ name, slug: name.toLowerCase(), isActive: true })),
-          },
         },
         select: { id: true, slug: true, name: true, projects: { select: { id: true } } },
       });

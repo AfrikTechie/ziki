@@ -62,6 +62,3 @@ export const substatusClass: Record<Substatus, string> = {
 
 /** Marks the bug's reporter wherever their name appears on the bug page. */
 export const authorBadgeClass = "bg-teal-100 text-teal-950";
-
-/** Platform category badge style (#366). */
-export const categoryBadgeClass = "border border-teal-200 bg-teal-50 text-teal-950";

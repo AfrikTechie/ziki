@@ -10,7 +10,7 @@ export const metadata = { title: "Report an issue" };
 /** `/<slug>/issues/new`: file a report into this project (#project-urls). */
 export default async function NewBugPage({ params }: { params: Promise<{ project: string }> }) {
   const { project } = await params;
-  const { user, admin, users, assigneeUsers, categories, types, projectId, projectSlug } =
+  const { user, admin, users, assigneeUsers, types, projectId, projectSlug } =
     await loadReportFormData(project);
 
   return (
@@ -35,7 +35,6 @@ export default async function NewBugPage({ params }: { params: Promise<{ project
         <CreateIssueForm
           users={users}
           assigneeUsers={assigneeUsers}
-          categories={categories}
           types={types}
           isAdmin={admin}
           currentUserId={user.id}

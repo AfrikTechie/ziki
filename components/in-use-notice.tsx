@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { inUseHrefs, inUseText, type InUseKind } from "@/lib/in-use";
+import { inUseHrefs, inUseText } from "@/lib/in-use";
 import { Button } from "@/components/ui/button";
 
 export type InUse = {
-  kind: InUseKind;
   id: string;
   name: string;
-  /** Value the list filters on: the id for a platform, the name for a type. */
+  /** Value the list filters on: the type's name. */
   filterValue: string;
   total: number;
   deleted: number;
@@ -17,7 +16,7 @@ export type InUse = {
 };
 
 /**
- * Shown instead of deleting a platform or type that issues still use (#314):
+ * Shown instead of deleting an issue type that issues still use (#314):
  * why it was refused, where those issues are, and the thing to do instead.
  */
 export function InUseNotice({
@@ -33,7 +32,7 @@ export function InUseNotice({
 }) {
   const text = inUseText(inUse);
   const { project: slug } = useParams<{ project: string }>();
-  const hrefs = inUseHrefs(slug, inUse.kind, inUse.filterValue);
+  const hrefs = inUseHrefs(slug, inUse.filterValue);
 
   return (
     <div

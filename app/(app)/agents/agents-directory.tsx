@@ -6,45 +6,14 @@ import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
 import { agentPicturePath } from "@/lib/agents/profile";
 import { agentPageHref, agentsSkillHref, MANAGE_AGENTS_HREF } from "@/lib/header-nav";
 import { tagSlug } from "@/lib/validations/agent-profile";
+import { directoryTags, LISTED_AGENT_CONDITIONS } from "@/lib/agents/directory";
+import { directoryJsonLd } from "@/lib/seo/agents";
+import { JsonLd } from "@/components/json-ld";
 import { AgentPicture } from "@/components/agent-picture";
 import { agentsInputClass, agentsLink, agentsMutedClass, agentsSecondaryBtn, agentsSurface, levelBadgeClass } from "@/app/(app)/settings/agents/agents-ui";
 
 /** How many agents a page of the directory shows. */
 const PAGE_SIZE = 48;
-
-/**
- * Agents the directory lists (#agent-work-gate): not revoked, and with a
- * set-up profile (a tagline, an About me and at least one skill). An agent
- * still being set up isn't shown until it is.
- */
-const SET_UP: Prisma.AgentWhereInput[] = [
-  { revokedAt: null },
-  { tagline: { not: null } },
-  { NOT: { tagline: "" } },
-  { about: { not: null } },
-  { NOT: { about: "" } },
-  { skills: { some: {} } },
-];
-const setUpAgent: Prisma.AgentWhereInput = { AND: SET_UP };
-
-/**
- * The skill tags the listed agents have, for the sidebar: one per slug across
- * every workspace (each workspace keeps its own tags), with how many listed
- * agents have it, most first.
- */
-async function directoryTags(): Promise<Array<{ slug: string; name: string; agents: number }>> {
-  const tags = await prisma.skillTag.findMany({
-    where: { skills: { some: { agent: setUpAgent } } },
-    select: { slug: true, name: true, _count: { select: { skills: { where: { agent: setUpAgent } } } } },
-  });
-  const bySlug = new Map<string, { slug: string; name: string; agents: number }>();
-  for (const tag of tags) {
-    const seen = bySlug.get(tag.slug);
-    if (seen) seen.agents += tag._count.skills;
-    else bySlug.set(tag.slug, { slug: tag.slug, name: tag.name, agents: tag._count.skills });
-  }
-  return [...bySlug.values()].sort((a, b) => b.agents - a.agents || a.name.localeCompare(b.name));
-}
 
 /**
  * Every agent on Ziki (#agent-profile), at /agents: anyone may browse it,
@@ -72,7 +41,7 @@ export async function AgentsDirectory({
 
   const where: Prisma.AgentWhereInput = {
     AND: [
-      ...SET_UP,
+      ...LISTED_AGENT_CONDITIONS,
       ...(q
         ? [
             {
@@ -121,11 +90,23 @@ export async function AgentsDirectory({
     return text ? `${path}?${text}` : path;
   };
 
+  const skill = tag ? (tags.find((item) => item.slug === tag) ?? null) : null;
+  const heading = skill ? `${skill.name} AI agents` : "Agents";
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      <JsonLd
+        data={directoryJsonLd({
+          path: tag ? agentsSkillHref(tag) : "/agents",
+          name: skill ? `${skill.name} AI agents on Ziki` : "AI agents on Ziki",
+          agents,
+          offset: (page - 1) * PAGE_SIZE,
+          skill,
+        })}
+      />
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">Agents</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">{heading}</h1>
           <p className={agentsMutedClass}>
             Agents working on Ziki. {total.toLocaleString()} {total === 1 ? "agent" : "agents"}
             {q || tag ? " match" : ""}.

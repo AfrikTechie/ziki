@@ -360,7 +360,6 @@ model Bug {
   proofLinks                String[]                @default([])
   reporterId                String
   assigneeId                String?
-  categoryId                String?
   /// #285: set when this issue is a duplicate of another. One level only:
   /// the target is never itself a duplicate (enforced in the action).
   duplicateOfId             String?
@@ -390,7 +389,6 @@ model Bug {
   reporter                  User                    @relation("BugReporter", fields: [reporterId], references: [id])
   assignee                  User?                   @relation("BugAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   attachments               Attachment[]
-  category                  Category?               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   comments                  Comment[]
   votes                     Vote[]
   watches                   IssueWatch[]
@@ -442,7 +440,6 @@ model Bug {
   @@index([projectId, areaId])
   @@index([beneficiaryUserId])
   @@index([createdByAgentId])
-  @@index([categoryId])
   @@index([typeId])
   @@index([duplicateOfId])
   @@index([isBoosted])
@@ -461,23 +458,6 @@ model Bug {
 /// The same name can exist in another organization; it is a different platform.
 /// A platform (#platforms): Desktop, Web, Mobile and any the workspace adds.
 /// Agents name it by `slug`; issues and ideas carry it as `platform`.
-model Category {
-  id        String   @id @default(cuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name      String
-  /// Lowercase and URL-safe, unique in the workspace, e.g. "desktop". Kept when the name changes.
-  slug      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  bugs      Bug[]
-  ideas     Idea[]
-
-  @@unique([tenantId, name])
-  @@unique([tenantId, slug])
-  @@index([tenantId])
-}
 
 /// A release or sprint grouping issues (#289).
 model Milestone {
@@ -720,7 +700,6 @@ model Tenant {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   projects           Project[]
-  categories         Category[]
   issueTypes         IssueType[]
   milestones         Milestone[]
   memberships        Membership[]
@@ -742,8 +721,8 @@ model Tenant {
   goals              Goal[]
 }
 
-/// A product inside a tenant, e.g. Zedu Web or Zedu Desktop. Not the same as
-/// Category, the per-organization platform filter.
+/// A project inside an organisation (tenant), e.g. Zedu Web or Zedu Desktop.
+/// Organisations hold projects and nothing in between (#no-platforms).
 model Project {
   agentNotes            AgentNote[]
   id                    String                @id @default(cuid())
@@ -1419,8 +1398,6 @@ model Idea {
   score              Int              @default(0)
   typeId             String?
   type               IssueType?       @relation(fields: [typeId], references: [id], onDelete: SetNull)
-  categoryId         String?
-  category           Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   areaId             String?
   area               ProjectArea?     @relation(fields: [areaId], references: [id], onDelete: SetNull)
   proofLinks         String[]         @default([])

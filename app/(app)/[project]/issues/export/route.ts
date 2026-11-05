@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
-import { getIssueTypes, getPlatforms } from "@/lib/lookups";
+import { getIssueTypes } from "@/lib/lookups";
 import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 import { canDeleteTicket } from "@/lib/ticket-deletion";
@@ -26,7 +26,6 @@ const COLUMNS = [
   "title",
   "status",
   "type",
-  "platform",
   "area",
   "reporter",
   "assignee",
@@ -63,11 +62,8 @@ export async function GET(request: NextRequest, { params: routeParams }: { param
   const routeProject = tenantId ? await prisma.project.findFirst({ where: { tenantId, slug: decodeURIComponent(slug), archivedAt: null }, select: { id: true } }) : null;
   if (!routeProject) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const projectId = routeProject.id;
-  const [tagTypes, platforms, milestones, areas] = await Promise.all([
+  const [tagTypes, milestones, areas] = await Promise.all([
     getIssueTypes(tenantId),
-    // Every platform in this organization, active or not: a filter on a
-    // platform that was since deactivated still has to resolve.
-    getPlatforms(tenantId),
     tenantId
       ? prisma.milestone.findMany({ where: { tenantId }, select: { id: true } })
       : Promise.resolve([]),
@@ -83,7 +79,6 @@ export async function GET(request: NextRequest, { params: routeParams }: { param
     // here: an export is just another way of reading the same rows.
     canSeeDeleted: canDeleteTicket(user.role, access.membershipRole),
     tagTypes,
-    platforms,
     areas,
     milestones,
   });
@@ -130,7 +125,6 @@ export async function GET(request: NextRequest, { params: routeParams }: { param
             createdAt: true,
             updatedAt: true,
             type: { select: { name: true } },
-            category: { select: { name: true } },
             area: { select: { name: true } },
             reporter: { select: { name: true } },
             assignee: { select: { name: true } },
@@ -146,7 +140,6 @@ export async function GET(request: NextRequest, { params: routeParams }: { param
               title: bug.title,
               status: bug.status,
               type: bug.type?.name ?? null,
-              platform: bug.category?.name ?? null,
               area: bug.area?.name ?? null,
               reporter: bug.reporter.name,
               assignee: bug.assignee?.name ?? null,
@@ -166,7 +159,6 @@ export async function GET(request: NextRequest, { params: routeParams }: { param
                 bug.title,
                 statusLabel[bug.status],
                 bug.type?.name,
-                bug.category?.name,
                 bug.area?.name,
                 bug.reporter.name,
                 bug.assignee?.name,
