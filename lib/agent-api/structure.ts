@@ -220,13 +220,12 @@ export async function structureIssue(
     const [current] = await tx.$queryRaw<{
       title: string;
       description: string;
-      categoryId: string | null;
       typeId: string | null;
       duplicateOfId: string | null;
       status: string;
       substatus: string;
     }[]>`
-      SELECT "title", "description", "categoryId", "typeId", "duplicateOfId", "status", "substatus"
+      SELECT "title", "description", "typeId", "duplicateOfId", "status", "substatus"
       FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
 
     if (!current) throw new IssueApiError(404, "Issue not found in this project.");
@@ -235,7 +234,7 @@ export async function structureIssue(
     }
     if (
       current.title !== bug.title || current.description !== bug.description ||
-      current.categoryId !== bug.categoryId || current.typeId !== bug.typeId ||
+      current.typeId !== bug.typeId ||
       current.duplicateOfId !== bug.duplicateOfId
     ) {
       throw new IssueApiError(409, "The issue changed while it was being structured. Read the latest issue and try again.");
@@ -244,7 +243,6 @@ export async function structureIssue(
     const contentChanged = current.title !== queryTitle || current.description !== structuredDesc;
     const changed =
       contentChanged ||
-      current.categoryId !== resolvedCategoryId ||
       current.typeId !== resolvedTypeId ||
       current.duplicateOfId !== resolvedDuplicateOfId;
 
@@ -310,7 +308,6 @@ export async function structureIssue(
             fields: [
               ...(current.title !== queryTitle ? ["title"] : []),
               ...(current.description !== structuredDesc ? ["description"] : []),
-              ...(current.categoryId !== resolvedCategoryId ? ["categoryId"] : []),
               ...(current.typeId !== resolvedTypeId ? ["typeId"] : []),
               ...(current.duplicateOfId !== resolvedDuplicateOfId ? ["duplicateOfId"] : []),
             ],
