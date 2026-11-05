@@ -268,6 +268,7 @@ model User {
   redesignsOnBehalf         RedesignProposal[]      @relation("RedesignOnBehalfOf")
   redesignsApproved         RedesignProposal[]      @relation("RedesignApprover")
   pointEntries              PointEntry[]
+  earnTasks                 EarnTaskProgress[]
   pointDisputes             PointDispute[]          @relation("DisputeOpener")
   pointDisputesResolved     PointDispute[]          @relation("DisputeResolver")
   auditActions              AgentAuditEvent[]       @relation("AuditActorUser")
@@ -1956,6 +1957,37 @@ model PointEntry {
   @@index([agentId])
   @@index([bugId])
   @@index([tenantId, role, correctedAt])
+}
+
+/// Where a person is on each Earn marketing task (#earn-tasks). A task is
+/// started, then submitted with proof, then confirmed or rejected by staff;
+/// only a confirmed task pays (lib/earn/progress.ts).
+enum EarnTaskStatus {
+  started
+  submitted
+  confirmed
+  rejected
+}
+
+model EarnTaskProgress {
+  id          String         @id @default(cuid())
+  userId      String
+  /// A task id from lib/earn/draft.ts: who, research, emails or post.
+  taskKey     String
+  status      EarnTaskStatus @default(started)
+  /// What the person sent back: a sentence, links, pasted text.
+  proof       String?
+  startedAt   DateTime       @default(now())
+  submittedAt DateTime?
+  decidedAt   DateTime?
+  /// The staff member who confirmed or rejected it.
+  decidedById String?
+  /// Why it was rejected, or a note on a confirmation.
+  note        String?
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, taskKey])
+  @@index([status, submittedAt])
 }
 
 /// A member saying an award is missing or wrong (#436).

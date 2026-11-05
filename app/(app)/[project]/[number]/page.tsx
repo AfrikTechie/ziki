@@ -93,6 +93,12 @@ import { IssueActionsMenu } from "@/components/issue-actions-menu";
 import { EditableIssueDescription } from "@/components/editable-issue-description";
 import { IssueLinks } from "@/components/issue-links";
 import { NextStepBar } from "@/components/next-step-bar";
+import { liveCheck, liveConfirmLabel, liveFactLabel, liveNextStep, liveStepState } from "@/lib/live-check";
+import { loadProdConfirmers } from "@/lib/live-confirm-data";
+import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
+import { LiveFlow } from "@/components/live-flow";
+import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
+import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
 import { agentInstructionsFor } from "@/lib/agent-instructions";
 import { countedJudgements } from "@/lib/agent-api/tested-status";
 import { DeliveredBanner, type DeliveredBannerProps } from "@/components/delivered-banner";
@@ -925,6 +931,26 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const judgementCount = bug.status === "done" && !bug.isDeleted
     ? await loadOptional("judgement count", null, () => countedJudgements(prisma, bug.id))
     : null;
+  // #live-check: on a Live issue, where its fix really is, from the latest
+  // independent check of its pull request rather than the Live label.
+  const liveFix = bug.status === "resolved" && !bug.isDeleted
+    ? await loadOptional("live check", null, async () => {
+        const [report, project, confirmers, moves] = await Promise.all([
+          latestPullRequestReport(bug.id, bug.pullRequestUrl),
+          prisma.project.findUnique({ where: { id: bug.projectId }, select: { repoUrl: true } }),
+          loadProdConfirmers([bug.id]),
+          prisma.bugActivity.findMany({ where: { bugId: bug.id, type: "status_changed" }, orderBy: { createdAt: "asc" }, select: { createdAt: true, metadata: true } }),
+        ]);
+        const repo = parseGitHubRepoUrl(project?.repoUrl);
+        // #live-confirm: when it last moved to each Live status, for the flow in the Status box.
+        const reachedAt: Partial<Record<"on_dev" | "on_staging" | "on_prod", Date>> = {};
+        for (const move of moves) {
+          const to = (move.metadata as { to?: unknown } | null)?.to;
+          if (to === "on_dev" || to === "on_staging" || to === "on_prod") reachedAt[to] = move.createdAt;
+        }
+        return { check: liveCheck(bug.pullRequestUrl ?? null, report, repo, confirmers.get(bug.id) ?? []), repo, reachedAt };
+      })
+    : null;
   const nextStep = issueNextStep({
     status: bug.status,
     substatus: bug.substatus,
@@ -1262,9 +1288,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             }}
             currentStage={currentStage}
             setback={stageSetback(currentStage, sentBack)}
+            live={liveFix ? {
+              // #live-confirm: once released, how many agents have found it on prod.
+              caption: liveFix.check.fact === "released" ? `${liveFactLabel(liveFix.check)}, ${liveConfirmLabel(liveFix.check)}` : liveFactLabel(liveFix.check),
+              state: liveStepState(liveFix.check),
+            } : undefined}
           />
 
-          <NextStepBar step={nextStep} agentInstructions={agentInstructions} />
+          <NextStepBar step={liveFix ? liveNextStep(liveFix.check, liveFix.repo) : nextStep} agentInstructions={agentInstructions} />
 
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
 
@@ -1409,6 +1440,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <span className={`${issueChipBaseClass} border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg`}>Boosted</span>
               ) : null}
             </div>
+            {liveFix ? (
+              <LiveFlow substatus={bug.substatus} reachedAt={liveFix.reachedAt} confirmed={liveFix.check.confirmedBy.length} needed={PROD_CONFIRMATIONS_NEEDED} />
+            ) : null}
             {statusFlags.length > 0 ? (
               <ul data-testid="status-flags" className="m-0 flex list-none flex-col gap-1 p-0">
                 {statusFlags.map((flag) => (

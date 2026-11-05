@@ -46,11 +46,6 @@ export function issuesPath(slug: string, status: string | null = "all", query?: 
   return withQuery(projectPath(slug, `/issues/${segment}`), query);
 }
 
-/** A project's overview: `/<slug>/overview`. */
-export function overviewPath(slug: string): string {
-  return projectPath(slug, "/overview");
-}
-
 /** The ideas lists: new ideas, `drafts` or `rejected`. */
 export function ideasPath(slug: string, view: "new" | "drafts" | "rejected" = "new", query?: URLSearchParams | string): string {
   return withQuery(projectPath(slug, view === "new" ? "/ideas" : `/ideas/${view}`), query);

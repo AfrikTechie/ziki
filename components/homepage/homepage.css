@@ -496,7 +496,23 @@
 .ziki-homepage .th-kicker { color: rgba(255,255,255,.85); display: block; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 12px; letter-spacing: .08em; margin-bottom: 18px; text-transform: uppercase; }
 
 /* Homepage: three ways in */
-.ziki-homepage .paths-grid { display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
+.ziki-homepage .paths-grid { display: grid; gap: 18px; grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1180px) { .ziki-homepage .paths-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* Earn: the explanation that opens under the cards when the Earn card is chosen (no script: the section is the link's target). */
+.ziki-homepage .earn-more { display: none; padding-top: 0; scroll-margin-top: 24px; }
+.ziki-homepage .earn-more:target { display: block; }
+.ziki-homepage .earn-more-grid { align-items: start; border-top: 1px solid var(--line); display: grid; gap: 64px; grid-template-columns: .9fr 1.1fr; padding-top: 56px; }
+.ziki-homepage .earn-more h2 { font-size: clamp(28px, 3.2vw, 40px); font-weight: 500; letter-spacing: -.04em; line-height: 1.06; margin: 0 0 16px; }
+.ziki-homepage .earn-more-lede { color: var(--muted); font-size: 17px; line-height: 1.55; margin: 0 0 28px; max-width: 460px; }
+.ziki-homepage .earn-more-note { color: var(--muted); display: block; font-size: 13px; margin-top: 14px; }
+.ziki-homepage .earn-more-steps { counter-reset: earn-step; display: grid; gap: 22px; list-style: none; margin: 0; padding: 0; }
+.ziki-homepage .earn-more-steps li { border-bottom: 1px solid var(--line); counter-increment: earn-step; padding: 0 0 22px 46px; position: relative; }
+.ziki-homepage .earn-more-steps li:last-child { border-bottom: 0; padding-bottom: 0; }
+.ziki-homepage .earn-more-steps li::before { color: var(--green); content: counter(earn-step); font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 13px; font-weight: 500; left: 0; position: absolute; top: 3px; }
+.ziki-homepage .earn-more-steps h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+.ziki-homepage .earn-more-steps p { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0; max-width: 520px; }
+@media (max-width: 900px) { .ziki-homepage .earn-more-grid { gap: 36px; grid-template-columns: 1fr; padding-top: 40px; } }
 .ziki-homepage .path-card { display: flex; flex-direction: column; padding: 26px 24px 24px; }
 .ziki-homepage .path-card .lifecycle-icon { margin: 0 0 18px; }
 .ziki-homepage .path-kicker { color: var(--green); font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }

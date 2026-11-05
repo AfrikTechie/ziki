@@ -1,74 +1,82 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { overviewPath } from "@/lib/project-paths";
+import { ideasPath, projectPath } from "@/lib/project-paths";
 
 export type BreadcrumbProject = { slug: string; name: string };
 
-/** What the page under the project is, from its path: Overview, Ideas, Issue #12, … */
-function sectionOf(pathname: string, slug: string): string | null {
+/** Each issue list's stage (the tabs across the top) and, when the stage has several, its step. */
+const ISSUE_LISTS: Record<string, [string, string?]> = {
+  "your-work": ["Your Work"],
+  open: ["In Progress", "Open"],
+  "in-progress": ["In Progress", "In progress"],
+  closed: ["In Progress", "Closed"],
+  "possibly-delivered": ["In Progress", "Possibly delivered"],
+  "your-call": ["In Progress", "Your call"],
+  done: ["Delivered", "Done"],
+  merge: ["Delivered", "Merge"],
+  error: ["Delivered", "Error"],
+  live: ["Live"],
+  all: ["All issues"],
+  rejected: ["All issues", "Rejected"],
+  duplicates: ["All issues", "Duplicates"],
+  finished: ["All issues", "Closed"],
+  new: ["Report an issue"],
+};
+const IDEA_LISTS: Record<string, string> = { rejected: "Rejected", drafts: "Drafts" };
+
+/** What the page under the project is, from its path: [Ideas], [In Progress, Closed], [Issue #12], … */
+function sectionOf(pathname: string, slug: string): string[] {
   const rest = pathname.slice(`/${encodeURIComponent(slug)}`.length).replace(/^\/+|\/+$/g, "");
   const [first, second] = rest.split("/");
-  if (!first || first === "overview") return null;
-  if (/^[0-9]+$/.test(first)) return `Issue #${first}`;
-  if (first === "ideas") return second && /^[0-9]+$/.test(second) ? `Idea #${second}` : "Ideas";
-  if (first === "issues") return second === "new" ? "Report an issue" : "Issues";
+  if (!first) return [];
+  if (/^[0-9]+$/.test(first)) return [`Issue #${first}`];
+  if (first === "ideas") {
+    if (second && /^[0-9]+$/.test(second)) return ["Ideas", `Idea #${second}`];
+    return second && IDEA_LISTS[second] ? ["Ideas", IDEA_LISTS[second]] : ["Ideas"];
+  }
+  if (first === "issues") return (ISSUE_LISTS[second ?? "all"] ?? ["Issues"]).filter((part): part is string => Boolean(part));
   const named: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream" };
-  return named[first] ?? null;
+  return named[first] ? [named[first]] : [];
 }
 
 const crumb = "rounded-md px-1.5 py-0.5 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-zk-accent";
 
 /**
- * Where you are (#no-platforms): the organisation, the project (with every
- * other project of the organisation one click away) and the page in it.
+ * Where you are (#no-platforms): All Projects (the organisation's projects
+ * page), the project (its issue list) and the page in it. On the projects page
+ * itself, All Projects is all there is.
  */
-export function ProjectBreadcrumb({ organisation, project, projects }: {
-  organisation: string;
-  project: BreadcrumbProject;
-  projects: BreadcrumbProject[];
-}) {
+export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
   const pathname = usePathname() ?? "";
+  const projectsHref = projectPath(project.slug, "/projects");
+  const onProjects = pathname === projectsHref;
   const section = sectionOf(pathname, project.slug);
-  const others = projects.filter((p) => p.slug !== project.slug);
   return (
-    <nav aria-label="Breadcrumb" className="mx-auto mb-3 flex w-full max-w-6xl items-center px-0.5 text-[13px] text-zk-text2">
+    <nav aria-label="Breadcrumb" className="mx-auto mb-3 flex w-full max-w-6xl items-center px-0.5 text-[13px] text-zk-text2 max-sm:mb-1">
       <ol className="flex min-w-0 flex-wrap items-center gap-0.5">
-        <li className="truncate px-1.5 font-medium text-zk-muted">{organisation}</li>
-        <li aria-hidden="true" className="text-zk-muted">/</li>
-        <li className="relative">
-          {others.length ? (
-            <details className="group relative">
-              <summary className={`${crumb} flex cursor-pointer list-none items-center gap-1 font-bold text-zk-text [&::-webkit-details-marker]:hidden`}>
-                {project.name}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition group-open:rotate-180"><path d="m6 9 6 6 6-6" /></svg>
-                <span className="sr-only">: switch project</span>
-              </summary>
-              <ul className="absolute left-0 top-full z-30 mt-1 max-h-80 min-w-48 overflow-auto rounded-xl border border-zk-border bg-zk-surface p-1 shadow-lg">
-                {projects.map((p) => (
-                  <li key={p.slug}>
-                    <Link
-                      href={overviewPath(p.slug)}
-                      aria-current={p.slug === project.slug ? "page" : undefined}
-                      className={`block truncate rounded-lg px-3 py-1.5 text-sm hover:bg-zk-chip ${p.slug === project.slug ? "font-bold text-zk-text" : "text-zk-text2"}`}
-                    >
-                      {p.name}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : (
-            <Link href={overviewPath(project.slug)} className={`${crumb} font-bold text-zk-text`}>{project.name}</Link>
-          )}
+        {/* Every project of the organisation, with its health. */}
+        <li className="min-w-0">
+          <Link href={projectsHref} aria-current={onProjects ? "page" : undefined} className={`${crumb} block truncate ${onProjects ? "font-bold text-zk-text" : "font-medium text-zk-text2"}`}>
+            All Projects
+          </Link>
         </li>
-        {section ? (
+        {onProjects ? null : (
           <>
             <li aria-hidden="true" className="text-zk-muted">/</li>
-            <li aria-current="page" className="truncate px-1.5">{section}</li>
+            <li className="min-w-0">
+              <Link href={ideasPath(project.slug)} className={`${crumb} block truncate font-bold text-zk-text`}>{project.name}</Link>
+            </li>
+            {section.map((part, index) => (
+              <Fragment key={part}>
+                <li aria-hidden="true" className="text-zk-muted">/</li>
+                <li aria-current={index === section.length - 1 ? "page" : undefined} className={`truncate px-1.5 ${index === section.length - 1 ? "" : "font-medium"}`}>{part}</li>
+              </Fragment>
+            ))}
           </>
-        ) : null}
+        )}
       </ol>
     </nav>
   );

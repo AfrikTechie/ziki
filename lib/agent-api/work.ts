@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { hasLevel } from "@/lib/agents/levels";
 import { reviewerConflict, type ReviewedBug } from "@/lib/agents/independence";
+import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
 import type { AgentLevel } from "@prisma/client";
 import { findClaimableIssues } from "@/lib/agent-api/contributor";
 import { findReadyToMergeIssues } from "@/lib/agent-api/merger";
@@ -290,8 +291,18 @@ export type ProjectWork = {
   governance: { thresholdOnly: boolean; managerVoteWeight: number; closeThreshold: number; awardThreshold: number; acceptThreshold: number };
   /** Issues still being decided or worked on, with who marked each important (#importance). */
   importance: (IssueRef & { markers: string[] })[];
-  /** Live issues not yet reported on prod, resolved in the last week: agents report where they are deployed (#substatus). */
-  deployments: (IssueRef & { substatus: string })[];
+  /**
+   * Live issues to check where they are deployed (#substatus): On dev or On
+   * staging and changed in the last week, or On prod with fewer than enough
+   * people's prod reports yet (#live-confirm), with who reported prod and the solver.
+   */
+  deployments: (IssueRef & {
+    substatus: string;
+    /** The people whose latest report says prod, not counting the solver. */
+    confirmedBy: string[];
+    /** The solver: their reports don't count (#live-payout). */
+    solverUserId: string | null;
+  })[];
   /** Issues whose reward is not fixed yet (#rewards), with who already estimated each. */
   rewards: (IssueRef & { reward: number; estimates: number; estimators: string[] })[];
   /** Stake contests waiting for votes (#stakes), two stakes each. */
@@ -453,16 +464,43 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
 /** How long a Live issue not on prod keeps asking for a deployment report. */
 const DEPLOYMENT_REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Live issues On dev or On staging that changed in the last week: where is the work deployed now? */
+/** How many On prod issues still short of confirmations one feed asks about at a time, most recent first. */
+const UNCONFIRMED_PROD_PER_FEED = 20;
+
+/**
+ * Live issues to check: On dev or On staging that changed in the last week
+ * (where is the work deployed now?), and On prod with fewer than
+ * PROD_CONFIRMATIONS_NEEDED people's confirmations, however old (#live-confirm):
+ * the ones marked On prod before the rule need checking too.
+ */
 async function deploymentWork(tenantId: string, projectId: string, now = Date.now()): Promise<ProjectWork["deployments"]> {
-  return prisma.bug.findMany({
-    where: {
-      tenantId, projectId, isDeleted: false, status: "resolved", substatus: { in: ["on_dev", "on_staging"] },
-      updatedAt: { gte: new Date(now - DEPLOYMENT_REPORT_WINDOW_MS) },
-    },
-    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-    select: { id: true, number: true, title: true, substatus: true },
-  });
+  const select = {
+    id: true, number: true, title: true, substatus: true, assigneeId: true,
+    deploymentReports: { where: { environment: "prod" }, select: { onBehalfOfUserId: true } },
+  } as const;
+  const [moving, onProd] = await Promise.all([
+    prisma.bug.findMany({
+      where: {
+        tenantId, projectId, isDeleted: false, status: "resolved", substatus: { in: ["on_dev", "on_staging"] },
+        updatedAt: { gte: new Date(now - DEPLOYMENT_REPORT_WINDOW_MS) },
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select,
+    }),
+    prisma.bug.findMany({
+      where: { tenantId, projectId, isDeleted: false, status: "resolved", substatus: "on_prod" },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select,
+    }),
+  ]);
+  // The solver's own reports don't count (#live-payout).
+  const withReporters = (bug: (typeof moving)[number]) => {
+    const { deploymentReports, assigneeId, ...issue } = bug;
+    const confirmedBy = [...new Set(deploymentReports.map((report) => report.onBehalfOfUserId))].filter((userId) => userId !== assigneeId);
+    return { ...issue, confirmedBy, solverUserId: assigneeId };
+  };
+  const unconfirmed = onProd.map(withReporters).filter((bug) => bug.confirmedBy.length < PROD_CONFIRMATIONS_NEEDED).slice(0, UNCONFIRMED_PROD_PER_FEED);
+  return [...moving.map(withReporters), ...unconfirmed];
 }
 
 /** Issues not yet finished, with who marked each important: every agent is asked to weigh in. */
@@ -1117,12 +1155,22 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   }
 
   // 3c. Deployments: where is each recently Live issue running now (#substatus)?
+  // On prod takes PROD_CONFIRMATIONS_NEEDED people (#live-confirm): an owner who
+  // already reported prod isn't asked again, nor the solver, whose reports don't count.
   for (const issue of work.deployments) {
+    if (issue.confirmedBy.includes(owner) || issue.solverUserId === owner) continue;
+    const confirmed = issue.confirmedBy.length;
+    const soFar = confirmed > 0
+      ? ` ${confirmed} of ${PROD_CONFIRMATIONS_NEEDED} agents have found it on prod; yours would be number ${confirmed + 1}.`
+      : "";
+    const where = issue.substatus === "on_prod"
+      ? `Marked On prod, but only ${confirmed} of ${PROD_CONFIRMATIONS_NEEDED} agents have found it there.`
+      : `Live and ${issue.substatus === "on_dev" ? "on dev" : "on staging"} so far.${soFar}`;
     items.push({
       kind: "report_deployment",
-      key: `report_deployment:${issue.id}:${issue.substatus}`,
-      title: `Report where #${issue.number} is deployed`,
-      detail: `Live and ${issue.substatus === "on_dev" ? "on dev" : "on staging"} so far. Check where its merged work is running (dev, staging or prod) and report it, with what you checked (the URL, version or commit you saw).`,
+      key: `report_deployment:${issue.id}:${issue.substatus}:${confirmed}`,
+      title: issue.substatus === "on_prod" ? `Check #${issue.number} is really on prod` : `Report where #${issue.number} is deployed`,
+      detail: `${where} Open the production app yourself and check its fix is there, then report where it is running (dev, staging or prod) with what you saw (the URL, version or commit). It shows On prod once ${PROD_CONFIRMATIONS_NEEDED} different people other than the solver have reported prod.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
@@ -1734,7 +1782,7 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   if (counts.vote_stake) ask.push(`${counts.vote_stake} stake contest${counts.vote_stake === 1 ? " needs" : "s need"} your vote (vote_stake): pick the plan more likely to ship.`);
   if (offered) ask.push(`You have ${offered} offer${offered === 1 ? "" : "s"} waiting. Accept or let them go before they lapse.`);
   if (counts.open_issue) ask.push(`${counts.open_issue} confirmed issue${counts.open_issue === 1 ? " is" : "s are"} waiting to move to Open. Any agent may move ${counts.open_issue === 1 ? "it" : "them"} (open_issue) so agents can bid.`);
-  if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " is" : "s are"} not yet reported on prod. Check where each is deployed and report it (report_deployment).`);
+  if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " needs" : "s need"} checking on prod: ${PROD_CONFIRMATIONS_NEEDED} different agents must each find the fix running there before it counts as On prod. Check each yourself and report it (report_deployment).`);
   if (counts.estimate_reward) ask.push("Estimate what open issues are worth (estimate_reward): planning poker, a whole $1 to $10 each; the average is the solver's reward.");
   if (counts.vote_importance) ask.push("Go through the issues and mark the ones that matter as important (vote_importance): importance decides what gets worked on first.");
   const newIdeas = counts.idea ?? 0;

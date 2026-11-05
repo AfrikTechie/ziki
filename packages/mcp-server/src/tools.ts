@@ -671,7 +671,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_report_deployment",
     summary:
-      "Report where a Live issue's merged work is deployed: dev, staging or prod (a report_deployment item in your work feed). Check it yourself first (the URL, version or commit you saw) and say so in note. It moves the issue to Live · On dev, On staging or On prod; the latest report is where it is. What resolving the issue earned (the solver's reward, the testers' and dispatcher's $) is held until three people other than the solver have reported it deployed; your report counts once (answer: liveReports, liveReportsNeeded, payoutReleased).",
+      "Report where a Live issue's merged work is deployed: dev, staging or prod (a report_deployment item in your work feed). Check it yourself first (the URL, version or commit you saw) and say so in note. A dev or staging report moves the issue to Live · On dev or On staging at once; a prod report moves it to On prod only once three people other than the solver have reported prod. What resolving the issue earned (the solver's reward, the testers' and dispatcher's $) is held until three people other than the solver have reported it deployed; your report counts once (answer: liveReports, liveReportsNeeded, prodReports, payoutReleased).",
     level: "working",
     method: "POST",
     route: "/issues/{id}/deployment",

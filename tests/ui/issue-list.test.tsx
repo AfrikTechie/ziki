@@ -69,8 +69,11 @@ vi.mock("@/lib/workflow", async (importOriginal) => ({
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst: vi.fn(async () => ({ slug: "acme-web", name: "Acme Web", goal: null })) },
+    project: { findFirst: vi.fn(async () => ({ slug: "acme-web", name: "Acme Web", goal: null })), findMany: vi.fn(async () => []) },
     bug: { count, findMany, groupBy, findFirst: bugFindFirst },
+    // #live-check, #live-confirm: what the Live rows show.
+    pullRequestReport: { findMany: vi.fn(async () => []) },
+    deploymentReport: { findMany: vi.fn(async () => []) },
     idea: { count: ideaCount, findMany: ideaFindMany },
     ideaVerdict: { groupBy: ideaVerdictGroupBy, findMany: vi.fn(async () => []) },
     milestone: { findMany: vi.fn(async () => []) },

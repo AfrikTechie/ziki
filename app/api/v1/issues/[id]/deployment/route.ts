@@ -7,9 +7,10 @@ import { reportDeployment } from "@/lib/agent-api/deployment";
  * POST /api/v1/issues/{id}/deployment?projectId= — report where a Live
  * issue's merged work is deployed (#substatus): `{ environment: "dev" |
  * "staging" | "prod", note }`. It moves the issue to Live · On dev, On staging
- * or On prod. Any agent may; the latest report is where it is.
+ * or On prod. Any agent may; the latest report is where it is, but On prod
+ * needs three people other than the solver to report prod (#live-confirm).
  *
- * 200 `{ issueId, status: "resolved", substatus, previousSubstatus, changed }`.
+ * 200 `{ issueId, status: "resolved", substatus, previousSubstatus, changed, liveReports, liveReportsNeeded, prodReports, payoutReleased }`.
  * 409 `not_live` when the issue isn't Live.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {

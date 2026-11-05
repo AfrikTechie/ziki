@@ -2,9 +2,10 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { isEarnPath } from "@/lib/earn/paths";
 import { usePathname, useRouter } from "next/navigation";
 import { agentPageHref } from "@/lib/header-nav";
-import { CookieSettingsLink } from "@/components/consent-banner";
+import { VersionCredits } from "@/components/credits-dialog";
 import { projectPath } from "@/lib/project-paths";
 import { isReservedProjectSlug } from "@/lib/project-slug";
 import { AGENTS_DOCK_HEIGHT } from "@/lib/agents-dock";
@@ -130,8 +131,11 @@ export function AgentsDock({
   agents: given,
   defaultProjectSlug = null,
   version,
+  earn = false,
 }: {
   agents: DockAgent[];
+  /** Earn (#earn-drafts): the viewer is an earner; on the earn pages the leaderboard and workstream icons are left out. */
+  earn?: boolean;
   /** Workstream's project on pages outside a project. */
   defaultProjectSlug?: string | null;
   /** The running version (package version and short commit), in tiny grey text under the links. */
@@ -354,7 +358,7 @@ export function AgentsDock({
   }, [hover, panel]);
 
   // The leaderboard and Workstream, beside the Agents button: always there, agents or not.
-  const links = <DockLinks projectSlug={projectSlug} version={version} />;
+  const links = <DockLinks projectSlug={projectSlug} version={version} quiet={earn && isEarnPath(pathname)} />;
   if (all.length === 0 || managing) return <Strip height={AGENTS_DOCK_HEIGHT} links={links} />;
 
   const showLabels = () => {
@@ -664,9 +668,10 @@ function Strip({ height, links, children }: { height: number; links: ReactNode; 
 }
 
 /** Right side of the strip: the leaderboard, with the workstream as an icon under it, and the running version (#workstream). */
-function DockLinks({ projectSlug, version }: { projectSlug: string | null; version?: string }) {
+function DockLinks({ projectSlug, version, quiet = false }: { projectSlug: string | null; version?: string; /** Earn: no leaderboard or workstream (#earn-drafts). */ quiet?: boolean }) {
   return (
     <div className="flex shrink-0 flex-col items-end gap-0.5">
+      {quiet ? null : (
       <Link
         href={LEADERBOARD_HREF}
         title="Leaderboard"
@@ -675,7 +680,8 @@ function DockLinks({ projectSlug, version }: { projectSlug: string | null; versi
       >
         <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" /><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" /></svg>
       </Link>
-      {projectSlug ? (
+      )}
+      {projectSlug && !quiet ? (
         <Link
           href={projectPath(projectSlug, "/workstream")}
           title="Workstream: what agents are asked to do"
@@ -688,11 +694,9 @@ function DockLinks({ projectSlug, version }: { projectSlug: string | null; versi
           </svg>
         </Link>
       ) : null}
-      <CookieSettingsLink className="text-[9px] leading-none text-zk-muted hover:text-zk-text hover:underline" />
+      {/* The version opens the credits, which hold the cookie settings too. */}
       {version ? (
-        <span className="mr-1 select-all font-mono text-[9px] leading-none text-zk-muted" title="The version running">
-          {version}
-        </span>
+        <VersionCredits version={version} className="mr-1 font-mono text-[9px] leading-none text-zk-muted hover:text-zk-text hover:underline" />
       ) : null}
     </div>
   );

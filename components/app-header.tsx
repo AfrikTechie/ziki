@@ -22,6 +22,9 @@ import { LocalTime } from "@/components/local-time";
 import { BASE_PATH } from "@/lib/base-path";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
 import { ZikiMark } from "@/components/ziki-mark";
+import { EarnPill } from "@/components/earn-pill";
+import { isEarnPath } from "@/lib/earn/paths";
+import type { WithdrawInfo } from "@/lib/earn/draft";
 
 const linkFocus =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
@@ -270,7 +273,13 @@ export function AppHeader({
   reportFormUrl,
   organizationAdmin = false,
   defaultProjectSlug = null,
+  earned = null,
+  withdraw = null,
 }: {
+  /** Earn (#earn-drafts): what the Withdraw window shows; null for everyone else. */
+  withdraw?: WithdrawInfo | null;
+  /** Earn (#earn-drafts): an earner's dollars, shown with Withdraw in the header; null for everyone else. */
+  earned?: number | null;
   /** The first project in the current workspace, for pages whose URL names none yet. */
   defaultProjectSlug?: string | null;
   userName?: string | null;
@@ -302,12 +311,14 @@ export function AppHeader({
   }
 
   const realRole = realRoleOf({ isRealSuperAdmin, isRealAdmin });
+  // Earn (#earn-drafts): an earner on the earn pages sees only what they came for.
+  const earnQuiet = earned !== null && isEarnPath(pathname);
 
   return (
     // Sticky only from lg: on phones and tablets the toolbar wraps onto rows,
     // and a header that tall pinned to the top covers the page under it.
     <header className="relative z-40 border-b border-zk-border bg-zk-surface shadow-[0_1px_3px_rgba(0,0,0,0.04)] lg:sticky lg:top-0">
-      <div className={`${PAGE_CONTAINER_CLASS} flex flex-wrap items-center gap-x-3 gap-y-2 py-3 max-sm:py-2 sm:px-6`}>
+      <div className={`${PAGE_CONTAINER_CLASS} flex flex-wrap items-center gap-x-3 gap-y-2 py-3 max-sm:py-2 sm:px-6 ${earnQuiet ? "max-sm:flex-nowrap" : ""}`}>
         {/* Below lg the nav lives in the bottom strip, leaving one row here.
             The logo (the mark alone) is the way to the Dashboard. */}
         <div className="flex min-w-0 items-center gap-2">
@@ -316,16 +327,22 @@ export function AppHeader({
             <ZikiMark className="h-8 w-auto text-zk-text max-sm:h-7" />
           </Link>
           <span aria-hidden="true" className="h-[18px] w-px shrink-0 bg-zk-border max-sm:hidden" />
-          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className="min-w-0 max-sm:max-w-44" />
+          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className={`min-w-0 max-sm:max-w-44 ${earnQuiet ? "max-sm:hidden" : ""}`} />
         </div>
 
-        <TopNav pathname={pathname} projectSlug={projectSlug} />
+        {/* Earn (#earn-drafts): an earner on the earn pages sees none of the builders' links. */}
+        {earnQuiet ? null : <TopNav pathname={pathname} projectSlug={projectSlug} />}
 
         {/* Phones and tablets: min-w-0 lets the group narrow so its flex-wrap
             breaks the chips onto rows (no sideways scroll at 360px or 768px).
             From lg up it keeps shrink-0 so the account controls are never
             squeezed. */}
-        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:gap-1 lg:shrink-0">
+        <div className={`ml-auto flex min-w-0 items-center justify-end gap-2 max-sm:gap-1 lg:shrink-0 ${earnQuiet ? "max-sm:flex-nowrap" : "flex-wrap"}`}>
+          {earned !== null && withdraw ? (
+            // Earn (#earn-drafts): the balance as one pill, in reach from every page. It drops a panel down (the bar, the
+            // next task, Withdraw); Withdraw opens a window over the page, never another page.
+            <EarnPill info={withdraw} />
+          ) : null}
 
           <div ref={accountRef} className="relative">
             <button
@@ -402,7 +419,7 @@ export function AppHeader({
           </div>
 
           {/* Escalations, as an envelope, then the bell last. */}
-          <InboxEnvelope key={`${userId}:${activeTenantId}:${pathname}`} unreadCount={unreadCount} pendingEscalations={pendingEscalationsCount} active={isNavItemActive(pathname, "/inbox")} />
+          {earnQuiet ? null : <InboxEnvelope key={`${userId}:${activeTenantId}:${pathname}`} unreadCount={unreadCount} pendingEscalations={pendingEscalationsCount} active={isNavItemActive(pathname, "/inbox")} />}
         </div>
       </div>
     </header>

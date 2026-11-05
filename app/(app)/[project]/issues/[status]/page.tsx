@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import { statusFromSegment } from "@/lib/project-paths";
 import { IssuesList } from "../_list/issues-list";
@@ -11,6 +12,9 @@ type Props = {
 /** `/<slug>/issues/<status>`: open, in-progress, done, merge, live, closed, all, rejected, duplicates (#project-urls). */
 export default async function IssuesStatusPage({ params, searchParams }: Props) {
   const { project, status: segment } = await params;
+  // Earn (#earn-drafts): the Ziki tasks step above Open lists Ziki's own paid tasks.
+  // Earners do these on their own page, not in the builders' issue list.
+  if (segment === "ziki-tasks") redirect("/earn/marketing");
   const status = statusFromSegment(segment);
   if (!status) notFound();
   const query = await searchParams;

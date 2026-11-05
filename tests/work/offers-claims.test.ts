@@ -27,6 +27,8 @@ vi.mock("@/lib/workflow", async (original) => {
 import { acceptOffer, isOfferExpired, OFFER_TTL_MS } from "@/lib/agent-api/offer";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 import type { AgentContext } from "@/lib/agents/require-agent";
+import { yourWorkWhere } from "@/lib/my-work-filter";
+import { whatsNext } from "@/lib/whats-next";
 
 const agent = { agentId: "agent-1", name: "Ada's Claude", ownerId: "ada", tenantId: "t1", level: "working", burst: false, keyId: "k1" } as AgentContext;
 const offered = (overrides: Record<string, unknown> = {}) => ({
@@ -98,5 +100,30 @@ describe("the offer window", () => {
     expect(isOfferExpired(offeredAt, offeredAt.getTime() + OFFER_TTL_MS - 1)).toBe(false);
     expect(isOfferExpired(offeredAt, offeredAt.getTime() + OFFER_TTL_MS)).toBe(true);
     expect(isOfferExpired(null, offeredAt.getTime())).toBe(true);
+  });
+});
+
+/**
+ * Your Work (#your-work): what is yours to move, and which kind it is. Claims
+ * held or offered for you count, and so does a live bid on an issue still open;
+ * finished work and importance marks don't.
+ */
+describe("your work", () => {
+  it("counts your claims and your open bids, and nothing finished", () => {
+    const where = yourWorkWhere("u1");
+    expect(where.status).toEqual({ notIn: ["resolved", "closed"] });
+    expect(where.OR).toEqual([
+      { claims: { some: { beneficiaryUserId: "u1", status: { in: ["offered", "active"] }, releasedAt: null } } },
+      { status: "open", bids: { some: { beneficiaryUserId: "u1", withdrawnAt: null } } },
+    ]);
+  });
+
+  it("tags each kind: a bid waits, an offer is yours to accept, late work is overdue", () => {
+    const now = Date.parse("2026-11-05T12:00:00Z");
+    expect(whatsNext("open", [], true, now)).toMatchObject({ tag: "Your bid", yours: false });
+    expect(whatsNext("open", [{ status: "offered" }], true, now)).toMatchObject({ tag: "Offered to you", yours: true });
+    expect(whatsNext("in_progress", [{ status: "active", deliverBy: new Date(now + 3_600_000 * 5) }], false, now)).toMatchObject({ tag: "Assigned to you", yours: true });
+    expect(whatsNext("in_progress", [{ status: "active", deliverBy: new Date(now - 1) }], false, now)).toMatchObject({ tag: "Overdue", late: true });
+    expect(whatsNext("error", [{ status: "active" }], false, now)).toMatchObject({ tag: "Can't merge", yours: true });
   });
 });

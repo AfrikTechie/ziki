@@ -7,6 +7,7 @@ const links = [
   { href: "/superadmin/users", label: "Users" },
   { href: "/superadmin/orgs", label: "Organisations" },
   { href: "/superadmin/rewards", label: "Platform rewards" },
+  { href: "/superadmin/earn", label: "Earn tasks" },
 ];
 
 /** The super admin sidebar. An organisation's own page counts as Organisations. */

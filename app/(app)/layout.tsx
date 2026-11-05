@@ -22,6 +22,11 @@ import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { AgentsDock, type DockAgent } from "@/components/agents-dock";
 import { appVersionLabel } from "@/lib/deployed-version";
 import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
+import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
+import { EarnWelcomeToast } from "@/components/earn-welcome-toast";
+import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
+import { withdrawInfo } from "@/lib/earn/draft";
+import { earnAgentWhere, earnWorkspace, isEarner } from "@/lib/earn/earner";
 
 export default async function AppLayout({
   children,
@@ -71,6 +76,25 @@ export default async function AppLayout({
   }
 
   const user = await requireUser();
+  // Earn (#earn-landing): "Put your agent to work" is a page of its own, for someone who has just
+  // arrived to earn: no header, agents bar or footer around it. It stops being one once an agent is connected.
+  const requestPath = (await headers()).get("x-ziki-path") ?? "";
+  // The first time someone opens an earn page in a browser, new account or old: a note that the $5 is in.
+  const welcomeNotice = isEarnPath(requestPath) ? await showEarnWelcome(user.id).catch(() => false) : false;
+  if (isEarnLandingPath(requestPath) || isEarnConnectPath(requestPath)) {
+    const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
+    if (!connected || isEarnConnectPath(requestPath)) {
+      return (
+        <div data-app-shell="" className="min-h-dvh bg-zk-bg">
+          <SkipLink />
+          <main id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-dvh outline-none">
+            {children}
+          </main>
+          {welcomeNotice ? <EarnWelcomeToast /> : null}
+        </div>
+      );
+    }
+  }
   // The header lists this person's workspaces. Pages still resolve the active
   // project inside the current workspace, so a foreign project id is ignored.
   let workspaces: WorkspaceChoice[] = [];
@@ -102,6 +126,9 @@ export default async function AppLayout({
 
   let pendingEscalationsCount = 0;
   let dockAgents: DockAgent[] = [];
+  // Earn is a place of its own: on an earn page the agents bar shows the Earn workspace's agents, not the
+  // ones in the person's other workspaces.
+  const dockTenantId = isEarnPath(requestPath) ? ((await earnWorkspace().catch(() => null))?.id ?? null) : tenantId;
   if (tenantId) {
     try {
       pendingEscalationsCount = await countPendingEscalations(user.id, tenantId);
@@ -109,14 +136,14 @@ export default async function AppLayout({
       console.error("[layout] pending escalations count failed", error);
     }
     try {
-      const agents = await loadOwnAgents({ userId: user.id, tenantId });
+      const agents = dockTenantId ? await loadOwnAgents({ userId: user.id, tenantId: dockTenantId }) : [];
       // #710: what each agent earned, from the point entries its work wrote.
       const ids = agents.map((agent) => agent.id);
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
       const [earned, activity, pending] = await Promise.all([
-        agentEarnings(prisma, tenantId, ids),
-        agentActivity(prisma, tenantId, ids, startOfToday),
+        agentEarnings(prisma, dockTenantId ?? tenantId, ids),
+        agentActivity(prisma, dockTenantId ?? tenantId, ids, startOfToday),
         prisma.agentRequest.groupBy({ by: ["agentId"], where: { agentId: { in: ids }, doneAt: null }, _count: { _all: true } }),
       ]);
       const pendingBy = new Map(pending.map((row) => [row.agentId, row._count._all]));
@@ -125,6 +152,13 @@ export default async function AppLayout({
       console.error("[layout] agents failed", error);
     }
   }
+
+  // Earn (#earn-drafts): an earner's money for the header.
+  const earner = await isEarner(user.id).catch(() => false);
+  // Anyone on an earn page gets the clean earn header and bar, member of the Earn workspace or not.
+  const earnSample = earner || isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
+  // The earner's agent bar shows what they have earned, the same amount as the header.
+  if (earnSample) dockAgents = dockAgents.map((agent) => ({ ...agent, earnedPoints: earnSample.earned }));
 
   // #287: one primary-key read; a failure leaves shortcuts on, the default.
   let shortcutsEnabled = true;
@@ -157,6 +191,8 @@ export default async function AppLayout({
           defaultProjectSlug={defaultProjectSlug}
           reportFormUrl={REPORT_FORM_URL}
           organizationAdmin={tenantId !== null && isOrganizationAdmin(membershipRole, user.role)}
+          earned={earnSample ? earnSample.earned : null}
+          withdraw={earnSample ? withdrawInfo(earnSample.stage, earnSample.earned) : null}
         />
         <main
           id={MAIN_CONTENT_ID}
@@ -170,8 +206,9 @@ export default async function AppLayout({
         </main>
       </div>
       {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it. */}
-      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} />
+      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} />
       <FocusMainOnNavigate />
+      {welcomeNotice ? <EarnWelcomeToast /> : null}
       <KeyboardShortcuts
         enabled={shortcutsEnabled}
       />

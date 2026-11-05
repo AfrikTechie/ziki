@@ -106,7 +106,9 @@ export function ProjectLinks({
     if (siteUrl) return;
     // The snooze lives in this browser, so it is read after mounting, in a frame callback.
     const frame = requestAnimationFrame(() => {
-      if (!askOnLoad) setOpen(false);
+      // On a phone it would cover the list: the icon (with its dot) asks instead.
+      if (window.matchMedia("(max-width: 639px)").matches) setSnoozed(true);
+      else if (!askOnLoad) setOpen(false);
       else if (snoozedRecently(slug)) setSnoozed(true);
       else setOpen(true);
     });

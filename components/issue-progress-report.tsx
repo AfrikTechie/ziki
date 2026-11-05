@@ -214,6 +214,7 @@ export function IssueProgressReport({
   entryCounts = {},
   currentStage,
   setback = false,
+  live,
 }: {
   decisions: ReadonlyArray<AgentDecision>;
   /**
@@ -226,6 +227,11 @@ export function IssueProgressReport({
   currentStage: DecisionStage;
   /** The current stage went backwards, e.g. a merger asked for changes. */
   setback?: boolean;
+  /**
+   * On a Live issue (#live-check): where its fix really is, in place of the
+   * Live step's log count, and whether Live gets its tick (only once released).
+   */
+  live?: { caption: string; state: Extract<StepState, "done" | "now" | "warn"> };
 }) {
   const picked = useIssueStage();
   const selected = picked?.stage ?? currentStage;
@@ -248,11 +254,13 @@ export function IssueProgressReport({
         </div>
         <ol className="pg" aria-label="Progress report: pick a stage to see its entries">
           {steps.map((stage, index) => {
-            const state = stageState(stage, currentStage, setback);
+            const checked = stage === "live" ? live : undefined;
+            const state = checked?.state ?? stageState(stage, currentStage, setback);
             const tally = tallies[stage];
             const logs = entryCounts[stage] ?? tally.positive + tally.negative;
             const on = stage === selected;
-            const icon: IconName = state === "done" ? "check" : state === "warn" ? "undo" : stageIconName[stage];
+            const icon: IconName = state === "done" ? "check" : state === "warn" ? (checked ? "alert" : "undo") : stageIconName[stage];
+            const isNow = checked ? state !== "done" : index === currentIndex;
             return (
               <li key={stage} style={{ animationDelay: `${index * 70}ms` }}>
                 <button
@@ -260,7 +268,7 @@ export function IssueProgressReport({
                   aria-pressed={on}
                   title={decisionStageInfo[stage].description}
                   onClick={() => picked?.setStage(stage)}
-                  className={`pgs${index === currentIndex ? " now" : ""}${state === "warn" ? " warn" : ""}${
+                  className={`pgs${isNow ? " now" : ""}${state === "warn" ? " warn" : ""}${
                     state === "todo" ? " todo" : ""
                   }${on ? " sel" : ""}`}
                 >
@@ -268,7 +276,9 @@ export function IssueProgressReport({
                     <StageIcon name={icon} />
                   </span>
                   <span className="pgl">{decisionStageInfo[stage].label}</span>
-                  <span className="pgn">{index > currentIndex && !logs ? null : entryCount(logs, decisionStageInfo[stage].entry)}</span>
+                  <span className="pgn" style={checked?.state === "warn" ? { color: "var(--zk-warn-fg)" } : undefined}>
+                    {checked ? checked.caption : index > currentIndex && !logs ? null : entryCount(logs, decisionStageInfo[stage].entry)}
+                  </span>
                   <span className="sr-only">
                     {decisionStageInfo[stage].label}: {tally.positive} positive, {tally.negative} negative
                   </span>
