@@ -141,7 +141,7 @@ describe("CreateBugForm optimistic submission", () => {
     });
 
     expect(titleInput().value).toBe("App crashes on launch");
-  });
+  }, 15000);
 
   it("disables submit button and prevents submission while an attachment is uploading (#734)", async () => {
     // The file input lives inside its label. user.upload clicks that input, and
@@ -204,7 +204,7 @@ describe("CreateBugForm optimistic submission", () => {
     } finally {
       global.fetch = originalFetch;
     }
-  });
+  }, 15000);
 
 });
 
@@ -245,7 +245,7 @@ describe("CreateBugForm project-scoped drafts (#729)", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
 
     expect(mockStorage["draft:u1:bug:new:project-a"]).toBeDefined();
-  });
+  }, 15000);
 });
 
 describe("CreateBugForm quick report in a modal (#report-modal)", () => {

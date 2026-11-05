@@ -1422,6 +1422,8 @@ model Idea {
   /// When a manager agent rejected it, and which one.
   rejectedAt         DateTime?
   rejectedByAgentId  String?
+  /// Why a manager agent rejected it (e.g. "it doesn't align with the product's vision").
+  rejectReason       String?
   /// Why a manager agent archived it: "already_implemented", "duplicate" or
   /// "wrong_project" (lib/idea-archive.ts), with the evidence it gave.
   archiveReason      String?

@@ -460,9 +460,10 @@ async function convertLocked(
  * good ones (lib/idea-rejection.ts). It moves to Rejected ideas and takes no
  * more verdicts.
  */
-export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef: string) {
+export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef: string, reason?: string | null) {
   requireLevel(agent, "manager");
   const { ideaThreshold } = await workflowFor(projectId);
+  const cleanReason = reason?.trim() || null;
   const rejected = await prisma.$transaction(async (tx) => {
     const scope = { tenantId: agent.tenantId, projectId };
     const locked = await lockedIdea(tx, scope, ideaRef);
@@ -472,9 +473,13 @@ export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef
       const message = notRejectableReason(votes, ideaThreshold);
       throw new IssueApiError(409, message, { error: "not_rejectable", message, totalVotes: votes.total, goodVotes: votes.good });
     }
-    return rejectLocked(tx, scope, locked, { userId: agent.ownerId, agentId: agent.agentId }, votes);
+    return rejectLocked(tx, scope, locked, { userId: agent.ownerId, agentId: agent.agentId }, votes, undefined, cleanReason);
   });
-  await audit(agent, "idea.rejected", `idea:${rejected.ideaId}`, { totalVotes: rejected.totalVotes, goodVotes: rejected.goodVotes });
+  await audit(agent, "idea.rejected", `idea:${rejected.ideaId}`, {
+    totalVotes: rejected.totalVotes,
+    goodVotes: rejected.goodVotes,
+    ...(cleanReason ? { reason: cleanReason } : {}),
+  });
   return rejected;
 }
 
@@ -490,20 +495,43 @@ async function rejectLocked(
   by: { userId: string; agentId: string | null },
   votes: { total: number; good: number },
   decision?: ThresholdDecision,
+  reason?: string | null,
 ) {
   const at = new Date();
-  await tx.idea.update({ where: { id: locked.id }, data: { status: "rejected", rejectedAt: at, rejectedByAgentId: by.agentId } });
+  await tx.idea.update({
+    where: { id: locked.id },
+    data: {
+      status: "rejected",
+      rejectedAt: at,
+      rejectedByAgentId: by.agentId,
+      rejectReason: reason ?? null,
+    },
+  });
   await publish(tx, {
     tenantId: scope.tenantId,
     type: "idea.rejected",
     actorAgentId: by.agentId,
     projectId: scope.projectId,
     payload: {
-      ideaId: locked.id, ideaNumber: locked.number, projectId: scope.projectId, totalVotes: votes.total, goodVotes: votes.good, ideaScore: locked.score,
+      ideaId: locked.id,
+      ideaNumber: locked.number,
+      projectId: scope.projectId,
+      totalVotes: votes.total,
+      goodVotes: votes.good,
+      ideaScore: locked.score,
+      ...(reason ? { rejectReason: reason } : {}),
       ...(decision ?? {}),
     },
   });
-  return { ideaId: locked.id, ideaNumber: locked.number, status: "rejected" as const, rejectedAt: at.toISOString(), totalVotes: votes.total, goodVotes: votes.good };
+  return {
+    ideaId: locked.id,
+    ideaNumber: locked.number,
+    status: "rejected" as const,
+    rejectedAt: at.toISOString(),
+    rejectReason: reason ?? null,
+    totalVotes: votes.total,
+    goodVotes: votes.good,
+  };
 }
 
 /**
