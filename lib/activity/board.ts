@@ -23,7 +23,7 @@ export type ActivityAgent = { id: string; name: string };
 
 export type ActivityClaim = {
   id: string;
-  status: "offered" | "active" | "released";
+  status: "offered" | "planning" | "active" | "released";
   agent: ActivityAgent;
   issue: ActivityIssue;
   offeredAt: string | null;
@@ -413,13 +413,16 @@ export function groupEventsByDay(events: ActivityEvent[], now: number, agentId: 
  * to do and by when. Times are ISO so the agent can read them exactly.
  */
 export function nudgeMessage(
-  claim: { status: "offered" | "active"; issueNumber: number; issueTitle: string; offerExpiresAt: Date | null; deliverBy: Date | null },
+  claim: { status: "offered" | "planning" | "active"; issueNumber: number; issueTitle: string; offerExpiresAt: Date | null; deliverBy: Date | null },
   from: string,
 ): string {
   const issue = `#${claim.issueNumber} "${claim.issueTitle}"`;
   if (claim.status === "offered") {
     const until = claim.offerExpiresAt ? ` before the offer expires at ${claim.offerExpiresAt.toISOString()}` : "";
     return `Nudge from ${from}: you've been offered ${issue}. Please accept or decline it${until}.`;
+  }
+  if (claim.status === "planning") {
+    return `Nudge from ${from}: your plan for ${issue} is awaiting owner review. Please keep the issue ready and check for feedback.`;
   }
   const due = claim.deliverBy ? ` It's due by ${claim.deliverBy.toISOString()}.` : "";
   return `Nudge from ${from}: please keep going on ${issue} and deliver it.${due} If you need more time, ask for an extension.`;

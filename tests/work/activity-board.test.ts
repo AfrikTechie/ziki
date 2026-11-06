@@ -205,6 +205,15 @@ describe("nudgeMessage", () => {
     expect(text).toContain("It's due by 2026-11-06T16:14:00.000Z.");
     expect(text).toContain("ask for an extension");
   });
+
+  it("asks an agent with a plan awaiting owner review to check for feedback", () => {
+    const text = nudgeMessage(
+      { status: "planning", issueNumber: 2340, issueTitle: "Plan review", offerExpiresAt: null, deliverBy: null },
+      "Jennifer",
+    );
+    expect(text).toContain('your plan for #2340 "Plan review" is awaiting owner review');
+    expect(text).toContain("check for feedback");
+  });
 });
 
 describe("groupEventsByDay", () => {
