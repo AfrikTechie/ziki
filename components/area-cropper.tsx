@@ -11,11 +11,62 @@ type Box = {
 
 type Props = {
   imageSrc: string;
-  onCropComplete: (croppedBlob: Blob, croppedUrl: string) => void;
+  onCropComplete: (croppedBlob: Blob, croppedUrl: string, width?: number, height?: number) => void;
   onUseFull: () => void;
   onRetake: () => void;
   onCancel: () => void;
 };
+
+/**
+ * Computes exact painted dimensions and letterbox/pillarbox offsets of an image
+ * inside its container, ensuring 1:1 coordinate mapping to natural image pixels.
+ */
+function getImageMetrics(img: HTMLImageElement, container: HTMLElement) {
+  const naturalWidth = img.naturalWidth || 800;
+  const naturalHeight = img.naturalHeight || 500;
+
+  const imgRect = img.getBoundingClientRect();
+  const contRect = container.getBoundingClientRect();
+
+  // If in jsdom or unrendered, fallback gracefully to clientWidth / clientHeight
+  const rawBoxWidth = imgRect.width > 0 ? imgRect.width : (img.clientWidth || contRect.width || container.clientWidth || 800);
+  const rawBoxHeight = imgRect.height > 0 ? imgRect.height : (img.clientHeight || contRect.height || container.clientHeight || 500);
+
+  const imgAspect = naturalWidth / naturalHeight;
+  const boxAspect = rawBoxWidth / rawBoxHeight;
+
+  let paintedWidth = rawBoxWidth;
+  let paintedHeight = rawBoxHeight;
+  let offsetX = imgRect.width > 0 ? Math.max(0, imgRect.left - contRect.left) : 0;
+  let offsetY = imgRect.height > 0 ? Math.max(0, imgRect.top - contRect.top) : 0;
+
+  // Account for letterboxing (horizontal) or pillarboxing (vertical)
+  if (Math.abs(imgAspect - boxAspect) > 0.005) {
+    if (imgAspect > boxAspect) {
+      paintedWidth = rawBoxWidth;
+      paintedHeight = rawBoxWidth / imgAspect;
+      offsetY += (rawBoxHeight - paintedHeight) / 2;
+    } else {
+      paintedHeight = rawBoxHeight;
+      paintedWidth = rawBoxHeight * imgAspect;
+      offsetX += (rawBoxWidth - paintedWidth) / 2;
+    }
+  }
+
+  const scale = naturalWidth / Math.max(1, paintedWidth);
+
+  return {
+    offsetX,
+    offsetY,
+    renderedWidth: paintedWidth,
+    renderedHeight: paintedHeight,
+    scale,
+    naturalWidth,
+    naturalHeight,
+  };
+}
+
+export type ImageMetrics = ReturnType<typeof getImageMetrics>;
 
 /**
  * In-app area selection and cropping experience for screen captures.
@@ -38,6 +89,7 @@ export function AreaCropper({
   });
   const [box, setBox] = useState<Box | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [metrics, setMetrics] = useState<ImageMetrics | null>(null);
 
   // Normalize selection box to { x, y, width, height }
   const getNormalizedBox = useCallback(() => {
@@ -51,15 +103,38 @@ export function AreaCropper({
 
   const norm = getNormalizedBox();
 
+  const updateMetrics = useCallback(() => {
+    const img = imageRef.current;
+    const container = containerRef.current;
+    if (!img || !container) return null;
+    const m = getImageMetrics(img, container);
+    setMetrics(m);
+    return m;
+  }, []);
+
+  const handleImageLoad = () => {
+    setImageLoaded(true);
+    updateMetrics();
+  };
+
+  useEffect(() => {
+    updateMetrics();
+    window.addEventListener("resize", updateMetrics);
+    return () => window.removeEventListener("resize", updateMetrics);
+  }, [updateMetrics, imageLoaded]);
+
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const boundWidth = rect.width || containerRef.current.clientWidth || 800;
-    const boundHeight = rect.height || containerRef.current.clientHeight || 500;
+    if (!containerRef.current || !imageRef.current) return;
+    const currentMetrics = updateMetrics() || metrics;
+    if (!currentMetrics) return;
+
+    const contRect = containerRef.current.getBoundingClientRect();
     const clientX = typeof e.clientX === "number" ? e.clientX : 0;
     const clientY = typeof e.clientY === "number" ? e.clientY : 0;
-    const x = Math.max(0, Math.min(boundWidth, clientX - (rect.left || 0)));
-    const y = Math.max(0, Math.min(boundHeight, clientY - (rect.top || 0)));
+
+    // Coordinate relative to the painted image bounds (excluding letterbox/pillarbox)
+    const x = Math.max(0, Math.min(currentMetrics.renderedWidth, clientX - (contRect.left || 0) - currentMetrics.offsetX));
+    const y = Math.max(0, Math.min(currentMetrics.renderedHeight, clientY - (contRect.top || 0) - currentMetrics.offsetY));
 
     dragRef.current = { isDragging: true, startX: x, startY: y };
     setBox({ startX: x, startY: y, currentX: x, currentY: y });
@@ -73,14 +148,16 @@ export function AreaCropper({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current.isDragging || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const boundWidth = rect.width || containerRef.current.clientWidth || 800;
-    const boundHeight = rect.height || containerRef.current.clientHeight || 500;
+    if (!dragRef.current.isDragging || !containerRef.current || !imageRef.current) return;
+    const currentMetrics = metrics || updateMetrics();
+    if (!currentMetrics) return;
+
+    const contRect = containerRef.current.getBoundingClientRect();
     const clientX = typeof e.clientX === "number" ? e.clientX : 0;
     const clientY = typeof e.clientY === "number" ? e.clientY : 0;
-    const x = Math.max(0, Math.min(boundWidth, clientX - (rect.left || 0)));
-    const y = Math.max(0, Math.min(boundHeight, clientY - (rect.top || 0)));
+
+    const x = Math.max(0, Math.min(currentMetrics.renderedWidth, clientX - (contRect.left || 0) - currentMetrics.offsetX));
+    const y = Math.max(0, Math.min(currentMetrics.renderedHeight, clientY - (contRect.top || 0) - currentMetrics.offsetY));
 
     setBox({
       startX: dragRef.current.startX,
@@ -114,29 +191,18 @@ export function AreaCropper({
 
   const handleCrop = useCallback(() => {
     const img = imageRef.current;
-    const container = containerRef.current;
-    if (!img || !container || !norm || norm.width < 5 || norm.height < 5) {
+    const currentMetrics = updateMetrics() || metrics;
+    if (!img || !currentMetrics || !norm || norm.width < 5 || norm.height < 5) {
       onUseFull();
       return;
     }
 
-    const renderedWidth = img.clientWidth || container.clientWidth || 800;
-    const renderedHeight = img.clientHeight || container.clientHeight || 500;
-    const naturalWidth = img.naturalWidth || renderedWidth;
-    const naturalHeight = img.naturalHeight || renderedHeight;
+    const { scale, naturalWidth, naturalHeight } = currentMetrics;
 
-    if (!naturalWidth || !naturalHeight || !renderedWidth || !renderedHeight) {
-      onUseFull();
-      return;
-    }
-
-    const scaleX = naturalWidth / renderedWidth;
-    const scaleY = naturalHeight / renderedHeight;
-
-    const rawSourceX = norm.x * scaleX;
-    const rawSourceY = norm.y * scaleY;
-    const rawSourceW = norm.width * scaleX;
-    const rawSourceH = norm.height * scaleY;
+    const rawSourceX = norm.x * scale;
+    const rawSourceY = norm.y * scale;
+    const rawSourceW = norm.width * scale;
+    const rawSourceH = norm.height * scale;
 
     // Clamp coordinates within natural image dimensions so edges are never cut off
     const sourceX = Math.max(0, Math.min(naturalWidth - 1, Math.round(rawSourceX)));
@@ -169,12 +235,12 @@ export function AreaCropper({
     canvas.toBlob((blob) => {
       if (blob) {
         const url = URL.createObjectURL(blob);
-        onCropComplete(blob, url);
+        onCropComplete(blob, url, sourceWidth, sourceHeight);
       } else {
         onUseFull();
       }
     }, "image/png");
-  }, [norm, onCropComplete, onUseFull]);
+  }, [metrics, norm, onCropComplete, onUseFull, updateMetrics]);
 
   // Keyboard shortcut: Escape cancels, Enter crops
   useEffect(() => {
@@ -192,11 +258,15 @@ export function AreaCropper({
     <div className="flex flex-col space-y-3">
       <div className="flex items-center justify-between text-xs text-zk-muted">
         <span>Click and drag over the image to crop the problem area</span>
-        {norm && norm.width > 10 && (
-          <span className="font-mono text-[11px] font-semibold text-zk-accent">
-            {Math.round(norm.width)} × {Math.round(norm.height)} px
-          </span>
-        )}
+        {norm && norm.width > 10 && (() => {
+          const naturalW = metrics ? Math.round(norm.width * metrics.scale) : Math.round(norm.width);
+          const naturalH = metrics ? Math.round(norm.height * metrics.scale) : Math.round(norm.height);
+          return (
+            <span className="font-mono text-[11px] font-semibold text-zk-accent">
+              {naturalW} × {naturalH} px
+            </span>
+          );
+        })()}
       </div>
 
       <div className="flex items-center justify-center overflow-hidden rounded-xl border border-zk-border bg-black/95 p-1">
@@ -214,26 +284,30 @@ export function AreaCropper({
             ref={imageRef}
             src={imageSrc}
             alt="Screenshot to crop"
-            onLoad={() => setImageLoaded(true)}
+            onLoad={handleImageLoad}
             className="pointer-events-none block max-h-[380px] max-w-full w-auto h-auto object-contain"
           />
 
           {/* Selection overlay */}
-          {imageLoaded && norm && norm.width > 2 && norm.height > 2 && (
-            <div
-              className="pointer-events-none absolute border-2 border-dashed border-zk-accent bg-zk-accent/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
-              style={{
-                left: `${norm.x}px`,
-                top: `${norm.y}px`,
-                width: `${norm.width}px`,
-                height: `${norm.height}px`,
-              }}
-            >
-              <div className="absolute -top-6 left-0 rounded bg-zk-accent px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
-                Selection
+          {imageLoaded && norm && norm.width > 2 && norm.height > 2 && (() => {
+            const ox = metrics?.offsetX || 0;
+            const oy = metrics?.offsetY || 0;
+            return (
+              <div
+                className="pointer-events-none absolute border-2 border-dashed border-zk-accent bg-zk-accent/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
+                style={{
+                  left: `${norm.x + ox}px`,
+                  top: `${norm.y + oy}px`,
+                  width: `${norm.width}px`,
+                  height: `${norm.height}px`,
+                }}
+              >
+                <div className="absolute -top-6 left-0 rounded bg-zk-accent px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+                  Selection
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
 

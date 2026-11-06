@@ -224,6 +224,7 @@ export function AddIdeaModal({
   const [timings, setTimings] = useState<InterpretationTimings | null>(null);
 
   // Screenshot / Crop states
+  const rawScreenBlobRef = useRef<Blob | null>(null);
   const [rawScreenUrl, setRawScreenUrl] = useState<string | null>(null);
   const [isCropping, setIsCropping] = useState(false);
 
@@ -293,6 +294,7 @@ export function AddIdeaModal({
       URL.revokeObjectURL(rawScreenUrl);
       setRawScreenUrl(null);
     }
+    rawScreenBlobRef.current = null;
     if (media) {
       URL.revokeObjectURL(media.url);
       setMedia(null);
@@ -613,6 +615,7 @@ export function AddIdeaModal({
           setError("Failed to capture image frame.");
           return;
         }
+        rawScreenBlobRef.current = blob;
         const url = URL.createObjectURL(blob);
         setRawScreenUrl(url);
         setIsCropping(true);
@@ -631,28 +634,30 @@ export function AddIdeaModal({
     }
   };
 
-  const handleCropComplete = (croppedBlob: Blob, croppedUrl: string) => {
+  const handleCropComplete = (croppedBlob: Blob, croppedUrl: string, width?: number, height?: number) => {
     if (rawScreenUrl) {
       URL.revokeObjectURL(rawScreenUrl);
       setRawScreenUrl(null);
     }
-    setMedia({ type: "screenshot", blob: croppedBlob, url: croppedUrl });
+    rawScreenBlobRef.current = null;
+    setMedia({ type: "screenshot", blob: croppedBlob, url: croppedUrl, width, height });
     setIsCropping(false);
     setUnderstanding(null);
   };
 
   const handleUseFullScreenshot = () => {
-    if (!rawScreenUrl) return;
-    fetch(rawScreenUrl)
-      .then((res) => res.blob())
-      .then((blob) => {
-        setMedia({ type: "screenshot", blob, url: rawScreenUrl });
-        setIsCropping(false);
-        setUnderstanding(null);
-      })
-      .catch(() => {
-        setIsCropping(false);
-      });
+    if (!rawScreenUrl || !rawScreenBlobRef.current) return;
+    const img = new Image();
+    img.src = rawScreenUrl;
+    setMedia({
+      type: "screenshot",
+      blob: rawScreenBlobRef.current,
+      url: rawScreenUrl,
+      width: img.naturalWidth || undefined,
+      height: img.naturalHeight || undefined,
+    });
+    setIsCropping(false);
+    setUnderstanding(null);
   };
 
   const handleRetakeScreenshot = () => {
@@ -660,6 +665,7 @@ export function AddIdeaModal({
       URL.revokeObjectURL(rawScreenUrl);
       setRawScreenUrl(null);
     }
+    rawScreenBlobRef.current = null;
     if (media) {
       URL.revokeObjectURL(media.url);
       setMedia(null);
@@ -1294,13 +1300,18 @@ export function AddIdeaModal({
                   />
                 ) : media?.type === "screenshot" ? (
                   <div className="flex flex-col space-y-4">
-                    <div className="flex max-h-[340px] items-center justify-center overflow-hidden rounded-2xl border border-zk-border bg-black/80 p-2">
+                    <div className="relative flex max-h-[340px] items-center justify-center overflow-hidden rounded-2xl border border-zk-border bg-black/80 p-2">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={media.url}
                         alt="Captured screenshot"
-                        className="max-h-[320px] w-auto max-w-full rounded-lg object-contain"
+                        className="max-h-[320px] w-auto max-w-full rounded-lg object-contain shadow-xs"
                       />
+                      {media.width && media.height ? (
+                        <div className="absolute top-3 right-3 rounded-md bg-black/75 px-2 py-0.5 text-[10px] font-mono font-bold text-white backdrop-blur-xs">
+                          {media.width} × {media.height}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="flex items-center justify-between pt-1">
@@ -1403,6 +1414,8 @@ export function AddIdeaModal({
                   <p className="text-[11px] text-zk-muted">
                     {media.type === "video"
                       ? `${formatTime(media.duration)} demonstration stored locally in browser memory`
+                      : media.width && media.height
+                      ? `${media.width} × ${media.height} cropped region stored locally in browser memory`
                       : "Cropped visual region stored locally in browser memory"}
                   </p>
                 </div>
@@ -1839,13 +1852,18 @@ export function AddIdeaModal({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex max-h-[180px] items-center justify-center overflow-hidden rounded-lg">
+                      <div className="relative flex max-h-[180px] items-center justify-center overflow-hidden rounded-lg">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={media.url}
                           alt="Captured evidence"
                           className="max-h-[180px] w-auto max-w-full object-contain"
                         />
+                        {media.width && media.height ? (
+                          <div className="absolute top-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-mono font-bold text-white">
+                            {media.width} × {media.height}
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   </div>

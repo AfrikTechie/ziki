@@ -226,5 +226,87 @@ describe("AreaCropper (Phase 1)", () => {
     expect(sy).toBe(60);
     expect(sw).toBe(1860);
     expect(sh).toBe(960);
+    expect(onCropComplete).toHaveBeenCalledWith(expect.any(Blob), expect.any(String), 1860, 960);
+  });
+
+  it("accurately crops letterboxed wide images preserving aspect ratio without distortion or clipping", async () => {
+    const onCropComplete = vi.fn();
+    const mockDrawImage = vi.fn();
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+      drawImage: mockDrawImage,
+    })) as never;
+
+    const { container } = render(
+      <AreaCropper
+        imageSrc="data:image/png;base64,mock"
+        onCropComplete={onCropComplete}
+        onUseFull={vi.fn()}
+        onRetake={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const cropContainer = container.querySelector(".cursor-crosshair");
+    const img = screen.getByAltText("Screenshot to crop") as HTMLImageElement;
+
+    // Wide 2:1 aspect ratio image (2000x1000) inside 500x350 container (letterboxed top & bottom)
+    Object.defineProperty(img, "naturalWidth", { value: 2000, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 1000, configurable: true });
+
+    vi.spyOn(cropContainer!, "getBoundingClientRect").mockReturnValue({
+      left: 10,
+      top: 10,
+      width: 500,
+      height: 350,
+      bottom: 360,
+      right: 510,
+      x: 10,
+      y: 10,
+      toJSON: () => {},
+    });
+
+    vi.spyOn(img, "getBoundingClientRect").mockReturnValue({
+      left: 10,
+      top: 10,
+      width: 500,
+      height: 350,
+      bottom: 360,
+      right: 510,
+      x: 10,
+      y: 10,
+      toJSON: () => {},
+    });
+
+    // In a 500x350 box with 2:1 aspect ratio, painted height is 250px.
+    // Vertical letterbox offset is (350 - 250) / 2 = 50px.
+    // Client click at top: 10 + 50 (offset) + 20px into image = 80px.
+    // Drag down to 80 + 100px into image = 180px.
+    fireEvent(
+      cropContainer!,
+      new PointerEvent("pointerdown", { clientX: 10 + 50, clientY: 10 + 50 + 20, bubbles: true, cancelable: true })
+    );
+    fireEvent(
+      cropContainer!,
+      new PointerEvent("pointermove", { clientX: 10 + 250, clientY: 10 + 50 + 120, bubbles: true, cancelable: true })
+    );
+    fireEvent(
+      cropContainer!,
+      new PointerEvent("pointerup", { clientX: 10 + 250, clientY: 10 + 50 + 120, bubbles: true, cancelable: true })
+    );
+
+    const cropBtn = screen.getByRole("button", { name: "Crop area" });
+    fireEvent.click(cropBtn);
+
+    expect(onCropComplete).toHaveBeenCalledTimes(1);
+    expect(mockDrawImage).toHaveBeenCalledTimes(1);
+    const [, sx, sy, sw, sh] = mockDrawImage.mock.calls[0];
+    // Scale factor is 2000 / 500 = 4.
+    // Selected x: 50 to 250 (width 200) -> 200 * 4 = 800.
+    // Selected y: 20 to 120 (height 100) -> 100 * 4 = 400.
+    expect(sx).toBe(200);
+    expect(sy).toBe(80);
+    expect(sw).toBe(800);
+    expect(sh).toBe(400);
+    expect(onCropComplete).toHaveBeenCalledWith(expect.any(Blob), expect.any(String), 800, 400);
   });
 });

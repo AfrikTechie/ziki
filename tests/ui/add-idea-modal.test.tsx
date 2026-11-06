@@ -62,6 +62,33 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     // Mock ObjectURL methods
     globalThis.URL.createObjectURL = vi.fn(() => "blob:http://localhost/mock-blob");
     globalThis.URL.revokeObjectURL = vi.fn();
+
+    // Mock HTMLCanvasElement for screenshot frame captures in jsdom
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+      drawImage: vi.fn(),
+    })) as never;
+    HTMLCanvasElement.prototype.toBlob = vi.fn((callback) => {
+      callback(new Blob(["raw-frame-image"], { type: "image/png" }));
+    });
+
+    // Mock HTMLVideoElement for screen capture frames in jsdom
+    HTMLVideoElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(HTMLVideoElement.prototype, "srcObject", {
+      set(val) {
+        this._srcObject = val;
+        setTimeout(() => {
+          Object.defineProperty(this, "videoWidth", { value: 1920, configurable: true });
+          Object.defineProperty(this, "videoHeight", { value: 1080, configurable: true });
+          if (this.onloadedmetadata) {
+            this.onloadedmetadata(new Event("loadedmetadata"));
+          }
+        }, 10);
+      },
+      get() {
+        return this._srcObject;
+      },
+      configurable: true,
+    });
   });
 
   afterEach(() => {
@@ -801,5 +828,59 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     const reviewScrollBody = dialog?.querySelector(".max-h-\\[min\\(54vh\\,480px\\)\\]");
     expect(reviewScrollBody).toBeTruthy();
     expect(reviewScrollBody?.className).toContain("overflow-y-auto");
+  });
+
+  it("supports area capture, accurate cropping dimensions, and screenshot preview across steps", async () => {
+    const user = userEvent.setup();
+    const mockTrack = { stop: vi.fn(), onended: null };
+    const mockStream = {
+      getTracks: vi.fn(() => [mockTrack]),
+      getVideoTracks: vi.fn(() => [mockTrack]),
+    };
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    // Select Capture area
+    await user.click(screen.getByText("Capture area").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByText("Ready to capture area")).toBeTruthy();
+
+    // Trigger capture
+    await user.click(screen.getByRole("button", { name: "Capture screen" }));
+
+    // AreaCropper should open
+    await waitFor(() => {
+      expect(screen.getByText("Click and drag over the image to crop the problem area")).toBeTruthy();
+    });
+
+    // Use full screenshot or crop
+    await user.click(screen.getByRole("button", { name: "Use full screenshot" }));
+
+    // Shows screenshot preview with Retake and Continue
+    await waitFor(() => {
+      expect(screen.getByAltText("Captured screenshot")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Retake/i })).toBeTruthy();
+    });
+
+    // Advance to details
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Verifies Details step displays targeted screenshot evidence card
+    await waitFor(() => {
+      expect(screen.getByText("Targeted screenshot captured")).toBeTruthy();
+    });
+
+    // Advance to review
+    await user.click(screen.getByRole("button", { name: /Confirm & continue to draft/i }));
+    expect(screen.getByText("Review issue draft")).toBeTruthy();
+    expect(screen.getByAltText("Captured evidence")).toBeTruthy();
   });
 });
