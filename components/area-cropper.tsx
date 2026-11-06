@@ -120,22 +120,33 @@ export function AreaCropper({
       return;
     }
 
-    const cWidth = container.clientWidth || 800;
-    const cHeight = container.clientHeight || 500;
-    const naturalWidth = img.naturalWidth || cWidth;
-    const naturalHeight = img.naturalHeight || cHeight;
+    const renderedWidth = img.clientWidth || container.clientWidth || 800;
+    const renderedHeight = img.clientHeight || container.clientHeight || 500;
+    const naturalWidth = img.naturalWidth || renderedWidth;
+    const naturalHeight = img.naturalHeight || renderedHeight;
 
-    const scaleX = naturalWidth / cWidth;
-    const scaleY = naturalHeight / cHeight;
+    if (!naturalWidth || !naturalHeight || !renderedWidth || !renderedHeight) {
+      onUseFull();
+      return;
+    }
 
-    const sourceX = Math.round(norm.x * scaleX);
-    const sourceY = Math.round(norm.y * scaleY);
-    const sourceWidth = Math.round(norm.width * scaleX);
-    const sourceHeight = Math.round(norm.height * scaleY);
+    const scaleX = naturalWidth / renderedWidth;
+    const scaleY = naturalHeight / renderedHeight;
+
+    const rawSourceX = norm.x * scaleX;
+    const rawSourceY = norm.y * scaleY;
+    const rawSourceW = norm.width * scaleX;
+    const rawSourceH = norm.height * scaleY;
+
+    // Clamp coordinates within natural image dimensions so edges are never cut off
+    const sourceX = Math.max(0, Math.min(naturalWidth - 1, Math.round(rawSourceX)));
+    const sourceY = Math.max(0, Math.min(naturalHeight - 1, Math.round(rawSourceY)));
+    const sourceWidth = Math.max(1, Math.min(naturalWidth - sourceX, Math.round(rawSourceW)));
+    const sourceHeight = Math.max(1, Math.min(naturalHeight - sourceY, Math.round(rawSourceH)));
 
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, sourceWidth);
-    canvas.height = Math.max(1, sourceHeight);
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
     const ctx = canvas.getContext("2d");
 
     if (!ctx) {
@@ -151,8 +162,8 @@ export function AreaCropper({
       sourceHeight,
       0,
       0,
-      canvas.width,
-      canvas.height,
+      sourceWidth,
+      sourceHeight,
     );
 
     canvas.toBlob((blob) => {
@@ -188,40 +199,42 @@ export function AreaCropper({
         )}
       </div>
 
-      <div
-        ref={containerRef}
-        role="region"
-        aria-label="Image area selection"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        className="relative max-h-[380px] w-full select-none overflow-hidden rounded-xl border border-zk-border bg-black/90 touch-none cursor-crosshair"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          ref={imageRef}
-          src={imageSrc}
-          alt="Screenshot to crop"
-          onLoad={() => setImageLoaded(true)}
-          className="pointer-events-none block max-h-[380px] w-full object-contain"
-        />
+      <div className="flex items-center justify-center overflow-hidden rounded-xl border border-zk-border bg-black/95 p-1">
+        <div
+          ref={containerRef}
+          role="region"
+          aria-label="Image area selection"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          className="relative inline-block max-h-[380px] max-w-full select-none overflow-hidden touch-none cursor-crosshair"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imageRef}
+            src={imageSrc}
+            alt="Screenshot to crop"
+            onLoad={() => setImageLoaded(true)}
+            className="pointer-events-none block max-h-[380px] max-w-full w-auto h-auto object-contain"
+          />
 
-        {/* Selection overlay */}
-        {imageLoaded && norm && norm.width > 2 && norm.height > 2 && (
-          <div
-            className="pointer-events-none absolute border-2 border-dashed border-zk-accent bg-zk-accent/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
-            style={{
-              left: `${norm.x}px`,
-              top: `${norm.y}px`,
-              width: `${norm.width}px`,
-              height: `${norm.height}px`,
-            }}
-          >
-            <div className="absolute -top-6 left-0 rounded bg-zk-accent px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
-              Selection
+          {/* Selection overlay */}
+          {imageLoaded && norm && norm.width > 2 && norm.height > 2 && (
+            <div
+              className="pointer-events-none absolute border-2 border-dashed border-zk-accent bg-zk-accent/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
+              style={{
+                left: `${norm.x}px`,
+                top: `${norm.y}px`,
+                width: `${norm.width}px`,
+                height: `${norm.height}px`,
+              }}
+            >
+              <div className="absolute -top-6 left-0 rounded bg-zk-accent px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+                Selection
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 pt-2">

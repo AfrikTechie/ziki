@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AddIdeaModal } from "@/components/add-idea-modal";
 import { createBugAction } from "@/app/actions/issues";
 import { interpretVisualEvidenceAction } from "@/app/actions/visual-interpretation";
+import { type VisualAnalysisResult } from "@/lib/visual-interpretation";
 import { unstable_rethrow } from "next/navigation";
 
 vi.mock("next/navigation", async (importOriginal) => ({
@@ -36,6 +37,7 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     vi.clearAllMocks();
     mockedCreateBug.mockResolvedValue({} as never);
     mockedInterpretVisual.mockResolvedValue({
+      success: true,
       understanding: {
         observedBehavior: "Clicking save button resets form without persisting changes",
         context: "Settings form",
@@ -316,6 +318,7 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
 
     // Initial interpretation has ambiguous intent
     mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
       understanding: {
         observedBehavior: "User interacted with multiple filter tabs on the page",
         context: "Filter tabs header",
@@ -357,6 +360,7 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
 
     // Mock corrected re-interpretation
     mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
       understanding: {
         observedBehavior: "Badge counter fails to decrement when filters are applied",
         context: "Filter badge counter",
@@ -452,5 +456,350 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     await user.click(closeBtn);
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports optional voice narration toggle during screen recording", async () => {
+    const user = userEvent.setup();
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Voice narration toggle is rendered
+    const narrationSwitch = screen.getByRole("switch", { name: /Toggle voice narration/i });
+    expect(narrationSwitch).toBeTruthy();
+    expect(narrationSwitch.getAttribute("aria-checked")).toBe("false");
+
+    // Enable voice narration
+    await user.click(narrationSwitch);
+    expect(narrationSwitch.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("displays transparent AI error notice and allows retry or manual draft when AI analysis fails", async () => {
+    const user = userEvent.setup();
+
+    const mockTrack = { stop: vi.fn(), onended: null };
+    const mockStream = {
+      getTracks: vi.fn(() => [mockTrack]),
+      getVideoTracks: vi.fn(() => [mockTrack]),
+    };
+
+    class MockMediaRecorder {
+      state = "inactive";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["video-chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    // Mock AI failure
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: false,
+      error: "Live AI interpretation is unavailable because no Anthropic API key is configured.",
+      code: "NO_API_KEY",
+      fallbackDraft: {
+        title: "Screen recording draft",
+        description: "Draft details",
+        suggestedType: "Bug",
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Verifies transparent error notice is rendered instead of fake understanding
+    await waitFor(() => {
+      expect(screen.getByText("Live AI interpretation unavailable")).toBeTruthy();
+    });
+    expect(screen.getByText(/no Anthropic API key is configured/i)).toBeTruthy();
+    expect(screen.queryByText("Ziki's understanding")).toBeNull();
+
+    // Verify retry button and manual draft button exist
+    expect(screen.getByRole("button", { name: /Retry analysis/i })).toBeTruthy();
+    const manualBtn = screen.getByRole("button", { name: /Continue to draft manually/i });
+    expect(manualBtn).toBeTruthy();
+
+    // User chooses to continue to draft manually
+    await user.click(manualBtn);
+    expect(screen.getByText("Review issue draft")).toBeTruthy();
+  });
+
+  it("displays execution timing breakdown metrics when returned from visual analysis", async () => {
+    const user = userEvent.setup();
+    const mockTrack = { stop: vi.fn(), onended: null };
+    const mockStream = {
+      getTracks: vi.fn(() => [mockTrack]),
+      getVideoTracks: vi.fn(() => [mockTrack]),
+    };
+
+    class MockMediaRecorder {
+      state = "inactive";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["video-chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior: "Settings modal fails to save preferences",
+        context: "Settings view",
+        intent: "Report save defect",
+        isAmbiguous: false,
+      },
+      draft: {
+        title: "Settings modal fails to save preferences",
+        description: "## Summary\nSettings not saved.",
+        suggestedType: "Bug",
+      },
+      timings: {
+        claudeApiMs: 1850,
+        validationMs: 5,
+        totalServerMs: 1880,
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Ziki's understanding")).toBeTruthy();
+    });
+
+    // Check execution timing metrics display
+    expect(screen.getByText(/Claude API: 1\.85s/i)).toBeTruthy();
+    expect(screen.getByText(/Validation: 5ms/i)).toBeTruthy();
+    expect(screen.getByText(/Server Action:/i)).toBeTruthy();
+  });
+
+  it("allows user to skip waiting during analysis and proceed to manual drafting", async () => {
+    const user = userEvent.setup();
+    const mockTrack = { stop: vi.fn(), onended: null };
+    const mockStream = {
+      getTracks: vi.fn(() => [mockTrack]),
+      getVideoTracks: vi.fn(() => [mockTrack]),
+    };
+
+    class MockMediaRecorder {
+      state = "inactive";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["video-chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    // Slow analysis promise that hasn't resolved yet
+    let resolveAnalysis: (val: VisualAnalysisResult) => void = () => {};
+    mockedInterpretVisual.mockImplementationOnce(
+      () =>
+        new Promise<VisualAnalysisResult>((resolve) => {
+          resolveAnalysis = resolve;
+        })
+    );
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // User sees skip waiting shortcut while interpreting
+    const skipBtn = await screen.findByRole("button", { name: /Skip waiting & draft manually/i });
+    expect(skipBtn).toBeTruthy();
+
+    await user.click(skipBtn);
+
+    // Navigates to review draft immediately without waiting
+    expect(screen.getByText("Review issue draft")).toBeTruthy();
+
+    // Clean up unresolved promise
+    resolveAnalysis({ success: false, error: "Aborted", code: "API_ERROR" });
+  });
+
+  it("preserves existing understanding and displays user-friendly error when update with correction fails", async () => {
+    const user = userEvent.setup();
+
+    // Initial analysis succeeds
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior: "Initial observed behavior on project settings page",
+        context: "Settings view",
+        intent: "Report settings configuration issue",
+        isAmbiguous: false,
+      },
+      draft: {
+        title: "Initial Settings Issue",
+        description: "## Summary\nInitial settings issue.\n\n## Steps to Reproduce\n1. Open settings.",
+        suggestedType: "Bug",
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Verifies initial understanding is displayed
+    await waitFor(() => {
+      expect(screen.getByText("Initial observed behavior on project settings page")).toBeTruthy();
+    });
+
+    // Open clarification
+    await user.click(screen.getByRole("button", { name: /\+ Clarify or correct/i }));
+    const correctionInput = screen.getByPlaceholderText(/Actually, the bug only happens/i);
+    await user.type(correctionInput, "Actually, this only occurs in dark mode");
+
+    // Mock update failure with raw JSON/schema error
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: false,
+      error: 'Live AI interpretation failed: [{"expected":"string","code":"invalid_type","path":["context"],"message":"Required"}]',
+      code: "API_ERROR",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Update with correction/i }));
+
+    // Verifies that the previous understanding is PRESERVED, not wiped out!
+    await waitFor(() => {
+      expect(screen.getByText("Initial observed behavior on project settings page")).toBeTruthy();
+    });
+
+    // Verifies that a human-friendly error notice is displayed without raw JSON
+    expect(screen.getByText("Could not update with correction")).toBeTruthy();
+    expect(screen.queryByText(/\[\{"expected":"string"/)).toBeNull();
+    expect(screen.getByText(/The AI analysis response was incomplete or formatted unexpectedly/i)).toBeTruthy();
+
+    // User can still proceed to review with the preserved draft
+    await user.click(screen.getByRole("button", { name: /Confirm & continue to draft/i }));
+    expect(screen.getByText("Review issue draft")).toBeTruthy();
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Initial Settings Issue");
+  });
+
+  it("restores original modal positioning and ensures isolated scrollability for Details and Review steps", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+    const dialog = container.querySelector("dialog");
+    expect(dialog).toBeTruthy();
+
+    // Dialog retains native top-layer layout without breaking flex overrides
+    expect(dialog?.className).toContain("max-w-[620px]");
+    expect(dialog?.className).toContain("overflow-hidden");
+    expect(dialog?.className).toContain("backdrop:bg-slate-900/40");
+    expect(dialog?.className).not.toContain("max-h-[min(90vh,840px)]");
+
+    // Choose step has natural layout without outer wrapper scrolling
+    const outerWrapper = dialog?.querySelector(".relative.flex.flex-col.p-6");
+    expect(outerWrapper).toBeTruthy();
+    expect(outerWrapper?.className).not.toContain("overflow-y-auto");
+
+    // Advance to review via 'Write description'
+    await user.click(screen.getByText("Write description").closest("button")!);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Review step body has isolated scroll container to protect header and submit footer
+    const reviewScrollBody = dialog?.querySelector(".max-h-\\[min\\(54vh\\,480px\\)\\]");
+    expect(reviewScrollBody).toBeTruthy();
+    expect(reviewScrollBody?.className).toContain("overflow-y-auto");
   });
 });

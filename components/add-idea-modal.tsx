@@ -5,7 +5,7 @@ import { useRouter, unstable_rethrow } from "next/navigation";
 import { createBugAction, type ActionResult } from "@/app/actions/issues";
 import { interpretVisualEvidenceAction } from "@/app/actions/visual-interpretation";
 import {
-  generateFallbackAnalysis,
+  type InterpretationTimings,
   type KeyframeSample,
   type VisualInterpretationDetails,
 } from "@/lib/visual-interpretation";
@@ -33,11 +33,23 @@ const VISUAL_INTERPRETATION_STEPS = [
   "Drafting structured issue description…",
 ];
 
+const VISUAL_WITH_NARRATION_STEPS = [
+  "Correlating spoken voice narration with visual frames…",
+  "Examining interactions and screen elements…",
+  "Identifying demonstrated defect…",
+  "Synthesizing reproduction steps…",
+  "Drafting structured issue description…",
+];
+
 /**
  * Extracts lightweight keyframes across the recording timeline using an offscreen canvas.
  * Held purely in temporary browser memory.
  */
-async function extractVideoKeyframes(blob: Blob, count: number = 3): Promise<KeyframeSample[]> {
+async function extractVideoKeyframes(
+  blob: Blob,
+  hasNarration: boolean = false,
+  explicitCount?: number
+): Promise<KeyframeSample[]> {
   return new Promise((resolve) => {
     try {
       if (typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent)) {
@@ -55,15 +67,33 @@ async function extractVideoKeyframes(blob: Blob, count: number = 3): Promise<Key
       const timer = setTimeout(() => {
         URL.revokeObjectURL(url);
         resolve(frames);
-      }, 3000);
+      }, 4000);
 
       video.onloadedmetadata = () => {
         const duration = Math.max(1, video.duration || 1);
-        const samplePoints = [
-          { label: "Start of recording", time: Math.min(0.5, duration * 0.1) },
-          { label: "Mid-interaction", time: duration * 0.5 },
-          { label: "Observed outcome", time: Math.max(0.5, duration * 0.9) },
-        ].slice(0, count);
+        let samplePoints: Array<{ label: string; time: number }> = [];
+
+        if (hasNarration) {
+          // When voice narration is present, user explanation provides the narrative.
+          // 2 or 3 targeted keyframes verify the initial UI state and the defect outcome.
+          samplePoints = [
+            { label: "Initial state / Context", time: Math.min(0.5, duration * 0.1) },
+            ...(duration > 10 ? [{ label: "Demonstrated action", time: duration * 0.5 }] : []),
+            { label: "Observed outcome / Defect", time: Math.max(0.5, duration * 0.95) },
+          ];
+        } else {
+          // Without voice narration, sample 4 keyframes to visually reconstruct the action sequence.
+          samplePoints = [
+            { label: "Start of recording", time: Math.min(0.5, duration * 0.1) },
+            { label: "Early action", time: duration * 0.35 },
+            { label: "Mid-interaction", time: duration * 0.65 },
+            { label: "Observed outcome", time: Math.max(0.5, duration * 0.95) },
+          ];
+        }
+
+        if (typeof explicitCount === "number" && explicitCount > 0) {
+          samplePoints = samplePoints.slice(0, explicitCount);
+        }
 
         let currentIndex = 0;
 
@@ -80,10 +110,10 @@ async function extractVideoKeyframes(blob: Blob, count: number = 3): Promise<Key
         video.onseeked = () => {
           try {
             const canvas = document.createElement("canvas");
-            const width = Math.min(video.videoWidth || 640, 800);
-            const aspect = (video.videoHeight || 480) / (video.videoWidth || 640);
+            const width = Math.min(video.videoWidth || 1024, 1024);
+            const aspect = (video.videoHeight || 576) / (video.videoWidth || 1024);
             canvas.width = width;
-            canvas.height = Math.round(width * (aspect || 0.75));
+            canvas.height = Math.round(width * (aspect || 0.5625));
             const ctx = canvas.getContext("2d");
             ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
             const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
@@ -130,6 +160,32 @@ async function blobToDataUrl(blob: Blob): Promise<string | null> {
   });
 }
 
+/**
+ * Formats AI errors into transparent, user-friendly messages rather than raw JSON or stack traces.
+ */
+function formatUserFriendlyAiError(rawError?: string): string {
+  if (!rawError) {
+    return "AI interpretation could not be completed. You can retry or edit your draft directly.";
+  }
+  if (
+    rawError.includes("ZodError") ||
+    rawError.includes('"expected"') ||
+    rawError.includes("invalid_type") ||
+    rawError.includes("undefined") ||
+    rawError.includes("incomplete or missing") ||
+    rawError.includes("JSON")
+  ) {
+    return "The AI analysis response was incomplete or formatted unexpectedly. Your previous understanding has been preserved. You can adjust your clarification or continue to edit the draft manually.";
+  }
+  if (rawError.includes("timed out") || rawError.includes("timeout")) {
+    return "Analysis took longer than expected (timed out after 25s). Your previous interpretation has been preserved. You can retry or proceed to the review step.";
+  }
+  if (rawError.includes("fetch failed") || rawError.includes("ENOTFOUND")) {
+    return "Could not connect to the AI provider service. Please check your network connection and configuration.";
+  }
+  return rawError.length > 250 ? `${rawError.slice(0, 247)}...` : rawError;
+}
+
 export function AddIdeaModal({
   projectId,
   isOpen,
@@ -147,6 +203,9 @@ export function AddIdeaModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const speechRecRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
 
@@ -156,6 +215,13 @@ export function AddIdeaModal({
   // Recording states
   const [recordState, setRecordState] = useState<"idle" | "recording" | "recorded">("idle");
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [withAudio, setWithAudio] = useState(false);
+  const [micActive, setMicActive] = useState(false);
+  const [micDenied, setMicDenied] = useState(false);
+  const [narration, setNarration] = useState("");
+  const [isEditingNarration, setIsEditingNarration] = useState(false);
+  const [editedNarration, setEditedNarration] = useState("");
+  const [timings, setTimings] = useState<InterpretationTimings | null>(null);
 
   // Screenshot / Crop states
   const [rawScreenUrl, setRawScreenUrl] = useState<string | null>(null);
@@ -167,6 +233,7 @@ export function AddIdeaModal({
   // Clarification & AI interpretation state
   const [clarification, setClarification] = useState("");
   const [understanding, setUnderstanding] = useState<VisualInterpretationDetails | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [showClarifyInput, setShowClarifyInput] = useState(false);
 
@@ -195,6 +262,18 @@ export function AddIdeaModal({
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    if (speechRecRef.current) {
+      try {
+        speechRecRef.current.stop();
+      } catch {
+        // ignore
+      }
+      speechRecRef.current = null;
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -220,7 +299,10 @@ export function AddIdeaModal({
     }
     setRecordState("idle");
     setRecordSeconds(0);
+    setMicActive(false);
+    setMicDenied(false);
     setIsCropping(false);
+    setAiError(null);
   }, [media, rawScreenUrl]);
 
   // Handle open / close dialog lifecycle
@@ -241,6 +323,16 @@ export function AddIdeaModal({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (speechRecRef.current) {
+        try {
+          speechRecRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -253,7 +345,13 @@ export function AddIdeaModal({
     setTitle("");
     setDescription("");
     setClarification("");
+    setNarration("");
+    setIsEditingNarration(false);
+    setEditedNarration("");
+    setTimings(null);
+    setWithAudio(false);
     setUnderstanding(null);
+    setAiError(null);
     setIsInterpreting(false);
     setShowClarifyInput(false);
     setError(null);
@@ -273,17 +371,67 @@ export function AddIdeaModal({
    * ------------------------------------------------------------- */
   const startRecording = async () => {
     setError(null);
+    setMicDenied(false);
     if (!navigator.mediaDevices?.getDisplayMedia) {
       setError("Screen recording is not supported in this browser. Please use Chrome, Edge, Firefox, or Safari.");
       return;
     }
 
     try {
+      // If voice narration is enabled, request microphone permission
+      let micStream: MediaStream | null = null;
+      if (withAudio && navigator.mediaDevices?.getUserMedia) {
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          micStreamRef.current = micStream;
+          setMicActive(true);
+        } catch {
+          // Microphone was denied or unavailable - notify user and proceed with video recording
+          setMicDenied(true);
+          setMicActive(false);
+        }
+      }
+
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: "browser" },
         audio: false,
       });
       streamRef.current = stream;
+
+      // Use combined stream if microphone audio is active, otherwise use screen stream
+      const recordingStream =
+        micStream && typeof MediaStream !== "undefined"
+          ? new MediaStream([
+              ...stream.getVideoTracks(),
+              ...micStream.getAudioTracks(),
+            ])
+          : stream;
+
+      // Start live speech recognition for live narration transcription if available
+      if (micStream && typeof window !== "undefined") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRec) {
+          try {
+            const rec = new SpeechRec();
+            rec.continuous = true;
+            rec.interimResults = true;
+            rec.lang = typeof navigator !== "undefined" ? navigator.language : "en-US";
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            rec.onresult = (e: any) => {
+              let text = "";
+              for (let i = 0; i < e.results.length; i++) {
+                text += e.results[i][0].transcript + " ";
+              }
+              if (text.trim()) setNarration(text.trim());
+            };
+            rec.start();
+            speechRecRef.current = rec;
+          } catch {
+            // Speech recognition optional fallback
+          }
+        }
+      }
 
       // Detect supported mimeType
       const mimeType =
@@ -294,7 +442,7 @@ export function AddIdeaModal({
           "video/mp4",
         ].find((type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) || "";
 
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const recorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
       recorderRef.current = recorder;
 
       const chunks: Blob[] = [];
@@ -312,6 +460,20 @@ export function AddIdeaModal({
           clearInterval(timerRef.current);
           timerRef.current = null;
         }
+        if (speechRecRef.current) {
+          try {
+            speechRecRef.current.stop();
+          } catch {
+            // ignore
+          }
+          speechRecRef.current = null;
+        }
+        if (micStreamRef.current) {
+          micStreamRef.current.getTracks().forEach((track) => track.stop());
+          micStreamRef.current = null;
+        }
+        setMicActive(false);
+
         const elapsed = Math.max(1, Math.floor((Date.now() - start) / 1000));
         const blob = new Blob(chunks, { type: mimeType || "video/webm" });
         const url = URL.createObjectURL(blob);
@@ -348,6 +510,20 @@ export function AddIdeaModal({
         }
       }, 1000);
     } catch (err: unknown) {
+      if (speechRecRef.current) {
+        try {
+          speechRecRef.current.stop();
+        } catch {
+          // ignore
+        }
+        speechRecRef.current = null;
+      }
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((track) => track.stop());
+        micStreamRef.current = null;
+      }
+      setMicActive(false);
+
       const e = err as { name?: string; message?: string };
       if (e.name === "NotAllowedError" || e.name === "AbortError") {
         setError("Screen recording was cancelled or permission was denied.");
@@ -365,13 +541,31 @@ export function AddIdeaModal({
   };
 
   const recordAgain = () => {
+    if (speechRecRef.current) {
+      try {
+        speechRecRef.current.stop();
+      } catch {
+        // ignore
+      }
+      speechRecRef.current = null;
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+    }
+    setMicActive(false);
     if (media) {
       URL.revokeObjectURL(media.url);
       setMedia(null);
     }
     setRecordState("idle");
     setRecordSeconds(0);
+    setNarration("");
+    setIsEditingNarration(false);
+    setEditedNarration("");
+    setTimings(null);
     setUnderstanding(null);
+    setAiError(null);
     startRecording();
   };
 
@@ -478,7 +672,10 @@ export function AddIdeaModal({
   /* -------------------------------------------------------------
    * AI Interpretation & Understanding Pipeline
    * ------------------------------------------------------------- */
-  const handleRunAnalysis = async (explicitClarification?: string) => {
+  const handleRunAnalysis = async (
+    explicitClarification?: string,
+    explicitNarration?: string
+  ) => {
     if (!media) {
       setStep("review");
       return;
@@ -486,61 +683,110 @@ export function AddIdeaModal({
 
     setError(null);
     setIsInterpreting(true);
+    const clientStartTime = performance.now();
 
     try {
+      const effectiveNarration =
+        typeof explicitNarration === "string"
+          ? explicitNarration.trim()
+          : (isEditingNarration ? editedNarration : narration).trim();
+
       let imageSample: string | undefined = undefined;
       let frames: KeyframeSample[] | undefined = undefined;
+      let frameExtractionMs: number | undefined = undefined;
 
+      const frameStartTime = performance.now();
       if (media.type === "screenshot") {
         const dataUrl = await blobToDataUrl(media.blob);
         if (dataUrl) imageSample = dataUrl;
+        frameExtractionMs = Math.round(performance.now() - frameStartTime);
       } else if (media.type === "video") {
-        const sampledFrames = await extractVideoKeyframes(media.blob, 3);
+        const hasNarration = Boolean(effectiveNarration);
+        const targetFrames = hasNarration ? 2 : 4;
+        const sampledFrames = await extractVideoKeyframes(media.blob, hasNarration, targetFrames);
         if (sampledFrames && sampledFrames.length > 0) {
           frames = sampledFrames;
         }
+        frameExtractionMs = Math.round(performance.now() - frameStartTime);
       }
 
       const currentTypeName = availableTypes.find((t) => t.id === selectedType)?.name;
       const effectiveClarification =
         typeof explicitClarification === "string" ? explicitClarification.trim() : clarification.trim();
 
-      const result = await interpretVisualEvidenceAction({
+      const actionStartTime = performance.now();
+
+      // 25-second timeout safeguard to prevent unresponsiveness
+      let timeoutId: NodeJS.Timeout | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error("Analysis took longer than expected (timed out after 25s). You can retry or draft manually."));
+        }, 25000);
+      });
+
+      const analysisPromise = interpretVisualEvidenceAction({
         mediaType: media.type,
         durationSeconds: media.type === "video" ? media.duration : undefined,
         clarification: effectiveClarification || undefined,
+        narration: effectiveNarration || undefined,
         imageSample,
         frames,
         suggestedType: currentTypeName,
-        previousUnderstanding: understanding?.observedBehavior,
+        previousUnderstanding: understanding
+          ? `Observed behavior: ${understanding.observedBehavior}. Context: ${understanding.context}. Intent: ${understanding.intent}.`
+          : undefined,
       });
 
-      if (result?.understanding) {
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+      if (timeoutId) clearTimeout(timeoutId);
+
+      const serverActionMs = Math.round(performance.now() - actionStartTime);
+      const totalClientMs = Math.round(performance.now() - clientStartTime);
+
+      const combinedTimings: InterpretationTimings = {
+        frameExtractionMs,
+        serverActionMs,
+        claudeApiMs: result.timings?.claudeApiMs,
+        providerApiMs: result.timings?.providerApiMs,
+        provider: result.timings?.provider || result.provider,
+        validationMs: result.timings?.validationMs,
+        totalServerMs: result.timings?.totalServerMs,
+        totalClientMs,
+      };
+      setTimings(combinedTimings);
+
+      if (result.success) {
         setUnderstanding(result.understanding);
+        setAiError(null);
+        if (result.draft.title) {
+          setTitle(result.draft.title);
+        }
+        if (result.draft.description) {
+          setDescription(result.draft.description);
+        }
+        if (result.draft.suggestedType) {
+          const match = availableTypes.find(
+            (t) => t.name.toLowerCase() === result.draft.suggestedType.toLowerCase()
+          );
+          if (match) setSelectedType(match.id);
+        }
+      } else {
+        // Preserve existing understanding if an update attempt fails
+        setAiError(formatUserFriendlyAiError(result.error));
+        if (!understanding && result.fallbackDraft) {
+          if (!title) setTitle(result.fallbackDraft.title);
+          if (!description) setDescription(result.fallbackDraft.description);
+        }
       }
-      if (result?.draft?.title) {
-        setTitle(result.draft.title);
-      }
-      if (result?.draft?.description) {
-        setDescription(result.draft.description);
-      }
-      if (result?.draft?.suggestedType) {
-        const match = availableTypes.find(
-          (t) => t.name.toLowerCase() === result.draft.suggestedType?.toLowerCase()
-        );
-        if (match) setSelectedType(match.id);
-      }
-    } catch {
-      // Graceful fallback on network or unexpected error
-      const fallback = generateFallbackAnalysis({
-        mediaType: media.type,
-        durationSeconds: media.type === "video" ? media.duration : undefined,
-        clarification: explicitClarification || clarification || undefined,
-        previousUnderstanding: understanding?.observedBehavior,
-      });
-      setUnderstanding(fallback.understanding);
-      setTitle(fallback.draft.title);
-      setDescription(fallback.draft.description);
+    } catch (err: unknown) {
+      // Preserve existing understanding on unexpected error/timeout
+      const msg = err instanceof Error ? err.message : "Network error during visual analysis";
+      setAiError(formatUserFriendlyAiError(msg));
+      const totalClientMs = Math.round(performance.now() - clientStartTime);
+      setTimings((prev) => ({
+        ...prev,
+        totalClientMs,
+      }));
     } finally {
       setIsInterpreting(false);
     }
@@ -653,7 +899,7 @@ export function AddIdeaModal({
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
-      className="m-auto w-full max-w-[640px] overflow-hidden rounded-2xl border border-zk-border bg-zk-surface p-0 text-zk-text shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-xs"
+      className="m-auto w-full max-w-[620px] overflow-hidden rounded-2xl border border-zk-border bg-zk-surface p-0 text-zk-text shadow-2xl backdrop:bg-slate-900/40 backdrop:backdrop-blur-xs"
     >
       <div className="relative flex flex-col p-6">
         {/* Modal Header */}
@@ -897,7 +1143,7 @@ export function AddIdeaModal({
             {mode === "record" && (
               <div className="flex flex-col space-y-4">
                 {recordState === "idle" && (
-                  <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zk-border p-10 text-center">
+                  <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zk-border p-8 text-center">
                     <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zk-tint text-zk-accent">
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                         <path d="m22 8-6 4 6 4V8Z" />
@@ -908,6 +1154,45 @@ export function AddIdeaModal({
                     <p className="mt-1 max-w-sm text-xs text-zk-muted">
                       Select your screen, application window, or tab. Recording will capture what you show.
                     </p>
+
+                    {/* Microphone toggle */}
+                    <div className="mt-4 flex w-full max-w-sm items-center justify-between rounded-xl border border-zk-border bg-zk-chip/40 px-3.5 py-2.5 text-left transition hover:bg-zk-chip/60">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${
+                            withAudio ? "bg-zk-accent text-white" : "bg-zk-surface text-zk-muted"
+                          }`}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" x2="12" y1="19" y2="22" />
+                          </svg>
+                        </span>
+                        <div>
+                          <p className="text-xs font-semibold text-zk-text">Record voice narration</p>
+                          <p className="text-[11px] text-zk-muted">Explain what you are demonstrating</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={withAudio}
+                        aria-label="Toggle voice narration"
+                        onClick={() => setWithAudio(!withAudio)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                          withAudio ? "bg-zk-accent" : "bg-zk-border"
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                            withAudio ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
                     <button
                       type="button"
                       onClick={startRecording}
@@ -931,6 +1216,23 @@ export function AddIdeaModal({
                     <p className="mt-1 text-xs text-zk-muted">
                       Demonstrate the issue on your screen. You can stop anytime.
                     </p>
+
+                    {withAudio && micActive && (
+                      <div className="mt-3 flex items-center gap-1.5 rounded-full bg-zk-accent/15 px-3 py-1 text-xs font-semibold text-zk-accent">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                          <line x1="12" x2="12" y1="19" y2="22" />
+                        </svg>
+                        Microphone active (recording voice)
+                      </div>
+                    )}
+                    {micDenied && (
+                      <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
+                        Microphone permission denied; recording screen without audio.
+                      </p>
+                    )}
+
                     <button
                       type="button"
                       onClick={stopRecording}
@@ -1063,16 +1365,18 @@ export function AddIdeaModal({
               </p>
             </div>
 
-            {/* Media Evidence Card */}
+            {/* Scrollable middle body so long AI interpretation and clarification fit cleanly */}
+            <div className="flex flex-col space-y-4 max-h-[min(52vh,460px)] overflow-y-auto pr-1">
+              {/* Media Evidence Card */}
             {media && (
               <div className="flex items-center gap-3 rounded-xl border border-zk-border bg-zk-chip/30 p-2.5">
-                <div className="relative flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/80">
+                <div className="relative flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/80 p-0.5">
                   {media.type === "video" ? (
                     <>
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                       <video
                         src={media.url}
-                        className="h-full w-full object-cover opacity-80"
+                        className="h-full w-full object-contain opacity-80"
                       />
                       <span className="absolute inset-0 flex items-center justify-center text-white">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -1088,7 +1392,7 @@ export function AddIdeaModal({
                     <img
                       src={media.url}
                       alt="Evidence thumbnail"
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-contain"
                     />
                   )}
                 </div>
@@ -1112,13 +1416,130 @@ export function AddIdeaModal({
               </div>
             )}
 
+            {/* Voice narration transcript */}
+            {narration && (
+              <div className="flex flex-col space-y-2 rounded-xl border border-zk-border bg-zk-chip/30 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-zk-accent text-white">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" x2="12" y1="19" y2="22" />
+                      </svg>
+                    </span>
+                    <span className="text-xs font-bold text-zk-text">Voice narration</span>
+                    <span className="text-[10px] text-zk-muted">Recorded via microphone</span>
+                  </div>
+                  {!isEditingNarration && !isInterpreting && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditedNarration(narration);
+                        setIsEditingNarration(true);
+                      }}
+                      className="text-xs font-semibold text-zk-accent hover:underline"
+                    >
+                      Edit transcript
+                    </button>
+                  )}
+                </div>
+
+                {isEditingNarration ? (
+                  <div className="space-y-2 pt-1">
+                    <textarea
+                      rows={3}
+                      value={editedNarration}
+                      onChange={(e) => setEditedNarration(e.target.value)}
+                      disabled={isInterpreting}
+                      aria-label="Edit voice narration transcript"
+                      placeholder="Review or edit your spoken narration transcript..."
+                      className="block w-full resize-none rounded-lg border border-zk-border bg-zk-surface p-2.5 text-xs text-zk-text placeholder:text-zk-muted focus:border-zk-accent focus:outline-hidden"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingNarration(false)}
+                        className="rounded-md px-2.5 py-1 text-xs font-semibold text-zk-muted hover:text-zk-text"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = editedNarration.trim();
+                          setNarration(updated);
+                          setIsEditingNarration(false);
+                          handleRunAnalysis(undefined, updated);
+                        }}
+                        disabled={!editedNarration.trim() || isInterpreting}
+                        className="inline-flex items-center rounded-md bg-zk-accent px-3 py-1 text-xs font-semibold text-white transition hover:opacity-95 disabled:opacity-50"
+                      >
+                        Update &amp; re-analyze
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zk-text italic leading-relaxed">&ldquo;{narration}&rdquo;</p>
+                )}
+              </div>
+            )}
+
             {/* AI Progress Indicator when interpreting */}
             {isInterpreting && (
-              <div className="pt-1">
+              <div className="flex flex-col space-y-2 pt-1">
                 <ClaudeWorking
-                  statusText="Analyzing visual demonstration and drafting issue..."
-                  steps={VISUAL_INTERPRETATION_STEPS}
+                  statusText={narration ? "Analyzing voice narration and visual evidence..." : "Analyzing visual demonstration and drafting issue..."}
+                  steps={narration ? VISUAL_WITH_NARRATION_STEPS : VISUAL_INTERPRETATION_STEPS}
                 />
+                <div className="flex justify-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setStep("review")}
+                    className="text-xs font-semibold text-zk-muted hover:text-zk-accent underline decoration-dotted"
+                  >
+                    Skip waiting &amp; draft manually &rarr;
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* AI Error / Unavailable Notice */}
+            {!isInterpreting && aiError && !understanding && (
+              <div className="flex flex-col space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span className="text-xs font-bold">Live AI interpretation unavailable</span>
+                </div>
+                <p className="text-xs text-zk-muted">
+                  {aiError}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleRunAnalysis()}
+                    className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-3 text-xs font-semibold text-zk-text hover:bg-zk-chip"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                      <path d="M3 3v5h5" />
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                      <path d="M16 21h5v-5" />
+                    </svg>
+                    Retry analysis
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep("review")}
+                    className="inline-flex min-h-8 items-center rounded-lg bg-zk-accent px-3 text-xs font-bold text-white transition hover:opacity-95"
+                  >
+                    Continue to draft manually
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1161,6 +1582,51 @@ export function AddIdeaModal({
                       The demonstration shows multiple interactions. Please confirm if this matches what you want to report, or clarify below.
                     </p>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* Notice if an update/correction attempt failed, while keeping previous understanding intact */}
+            {!isInterpreting && aiError && understanding && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>Could not update with correction</span>
+                </div>
+                <p className="mt-1 text-[11px] text-zk-muted">
+                  {aiError}
+                </p>
+              </div>
+            )}
+
+            {/* Execution timing diagnosis metrics */}
+            {!isInterpreting && timings && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-zk-border/60 bg-zk-chip/25 px-3 py-2 text-[11px] text-zk-muted">
+                <span className="font-semibold text-zk-text2">
+                  ⚡ Total: {timings.totalClientMs !== undefined ? `${(timings.totalClientMs / 1000).toFixed(2)}s` : `${((timings.totalServerMs || 0) / 1000).toFixed(2)}s`}
+                </span>
+                {timings.claudeApiMs !== undefined && (
+                  <span>
+                    {timings.provider === "gemini"
+                      ? "Gemini API"
+                      : timings.provider === "openrouter"
+                      ? "OpenRouter API"
+                      : "Claude API"}
+                    : {(timings.claudeApiMs / 1000).toFixed(2)}s
+                  </span>
+                )}
+                {timings.frameExtractionMs !== undefined && (
+                  <span>Frames: {timings.frameExtractionMs}ms</span>
+                )}
+                {timings.serverActionMs !== undefined && (
+                  <span>Server Action: {timings.serverActionMs}ms</span>
+                )}
+                {timings.validationMs !== undefined && (
+                  <span>Validation: {timings.validationMs}ms</span>
                 )}
               </div>
             )}
@@ -1211,6 +1677,7 @@ export function AddIdeaModal({
                 )}
               </div>
             )}
+            </div>
 
             {/* Details step footer actions */}
             <div className="flex items-center justify-between border-t border-zk-divider pt-4">
@@ -1286,7 +1753,9 @@ export function AddIdeaModal({
               </p>
             </div>
 
-            <div className={`grid gap-4 ${media ? "grid-cols-1 md:grid-cols-5" : "grid-cols-1"}`}>
+            {/* Scrollable form body so long descriptions or previews fit within viewport */}
+            <div className="max-h-[min(54vh,480px)] overflow-y-auto pr-1">
+              <div className={`grid gap-4 ${media ? "grid-cols-1 md:grid-cols-5" : "grid-cols-1"}`}>
               {/* Left Column: Form Fields */}
               <div className={`space-y-3 ${media ? "md:col-span-3" : ""}`}>
                 {/* Type Selection */}
@@ -1382,6 +1851,7 @@ export function AddIdeaModal({
                   </div>
                 </div>
               )}
+              </div>
             </div>
 
             {/* Modal Actions */}
