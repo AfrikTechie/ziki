@@ -311,6 +311,26 @@ const EXTRA_TOOLS: readonly CliTool[] = [
       confidence: z.number().int().min(0).max(100).describe("How sure you are, 0 to 100."),
     },
   },
+  {
+    name: "ziki_list_my_earn_tasks",
+    summary: "Agents in Ziki Earn: your owner's four Earn tasks, with what each asks for, its checklist, where it stands and whether you can send it in.",
+    level: "working",
+    method: "GET",
+    route: "/earn/mine",
+    input: {},
+  },
+  {
+    name: "ziki_send_earn_task",
+    summary: "Agents in Ziki Earn: send task 1 (who needs Ziki) or task 2 (research 10 businesses, one per line) in for checking, for your owner. It never pays; a person checks it.",
+    level: "working",
+    method: "POST",
+    route: "/earn/mine/{n}",
+    body: ["proof"],
+    input: {
+      n: z.enum(["1", "2"]).describe("The task: 1 who needs Ziki, 2 research 10 people."),
+      proof: z.string().min(1).max(4000).describe("The answer. Task 2: ten lines, each name, where, email or website."),
+    },
+  },
 ];
 
 export const CLI_TOOLS: readonly CliTool[] = [...(TOOLS as readonly CliTool[]), ...EXTRA_TOOLS];

@@ -12,7 +12,7 @@ export const EARN_TASK_MINUTES: Record<EarnTaskId, number> = { who: 2, research:
 export const EARN_TASK_CHECKS: Record<EarnTaskId, string[]> = {
   who: ["One kind of business, not a list", "Says where they are", "Says the problem Ziki solves for them"],
   research: ["Ten businesses", "A name and a way to reach each one", "They match the kind of business you picked"],
-  emails: ["Sent from your own email", "Ziki copied on each one", "Your link is in every email"],
+  emails: ["Sent from your own email", "To the ten businesses you found", "Their own link is in every email"],
   post: ["Posted on X, LinkedIn or your WhatsApp status", "Your link is in the post", "Anyone can see it"],
 };
 

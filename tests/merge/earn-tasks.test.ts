@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
 import { giveEarnVerdict, listEarnTasksToCheck } from "@/lib/earn/review";
+import { agentSubmitEarnTask, listOwnEarnTasks } from "@/lib/earn/agent-tasks";
 import { outreachProof, parseResearch, recordOpen, setSent, syncReferral } from "@/lib/earn/outreach";
 import { confirmTask, grantWelcome, isNewEarnAccount, paidCount, rejectTask, doneTasks, startTask, submitTask, taskStateFor } from "@/lib/earn/progress";
 
@@ -274,5 +275,38 @@ describe("earn sign-ups through a link (#earn-outreach)", () => {
     const self = fakeReferralDb({ userCreatedAt: new Date("2026-11-02T09:00:00Z"), owned: 1 });
     await syncReferral(self.db, "earner", "abc1234", "tenant-earn");
     expect(self.contact.signedUpUserId).toBeNull();
+  });
+});
+
+/** An earner's own agent does tasks 1 and 2 for them (#earn-agent-tasks): it sends them in, a person still pays. */
+describe("an earner's agent sends in its owner's tasks (#earn-agent-tasks)", () => {
+  const olie = { agentId: "agent-olie", ownerId: "earner", tenantId: "tenant-earn" };
+  const ten = Array.from({ length: 10 }, (_, i) => `Bakery ${i}, Lagos, bakery${i}.com`).join("\n");
+
+  it("sends task 1 and a ten-line task 2 in for its owner, without paying", async () => {
+    const { state, db } = fakeEarnDb();
+    expect(await agentSubmitEarnTask(db, olie, "tenant-earn", 1, { proof: "Bakeries in Lagos that take orders on Instagram." })).toMatchObject({ key: "who", state: "in-review" });
+    expect(await agentSubmitEarnTask(db, olie, "tenant-earn", 2, { proof: ten })).toMatchObject({ key: "research" });
+    expect(state.tasks.map((row) => [row.userId, row.taskKey, row.status])).toEqual([["earner", "who", "submitted"], ["earner", "research", "submitted"]]);
+    expect(state.ledger).toHaveLength(0);
+  });
+
+  it("refuses tasks 3 and 4, an agent outside Ziki Earn, a short research list, a task already waiting, and an unknown task", async () => {
+    const { state, db } = fakeEarnDb();
+    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 3, { proof: "a@b.com" })).rejects.toMatchObject({ status: 403 });
+    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 4, { proof: "https://x.com/p/1" })).rejects.toMatchObject({ status: 403 });
+    await expect(agentSubmitEarnTask(db, { ...olie, tenantId: "tenant-other" }, "tenant-earn", 1, { proof: "Bakeries" })).rejects.toMatchObject({ status: 403 });
+    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 2, { proof: "One bakery, Lagos, one.com" })).rejects.toMatchObject({ status: 422 });
+    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 9, { proof: "x" })).rejects.toMatchObject({ status: 404 });
+    await agentSubmitEarnTask(db, olie, "tenant-earn", 1, { proof: "Bakeries" });
+    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 1, { proof: "Again" })).rejects.toMatchObject({ status: 409 });
+    expect(state.tasks.map((row) => row.taskKey)).toEqual(["who"]);
+  });
+
+  it("lists its owner's four tasks, marking the two it can send", async () => {
+    const { db } = fakeEarnDb();
+    const tasks = await listOwnEarnTasks(db, olie, "tenant-earn");
+    expect(tasks.map((task) => [task.n, task.agentCanSend])).toEqual([[1, true], [2, true], [3, false], [4, false]]);
+    expect(tasks[0].state).toBe("open");
   });
 });
