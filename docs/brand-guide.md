@@ -6,8 +6,8 @@ The Zedu Amp dashboard (`https://metrics.zedu.chat/dashboard`) is a reference fo
 
 | Word | Means | Does not mean |
 | --- | --- | --- |
-| Workspace | The team. In code this is a Tenant. | A product, or Amp’s marketing workspace. |
-| Project | One product inside a workspace. | A platform label, and not the whole team. |
+| Organisation | The team. In code this is a Organisation. | A product, or Amp’s marketing organisation. |
+| Project | One product inside a organisation. | A platform label, and not the whole team. |
 | Platform | An issue label such as Web or Mobile. | A product. |
 
 The Ziki mark stays the Ziki mark. Do not swap in the Amp bolt.
@@ -34,7 +34,7 @@ These patterns have to work in both of Ziki’s themes. Use the existing slate, 
 
 ## Where this shows up
 
-- **Signed-in shell.** Existing header. Workspace dropdown on the left still lists workspaces and switches on select. Points chip stays. Active nav item is a quiet teal pill. “New issue” is the one teal pill. Account and nav menus are bordered, not heavily shadowed.
+- **Signed-in shell.** Existing header. Organisation dropdown on the left still lists organisations and switches on select. Points chip stays. Active nav item is a quiet teal pill. “New issue” is the one teal pill. Account and nav menus are bordered, not heavily shadowed.
 - **Issues list.** Project name as the title, one subtitle, quiet bordered rows, empty copy as sentences.
 - **Homepage.** Same title-and-subtitle hero, one teal pill, one quieter pill. The marketing sections stay; they do not grow an Amp sidebar.
 - **Auth.** The existing card loses its shadow. The Google button is the shared secondary pill. Teal is unchanged.

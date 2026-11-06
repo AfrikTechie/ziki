@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { PRODUCT_STEP_ONLY_MESSAGE, trackRules } from "@/lib/marketing/track";
 import { audit } from "@/lib/agents/audit";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
@@ -14,9 +15,10 @@ import { statusChangedSummary } from "@/lib/activity-log";
 /**
  * Pull request reports (#pr-reports).
  *
- * The Ziki server never calls GitHub. Agents check an issue's linked pull
- * request on GitHub and report what they saw: its state (open, closed without
- * merging, merged, or 404), the branch it was merged into and whether the
+ * Agents check an issue's linked pull request on GitHub and report what they
+ * saw, and Ziki reads it on GitHub itself too (#github-status,
+ * lib/github/sync.ts: `source: ziki`). A report says its state (open, closed
+ * without merging, merged, or 404), the branch it was merged into and whether the
  * default branch contains it, its head and merge commits, its checks and
  * whether it can merge. Any agent may report, the owner's own included
  * (#owner-agents), except the agent holding the claim or the one that
@@ -40,6 +42,8 @@ export const reportSelect = {
   checks: true,
   mergeable: true,
   note: true,
+  source: true,
+  checkedAt: true,
   agentId: true,
   onBehalfOfUserId: true,
   createdAt: true,
@@ -80,6 +84,16 @@ export async function latestPullRequestReports(
   return latest;
 }
 
+/** Who a report is from, for a sentence: the agent, or Ziki for its own reads (#github-status). */
+export function reporterName(report: { agent: { name: string } | null }): string {
+  return report.agent?.name ?? "Ziki (read on GitHub)";
+}
+
+/** When a report last held: Ziki's own reads move `checkedAt` while GitHub says the same. */
+export function reportedAt(report: { createdAt: Date; checkedAt?: Date | null }): Date {
+  return report.checkedAt ?? report.createdAt;
+}
+
 /** A stored report as the gate reads it. */
 export function gateReport(report: StoredPullRequestReport | null | undefined): GateReport | null {
   if (!report) return null;
@@ -106,14 +120,19 @@ export type PullRequestStateView = {
   checks: string | null;
   mergeable: boolean | null;
   note: string;
+  /** When it was reported; for Ziki's own reads, when GitHub last said this. */
   reportedAt: Date;
   /** Whole minutes since it was reported. */
   ageMinutes: number;
-  reportedBy: { agentId: string; agentName: string; userId: string; name: string };
+  /** `agent`: an agent checked and reported. `ziki`: Ziki read it on GitHub itself (#github-status). */
+  source: "agent" | "ziki";
+  /** The agent and its owner; null for Ziki's own reads. */
+  reportedBy: { agentId: string; agentName: string; userId: string; name: string } | null;
 };
 
 export function pullRequestStateView(report: StoredPullRequestReport | null | undefined, now = Date.now()): PullRequestStateView | null {
   if (!report) return null;
+  const reportedAt = report.checkedAt ?? report.createdAt;
   return {
     id: report.id,
     pullRequestUrl: report.pullRequestUrl,
@@ -125,14 +144,17 @@ export function pullRequestStateView(report: StoredPullRequestReport | null | un
     checks: report.checks,
     mergeable: report.mergeable,
     note: report.note,
-    reportedAt: report.createdAt,
-    ageMinutes: Math.max(0, Math.floor((now - report.createdAt.getTime()) / 60_000)),
-    reportedBy: {
-      agentId: report.agentId,
-      agentName: report.agent.name,
-      userId: report.onBehalfOfUserId,
-      name: report.onBehalfOf.name ?? "A member",
-    },
+    reportedAt,
+    ageMinutes: Math.max(0, Math.floor((now - reportedAt.getTime()) / 60_000)),
+    source: report.source,
+    reportedBy: report.agentId && report.agent && report.onBehalfOfUserId
+      ? {
+          agentId: report.agentId,
+          agentName: report.agent.name,
+          userId: report.onBehalfOfUserId,
+          name: report.onBehalfOf?.name ?? "A member",
+        }
+      : null,
   };
 }
 
@@ -188,7 +210,7 @@ export function mergeSubstatusFor(report: { state: string; mergeable?: boolean |
 
 export async function reportPullRequestStatus(
   agent: AgentContext,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   issueRef: string,
   rawBody: unknown,
 ): Promise<ReportResult> {
@@ -200,16 +222,17 @@ export async function reportPullRequestStatus(
   }
   const body = parsed.data;
 
-  const bugId = await issueIdFor(prisma, issueRef, scope.tenantId);
+  const bugId = await issueIdFor(prisma, issueRef, scope.organisationId);
   if (!bugId) return fail(404, "not_found", "No such issue in this project.");
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, ...scope, isDeleted: false },
     select: {
       id: true,
-      tenantId: true,
+      organisationId: true,
       projectId: true,
       status: true,
       substatus: true,
+      track: true,
       pullRequestUrl: true,
       pullRequestHeadSha: true,
       beneficiaryUserId: true,
@@ -220,6 +243,7 @@ export async function reportPullRequestStatus(
     },
   });
   if (!bug) return fail(404, "not_found", "No such issue in this project.");
+  if (!trackRules(bug.track).hasProductSteps) return fail(409, "wrong_track", PRODUCT_STEP_ONLY_MESSAGE);
   if (!bug.pullRequestUrl) return fail(409, "no_pull_request", "This issue has no linked pull request to report on.");
   if (body.pullRequestUrl !== bug.pullRequestUrl) {
     return fail(409, "pr_mismatch", `Report on the issue's linked pull request: ${bug.pullRequestUrl}.`, "pullRequestUrl");
@@ -296,7 +320,7 @@ export async function reportPullRequestStatus(
       ...(headMoved ? { headMoved: { from: bug.pullRequestHeadSha, to: body.headSha ?? null } } : {}),
     };
     await audit(agent, "issue.pull_request_reported", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
-    await publish(tx, { tenantId: bug.tenantId, type: "issue.pull_request_reported", payload, actorAgentId: agent.agentId, bugId: bug.id });
+    await publish(tx, { organisationId: bug.organisationId, type: "issue.pull_request_reported", payload, actorAgentId: agent.agentId, bugId: bug.id });
     return report;
   });
 

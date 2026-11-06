@@ -28,13 +28,13 @@ const OPEN_WORK = { status: "in_progress" } as const;
 /** The work a person holds in a project now: live offers plus active claims on issues In progress (#760). */
 export async function holdLoad(
   db: Db,
-  scope: { tenantId: string; projectId: string; userId: string },
+  scope: { organisationId: string; projectId: string; userId: string },
   offerWindowSeconds: number,
 ): Promise<number> {
   return db.issueClaim.count({
     where: {
       beneficiaryUserId: scope.userId,
-      bug: { tenantId: scope.tenantId, projectId: scope.projectId, isDeleted: false },
+      bug: { organisationId: scope.organisationId, projectId: scope.projectId, isDeleted: false },
       ...holdsWork(offerWindowSeconds),
     },
   });
@@ -54,7 +54,7 @@ function holdsWork(offerWindowSeconds: number, now = Date.now()): Prisma.IssueCl
 /** `holdLoad` for several people at once; a person holding nothing is 0. */
 export async function holdLoads(
   db: Db,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   userIds: string[],
   offerWindowSeconds: number,
 ): Promise<Map<string, number>> {
@@ -64,7 +64,7 @@ export async function holdLoads(
     by: ["beneficiaryUserId"],
     where: {
       beneficiaryUserId: { in: [...new Set(userIds)] },
-      bug: { tenantId: scope.tenantId, projectId: scope.projectId, isDeleted: false },
+      bug: { organisationId: scope.organisationId, projectId: scope.projectId, isDeleted: false },
       ...holdsWork(offerWindowSeconds),
     },
     _count: { _all: true },
@@ -101,7 +101,7 @@ export function isAtCapacityError(error: unknown): boolean {
  * `atCapacity: true`, for the issue page's bids panel; every other bid gets false.
  */
 export async function markAtCapacity<T extends { beneficiaryUserId: string; awardedAt?: Date | string | null; withdrawnAt?: Date | string | null }>(
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   entries: T[],
   db: Db = prisma,
 ): Promise<(T & { atCapacity: boolean })[]> {
@@ -118,7 +118,7 @@ export async function markAtCapacity<T extends { beneficiaryUserId: string; awar
 /** Refuses with 409 `at_capacity` when the person is at the project's capacity. */
 export async function assertUnderCapacity(
   db: Db,
-  scope: { tenantId: string; projectId: string; userId: string },
+  scope: { organisationId: string; projectId: string; userId: string },
   workflow: { offerWindowSeconds: number; maxActiveClaims: number },
 ): Promise<void> {
   const load = await holdLoad(db, scope, workflow.offerWindowSeconds);

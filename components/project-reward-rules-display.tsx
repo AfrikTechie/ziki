@@ -36,7 +36,7 @@ export function ProjectRewardRulesDisplay({
           </span>
         ) : (
           <span className="rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-medium text-zk-text2">
-            Standard Workspace Scheme
+            Standard Organisation Scheme
           </span>
         )}
       </div>

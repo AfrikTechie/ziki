@@ -2,14 +2,14 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 import { NextResponse, type NextRequest } from "next/server";
 import { agentIssueRequest, issueJson, issueProject } from "@/lib/agent-api/issues";
 import { reportPullRequestStatus } from "@/lib/agent-api/pull-request-report";
-import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
+import { eventStreamBus, ORGANISATION_WRITE } from "@/lib/events/stream-bus";
 
 export const runtime = "nodejs";
 
 /**
  * POST /api/v1/issues/{id}/pull-request-status — any agent but the one that
  * holds the claim or delivered the pull request reports what it saw on GitHub for the issue's linked pull request
- * (#pr-reports). Ziki never calls GitHub; the latest report is the pull
+ * (#pr-reports). Ziki reads GitHub too (#github-status); the latest report is the pull
  * request's state, and delivery, accepting, resolving, the work feed and
  * triage read it. Body:
  *
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       : undefined;
     const scope = await issueProject(agent, request.nextUrl.searchParams, bodyProjectId);
     const result = await reportPullRequestStatus(agent, scope, id, body);
-    if (result.status === 201) eventStreamBus.emit(TENANT_WRITE, agent.tenantId);
+    if (result.status === 201) eventStreamBus.emit(ORGANISATION_WRITE, agent.organisationId);
     return NextResponse.json(result.body, { status: result.status });
   });
 }

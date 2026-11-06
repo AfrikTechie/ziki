@@ -1,22 +1,22 @@
 import type { Metadata } from "next";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { Button } from "@/components/ui/button";
-import { ZEDU_SLUG } from "@/lib/tenant";
-import { TENANT_NAME_MAX } from "@/lib/tenants";
+import { ZEDU_SLUG } from "@/lib/organisation";
+import { ORGANISATION_NAME_MAX } from "@/lib/organisations";
 import {
-  deleteTenantAction,
-  renameTenantAction,
-  setTenantArchivedAction,
-} from "@/app/(app)/tenants/actions";
+  deleteOrganisationAction,
+  renameOrganisationAction,
+  setOrganisationArchivedAction,
+} from "@/app/(app)/organisations/actions";
 import { loadOrg } from "../org-context";
 import { OrgMessages, OrgPageHeader, ReadOnlyNote, oneParam, orgCard } from "../org-ui";
 
-export const metadata: Metadata = { title: "Organization settings" };
+export const metadata: Metadata = { title: "Organisation settings" };
 
 const fieldClass =
   "min-w-0 flex-1 rounded-xl border border-zk-border bg-zk-surface px-3 py-1.5 text-sm text-zk-text";
 
-/** Rename, archive or delete the organization. Owners (and the site super admin) only. */
+/** Rename, archive or delete the organisation. Owners (and the site super admin) only. */
 export default async function OrgSettingsPage({
   searchParams,
 }: {
@@ -29,7 +29,7 @@ export default async function OrgSettingsPage({
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <OrgPageHeader title="Settings">
-        The organization&apos;s name, and archiving or deleting it. Its URL id,{" "}
+        The organisation&apos;s name, and archiving or deleting it. Its URL id,{" "}
         <span className="font-mono">{org.slug}</span>, never changes, so existing links keep working.
       </OrgPageHeader>
 
@@ -44,17 +44,17 @@ export default async function OrgSettingsPage({
           Display name
         </h3>
         {org.owner ? (
-          <form action={renameTenantAction} className="mt-3 space-y-2">
-            <input type="hidden" name="tenantId" value={org.id} />
-            <label htmlFor="tenant-name" className="sr-only">
+          <form action={renameOrganisationAction} className="mt-3 space-y-2">
+            <input type="hidden" name="organisationId" value={org.id} />
+            <label htmlFor="organisation-name" className="sr-only">
               Display name
             </label>
             <div className="flex flex-wrap items-center gap-2">
               <input
-                id="tenant-name"
+                id="organisation-name"
                 name="name"
                 defaultValue={org.name}
-                maxLength={TENANT_NAME_MAX}
+                maxLength={ORGANISATION_NAME_MAX}
                 required
                 className={fieldClass}
               />
@@ -73,7 +73,7 @@ export default async function OrgSettingsPage({
         org.slug === ZEDU_SLUG ? (
           <section className={orgCard}>
             <p className="text-sm text-zk-text2">
-              Zedu is the default organization and can&apos;t be archived or deleted.
+              Zedu is the default organisation and can&apos;t be archived or deleted.
             </p>
           </section>
         ) : (
@@ -82,41 +82,41 @@ export default async function OrgSettingsPage({
               Archive or delete
             </h3>
 
-            <form action={setTenantArchivedAction} className="mt-3 space-y-1">
-              <input type="hidden" name="tenantId" value={org.id} />
+            <form action={setOrganisationArchivedAction} className="mt-3 space-y-1">
+              <input type="hidden" name="organisationId" value={org.id} />
               <input type="hidden" name="archived" value="true" />
-              <p className="text-sm font-medium text-zk-text">Archive organization</p>
+              <p className="text-sm font-medium text-zk-text">Archive organisation</p>
               <p className="text-xs text-zk-muted">
                 Archiving hides it from the switcher and nobody can open it. Its issues and members stay,
-                read-only. An owner can restore it from the workspaces list.
+                read-only. An owner can restore it from the organisations list.
               </p>
               <div className="pt-1">
                 <ConfirmSubmitButton
                   variant="secondary"
                   confirm={{
                     title: `Archive ${org.name}?`,
-                    body: "Nobody can open it until an owner restores it from the workspaces list.",
-                    confirmLabel: "Archive organization",
+                    body: "Nobody can open it until an owner restores it from the organisations list.",
+                    confirmLabel: "Archive organisation",
                   }}
                 >
-                  Archive organization
+                  Archive organisation
                 </ConfirmSubmitButton>
               </div>
             </form>
 
-            <form action={deleteTenantAction} className="mt-5 space-y-2 border-t border-zk-border pt-4">
-              <input type="hidden" name="tenantId" value={org.id} />
-              <p className="text-sm font-medium text-zk-text">Delete organization</p>
+            <form action={deleteOrganisationAction} className="mt-5 space-y-2 border-t border-zk-border pt-4">
+              <input type="hidden" name="organisationId" value={org.id} />
+              <p className="text-sm font-medium text-zk-text">Delete organisation</p>
               <p className="text-xs text-zk-muted">
-                Deleting is permanent and only works when the organization has no issues, agents or
+                Deleting is permanent and only works when the organisation has no issues, agents or
                 other members. Otherwise archive it instead.
               </p>
-              <label htmlFor="confirm-tenant-name" className="block text-xs text-zk-text2">
+              <label htmlFor="confirm-organisation-name" className="block text-xs text-zk-text2">
                 Type <span className="font-semibold text-zk-text">{org.name}</span> to confirm
               </label>
               <div className="flex flex-wrap items-center gap-2">
                 <input
-                  id="confirm-tenant-name"
+                  id="confirm-organisation-name"
                   name="confirmName"
                   placeholder={org.name}
                   autoComplete="off"
@@ -127,10 +127,10 @@ export default async function OrgSettingsPage({
                   confirm={{
                     title: `Delete ${org.name} permanently?`,
                     body: "This can't be undone.",
-                    confirmLabel: "Delete organization",
+                    confirmLabel: "Delete organisation",
                   }}
                 >
-                  Delete organization
+                  Delete organisation
                 </ConfirmSubmitButton>
               </div>
             </form>

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { attachmentResponseHeaders } from "@/lib/attachments";
-import { tenantAccessFor } from "@/lib/tenant-access";
+import { organisationAccessFor } from "@/lib/organisation-access";
 
 /**
  * Serve an attachment (#215) to signed-in users. Files on a deleted issue
@@ -24,10 +24,10 @@ export async function GET(
       contentType: true,
       size: true,
       data: true,
-      bug: { select: { isDeleted: true, tenantId: true } },
-      idea: { select: { isDeleted: true, tenantId: true } },
-      comment: { select: { bug: { select: { tenantId: true, isDeleted: true } } } },
-      redesignProposal: { select: { tenantId: true } },
+      bug: { select: { isDeleted: true, organisationId: true } },
+      idea: { select: { isDeleted: true, organisationId: true } },
+      comment: { select: { bug: { select: { organisationId: true, isDeleted: true } } } },
+      redesignProposal: { select: { organisationId: true } },
     },
   });
 
@@ -37,20 +37,20 @@ export async function GET(
   if (!bug && !attachment.redesignProposal && attachment.uploaderId !== user.id) return notFound();
   if (attachment.redesignProposal) {
     const membership = await prisma.membership.findUnique({
-      where: { tenantId_userId: { tenantId: attachment.redesignProposal.tenantId, userId: user.id } },
+      where: { organisationId_userId: { organisationId: attachment.redesignProposal.organisationId, userId: user.id } },
       select: { userId: true },
     });
     if (!membership) return notFound();
   }
   if (bug) {
     const membership = await prisma.membership.findUnique({
-      where: { tenantId_userId: { tenantId: bug.tenantId, userId: user.id } },
+      where: { organisationId_userId: { organisationId: bug.organisationId, userId: user.id } },
       select: { userId: true },
     });
     if (!membership) return notFound();
   }
   if (bug?.isDeleted) {
-    const access = await tenantAccessFor(user.id, bug.tenantId, user.role);
+    const access = await organisationAccessFor(user.id, bug.organisationId, user.role);
     if (!access.admin) return notFound();
   }
 
@@ -63,7 +63,7 @@ export async function GET(
 /**
  * Delete an attachment (#658).
  * Allowed for the uploader (e.g. form abandoned or user removed file),
- * or an admin of the tenant where the parent issue/comment/proposal lives.
+ * or an admin of the organisation where the parent issue/comment/proposal lives.
  */
 export async function DELETE(
   _req: NextRequest,
@@ -80,10 +80,10 @@ export async function DELETE(
       bugId: true,
       commentId: true,
       redesignProposalId: true,
-      bug: { select: { tenantId: true } },
-      idea: { select: { tenantId: true } },
-      comment: { select: { bug: { select: { tenantId: true } } } },
-      redesignProposal: { select: { tenantId: true } },
+      bug: { select: { organisationId: true } },
+      idea: { select: { organisationId: true } },
+      comment: { select: { bug: { select: { organisationId: true } } } },
+      redesignProposal: { select: { organisationId: true } },
     },
   });
 
@@ -94,13 +94,13 @@ export async function DELETE(
   let allowed = attachment.uploaderId === user.id;
 
   if (!allowed) {
-    const tenantId =
-      attachment.bug?.tenantId ??
-      attachment.idea?.tenantId ??
-      attachment.comment?.bug?.tenantId ??
-      attachment.redesignProposal?.tenantId;
-    if (tenantId) {
-      const access = await tenantAccessFor(user.id, tenantId, user.role);
+    const organisationId =
+      attachment.bug?.organisationId ??
+      attachment.idea?.organisationId ??
+      attachment.comment?.bug?.organisationId ??
+      attachment.redesignProposal?.organisationId;
+    if (organisationId) {
+      const access = await organisationAccessFor(user.id, organisationId, user.role);
       allowed = access.admin;
     }
   }

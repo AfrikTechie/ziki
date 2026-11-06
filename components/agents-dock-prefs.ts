@@ -30,9 +30,6 @@ export const DEFAULT_LOOK: DockLook = "face";
  * (lib/agents/dock-colors.ts) per agent; none keeps the one its id gives it.
  */
 export type DockPrefs = {
-  pinned: boolean;
-  /** On (the default), the agents open while the cursor is on the strip and close when it leaves; off, they stay open. */
-  closeOnLeave: boolean;
   looks: Record<string, DockLook>;
   colors: Record<string, string>;
   faceColors: Record<string, string>;
@@ -40,7 +37,7 @@ export type DockPrefs = {
 };
 
 const PREFS_KEY = "ziki-agents-dock";
-const DEFAULT_PREFS: DockPrefs = { pinned: true, closeOnLeave: true, looks: {}, colors: {}, faceColors: {}, hidden: [] };
+const DEFAULT_PREFS: DockPrefs = { looks: {}, colors: {}, faceColors: {}, hidden: [] };
 const listeners = new Set<() => void>();
 let cache: DockPrefs | null = null;
 
@@ -63,8 +60,6 @@ export function readPrefs(): DockPrefs {
       for (const [id, key] of Object.entries(saved.faceColors)) if (typeof key === "string" && faceColor(key)) faceColors[id] = key;
     }
     cache = {
-      pinned: typeof saved.pinned === "boolean" ? saved.pinned : DEFAULT_PREFS.pinned,
-      closeOnLeave: typeof saved.closeOnLeave === "boolean" ? saved.closeOnLeave : DEFAULT_PREFS.closeOnLeave,
       looks,
       colors,
       faceColors,

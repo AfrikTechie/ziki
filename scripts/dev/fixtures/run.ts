@@ -1,4 +1,4 @@
-/** `pnpm db:fixtures`: load the local fixtures, and make every local account a member of the Demo workspace. */
+/** `pnpm db:fixtures`: load the local fixtures, and make every local account a member of the Demo organisation. */
 import { loadFixtures } from "./load";
 
 loadFixtures({ addExistingUsers: true }).catch((error) => {

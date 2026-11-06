@@ -7,14 +7,16 @@ import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { notifyAgentQuestion } from "@/lib/agent-notifications";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import type { WorkTrack } from "@prisma/client";
+import { escalationTrackWhere } from "@/lib/my-work-filter";
 
 /**
  * An agent asking its owner a question (#446). The agent stores the question
  * on `AgentQuestion`, tells its owner with an in-app notification, and writes
- * an event to the tenant feed. Only the owner answers, and the answer is set
+ * an event to the organisation feed. Only the owner answers, and the answer is set
  * once: a further question is a new row.
  *
- * Events are tenant-wide (#445), so they carry a reference to the question,
+ * Events are organisation-wide (#445), so they carry a reference to the question,
  * never its body or its answer. The asking agent reads the answer with
  * `readAgentQuestion`, which is scoped to that agent.
  */
@@ -67,7 +69,7 @@ export async function askAgentQuestion(agent: AgentContext, input: AskAgentQuest
     let bugTitle: string | null = null;
     if (input.bugId) {
       const bug = await tx.bug.findFirst({
-        where: { id: input.bugId, tenantId: agent.tenantId, isDeleted: false },
+        where: { id: input.bugId, organisationId: agent.organisationId, isDeleted: false },
         select: { id: true, title: true, projectId: true },
       });
       if (!bug) throw new IssueApiError(404, "Linked issue not found.");
@@ -99,7 +101,7 @@ export async function askAgentQuestion(agent: AgentContext, input: AskAgentQuest
 
     await audit(agent, "question.asked", created.id, { bugId: created.bugId, type: typeSlug }, { db: tx, bugId: created.bugId });
     await publish(tx, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       type: "question.asked",
       payload: { questionId: created.id, agentId: agent.agentId, bugId: created.bugId, type: typeSlug },
       actorAgentId: agent.agentId,
@@ -113,7 +115,7 @@ export async function askAgentQuestion(agent: AgentContext, input: AskAgentQuest
   notifyAgentQuestion({
     id: question.id,
     body: question.body,
-    tenantId: agent.tenantId,
+    organisationId: agent.organisationId,
     ownerUserId: agent.ownerId,
     agent: { name: agent.name },
     bugId: question.bugId,
@@ -172,16 +174,16 @@ export async function readAgentEscalation(agent: AgentContext, escalationId: str
  * Only the owner answers, and only once. The update is guarded on `answer:
  * null` so two answers racing can't both win.
  */
-export async function answerAgentQuestion(userId: string, tenantId: string, questionId: string, answer: string) {
+export async function answerAgentQuestion(userId: string, organisationId: string, questionId: string, answer: string) {
   return prisma.$transaction(async (tx) => {
     const member = await tx.membership.findUnique({
-      where: { tenantId_userId: { tenantId, userId } },
+      where: { organisationId_userId: { organisationId, userId } },
       select: { userId: true },
     });
-    if (!member) throw new IssueApiError(403, "Workspace membership required.");
+    if (!member) throw new IssueApiError(403, "Organisation membership required.");
 
     const question = await tx.agentQuestion.findFirst({
-      where: { id: questionId, agent: { tenantId } },
+      where: { id: questionId, agent: { organisationId } },
       select: { id: true, agentId: true, bugId: true, ownerUserId: true },
     });
     if (!question) throw new IssueApiError(404, "Question not found.");
@@ -195,13 +197,13 @@ export async function answerAgentQuestion(userId: string, tenantId: string, ques
     if (!updated.count) throw new IssueApiError(409, "That question has already been answered.");
     if (question.bugId) await resumeWaitingClaim(tx, question.agentId, question.bugId, answeredAt);
 
-    await audit({ agentId: question.agentId, tenantId }, "question.answered", questionId, { answeredAt }, {
+    await audit({ agentId: question.agentId, organisationId }, "question.answered", questionId, { answeredAt }, {
       db: tx,
       actorUserId: userId,
       bugId: question.bugId,
     });
     await publish(tx, {
-      tenantId,
+      organisationId,
       type: "question.answered",
       payload: { questionId, agentId: question.agentId, bugId: question.bugId, answeredAt },
       bugId: question.bugId,
@@ -240,9 +242,9 @@ async function resumeWaitingClaim(tx: Prisma.TransactionClient, agentId: string,
 }
 
 /** The owner's list, unanswered questions first. */
-export async function listOwnerQuestions(userId: string, tenantId: string) {
+export async function listOwnerQuestions(userId: string, organisationId: string, track: WorkTrack | "all" = "all") {
   return prisma.agentQuestion.findMany({
-    where: { ownerUserId: userId, agent: { tenantId } },
+    where: { ownerUserId: userId, agent: { organisationId }, ...escalationTrackWhere(track) },
     orderBy: [{ answeredAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
     take: 100,
     select: {
@@ -253,28 +255,28 @@ export async function listOwnerQuestions(userId: string, tenantId: string) {
       bugId: true,
       createdAt: true,
       agent: { select: { id: true, name: true } },
-      bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+      bug: { select: { id: true, number: true, title: true, track: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
     },
   });
 }
 
-/** Count unresolved / pending escalations for an owner in the workspace (#763). */
-export async function countPendingEscalations(userId: string, tenantId: string): Promise<number> {
+/** Count unresolved / pending escalations for an owner in the organisation (#763). */
+export async function countPendingEscalations(userId: string, organisationId: string): Promise<number> {
   return prisma.agentQuestion.count({
     where: {
       ownerUserId: userId,
       answeredAt: null,
-      agent: { tenantId },
+      agent: { organisationId },
     },
   });
 }
 
 /** Escalations linked to a specific issue/ticket (#763). */
-export async function listBugEscalations(bugId: string, tenantId: string) {
+export async function listBugEscalations(bugId: string, organisationId: string) {
   return prisma.agentQuestion.findMany({
     where: {
       bugId,
-      agent: { tenantId },
+      agent: { organisationId },
     },
     orderBy: [{ answeredAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
     select: {
@@ -384,9 +386,9 @@ export function classifyEscalation(body: string): EscalationType {
 }
 
 /** One question for its owner, or `null` so the page can 404 anyone else. */
-export async function ownerQuestion(userId: string, tenantId: string, questionId: string) {
+export async function ownerQuestion(userId: string, organisationId: string, questionId: string) {
   return prisma.agentQuestion.findFirst({
-    where: { id: questionId, ownerUserId: userId, agent: { tenantId } },
+    where: { id: questionId, ownerUserId: userId, agent: { organisationId } },
     select: {
       id: true,
       body: true,
@@ -394,7 +396,7 @@ export async function ownerQuestion(userId: string, tenantId: string, questionId
       answeredAt: true,
       createdAt: true,
       agent: { select: { name: true } },
-      bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+      bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
     },
   });
 }

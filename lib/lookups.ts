@@ -1,7 +1,8 @@
 import { unstable_cache } from "next/cache";
 import { TAGS } from "@/lib/cache-tags";
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor, notificationInTenant } from "@/lib/tenant-context";
+import { currentOrganisationIdFor, notificationInOrganisation } from "@/lib/organisation-context";
 import { ensureDefaultIssueTypes } from "@/lib/issue-types";
 
 /**
@@ -59,10 +60,10 @@ function missingColumn(error: unknown, column: string): boolean {
   ).test(message);
 }
 
-async function readIssueTypes(tenantId: string): Promise<IssueTypeLookup[]> {
+async function readIssueTypes(organisationId: string): Promise<IssueTypeLookup[]> {
   try {
     return await prisma.issueType.findMany({
-      where: { tenantId },
+      where: { organisationId, ...PRODUCT_TRACK },
       select: { id: true, name: true, description: true, template: true, isActive: true },
       orderBy: { name: "asc" },
     });
@@ -72,7 +73,7 @@ async function readIssueTypes(tenantId: string): Promise<IssueTypeLookup[]> {
     if (!missingColumn(error, "template")) throw error;
     console.error("[lookups] IssueType.template is missing; reading types without it", error);
     const rows = await prisma.issueType.findMany({
-      where: { tenantId },
+      where: { organisationId, ...PRODUCT_TRACK },
       select: { id: true, name: true, description: true, isActive: true },
       orderBy: { name: "asc" },
     });
@@ -85,19 +86,19 @@ const cachedIssueTypes = unstable_cache(readIssueTypes, ["lookup", "issue-types"
   revalidate: LOOKUP_TTL_SECONDS,
 });
 
-/** Every issue type in this organization, active or not, by name. */
-export async function getIssueTypes(tenantId?: string | null): Promise<IssueTypeLookup[]> {
-  if (!tenantId) return [];
-  // The tenant id is part of the cache key, so organizations don't share types.
-  const types = await cachedIssueTypes(tenantId);
+/** Every issue type in this organisation, active or not, by name. */
+export async function getIssueTypes(organisationId?: string | null): Promise<IssueTypeLookup[]> {
+  if (!organisationId) return [];
+  // The organisation id is part of the cache key, so organisations don't share types.
+  const types = await cachedIssueTypes(organisationId);
   if (types.length > 0) return types;
-  await ensureDefaultIssueTypes(tenantId);
-  return readIssueTypes(tenantId);
+  await ensureDefaultIssueTypes(organisationId);
+  return readIssueTypes(organisationId);
 }
 
-/** The issue types a new report can use in this organization. */
-export async function getActiveIssueTypesCached(tenantId?: string | null): Promise<IssueTypeLookup[]> {
-  return (await getIssueTypes(tenantId)).filter((t) => t.isActive);
+/** The issue types a new report can use in this organisation. */
+export async function getActiveIssueTypesCached(organisationId?: string | null): Promise<IssueTypeLookup[]> {
+  return (await getIssueTypes(organisationId)).filter((t) => t.isActive);
 }
 
 /**
@@ -105,16 +106,16 @@ export async function getActiveIssueTypesCached(tenantId?: string | null): Promi
  * render; now it's one per user per change.
  */
 export async function getUnreadCount(userId: string): Promise<number> {
-  // #444: the tenant picked on this device comes from a cookie, which a cached
+  // #444: the organisation picked on this device comes from a cookie, which a cached
   // function can't read. Resolve it here and key the entry by it.
-  const tenantId = await currentTenantIdFor(userId);
+  const organisationId = await currentOrganisationIdFor(userId);
   return unstable_cache(
     async () =>
       prisma.notification.count({
         // #425: the badge counts what the notifications page lists.
-        where: { userId, readAt: null, ...notificationInTenant(tenantId) },
+        where: { userId, readAt: null, ...notificationInOrganisation(organisationId) },
       }),
-    ["notifications", "unread", userId, tenantId ?? "none"],
+    ["notifications", "unread", userId, organisationId ?? "none"],
     { tags: [TAGS.unread(userId)], revalidate: UNREAD_TTL_SECONDS },
   )();
 }

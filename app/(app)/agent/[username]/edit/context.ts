@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 import { listAgentThread } from "@/lib/agent-messages";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { settableLevels } from "@/lib/agents/levels";
 import { missingProfileFields } from "@/lib/agents/work-gate";
 import { findAgentByUsername, loadAgentProfile } from "../data";
@@ -20,7 +20,7 @@ export const loadEditContext = cache(async (rawUsername: string) => {
   if (!found) notFound();
   const thread = await listAgentThread(user, found.id);
   if (!thread) notFound();
-  const [profile, viewerIsAdmin] = await Promise.all([loadAgentProfile(found.id, user.id), isTenantAdmin(user, found.tenantId)]);
+  const [profile, viewerIsAdmin] = await Promise.all([loadAgentProfile(found.id, user.id), isAdminOfOrganisation(user, found.organisationId)]);
   if (!profile) notFound();
   const agent = profile.agent;
   return {
@@ -30,7 +30,7 @@ export const loadEditContext = cache(async (rawUsername: string) => {
     agent,
     revoked: thread.agent.revoked,
     isOwner: thread.isOwner,
-    levels: settableLevels({ isOwner: thread.isOwner, isTenantAdmin: viewerIsAdmin }),
+    levels: settableLevels({ isOwner: thread.isOwner, isAdminOfOrganisation: viewerIsAdmin }),
     missing: missingProfileFields({ ...agent, skillCount: agent.skills.length }),
   };
 });

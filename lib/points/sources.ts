@@ -80,16 +80,16 @@ export type PointSources = {
   recent: PointRecentRow[];
 };
 
-export async function pointSources(db: PrismaClient, scope: { tenantId: string; userId: string }, now = new Date()): Promise<PointSources> {
+export async function pointSources(db: PrismaClient, scope: { organisationId: string; userId: string }, now = new Date()): Promise<PointSources> {
   const rows = await db.pointEntry.findMany({
-    where: { tenantId: scope.tenantId, userId: scope.userId },
+    where: { organisationId: scope.organisationId, userId: scope.userId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: ENTRY_LIMIT + 1,
     select: {
       id: true, role: true, points: true, sourceKey: true, correctedAt: true, createdAt: true,
       agent: { select: { id: true, name: true } },
-      bug: { select: { number: true, reporterId: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
-      idea: { select: { number: true, reporterId: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+      bug: { select: { number: true, reporterId: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
+      idea: { select: { number: true, reporterId: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
     },
   });
   const truncated = rows.length > ENTRY_LIMIT;

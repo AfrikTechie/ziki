@@ -1,4 +1,5 @@
-import type { AgentLevel, ConfirmationVerdict, Prisma, PrismaClient } from "@prisma/client";
+import type { AgentLevel, ConfirmationVerdict, Prisma, PrismaClient, WorkTrack } from "@prisma/client";
+import { PRODUCT_STEP_ONLY_MESSAGE, trackRules } from "@/lib/marketing/track";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
@@ -86,19 +87,27 @@ export const confirmationSchema = z
 export type ConfirmationInput = z.infer<typeof confirmationSchema>;
 
 /** Who gives the entry: an agent on its owner's behalf, or a person in the web app. */
-export type ConfirmationGiver = { tenantId: string; userId: string; agent?: { id: string; level: AgentLevel } };
+export type ConfirmationGiver = { organisationId: string; userId: string; agent?: { id: string; level: AgentLevel } };
 
 type Db = PrismaClient | Prisma.TransactionClient;
-type Scope = { tenantId: string; projectId: string };
+type Scope = { organisationId: string; projectId: string };
 
 /** What the independence rule needs about the issue. */
+/** Marketing issues have no confirmation step (D2). */
+function refuseProductStep(track: WorkTrack): void {
+  if (!trackRules(track).hasProductSteps) {
+    throw new IssueApiError(409, PRODUCT_STEP_ONLY_MESSAGE, { error: "wrong_track", message: PRODUCT_STEP_ONLY_MESSAGE });
+  }
+}
+
 const bugSelect = {
   id: true,
   number: true,
-  tenantId: true,
+  organisationId: true,
   projectId: true,
   status: true,
   substatus: true,
+  track: true,
   isDeleted: true,
   reporterId: true,
   beneficiaryUserId: true,
@@ -144,7 +153,7 @@ export async function standingConfirmationAwards(db: Db, bugId: string): Promise
   if (!state) return [];
   const bug = await db.bug.findUnique({
     where: { id: bugId },
-    select: { tenantId: true, duplicateOfId: true, reporterId: true, beneficiaryUserId: true, createdByAgent: { select: { ownerUserId: true } } },
+    select: { organisationId: true, duplicateOfId: true, reporterId: true, beneficiaryUserId: true, createdByAgent: { select: { ownerUserId: true } } },
   });
   if (!bug) return [];
   const platform = await getPlatformRewardConfig(db);
@@ -167,7 +176,7 @@ export async function standingConfirmationAwards(db: Db, bugId: string): Promise
       const review = confirmationPointsAt(index, platform.confirmationReviewer);
       if (!duplicate && review > 0) {
         entries.push({
-          tenantId: bug.tenantId,
+          organisationId: bug.organisationId,
           userId,
           bugId,
           role: "reviewer",
@@ -179,7 +188,7 @@ export async function standingConfirmationAwards(db: Db, bugId: string): Promise
       const clear = confirmationPointsAt(index, platform.triagerClear);
       if (clear > 0) {
         entries.push({
-          tenantId: bug.tenantId,
+          organisationId: bug.organisationId,
           userId,
           bugId,
           role: "triager",
@@ -190,7 +199,7 @@ export async function standingConfirmationAwards(db: Db, bugId: string): Promise
       }
     } else if (entry.verdict === "reject" && entry.duplicateOfId) {
       entries.push({
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         userId,
         bugId,
         role: "triager",
@@ -262,15 +271,15 @@ export function takesConfirmations(substatus: string, confirmed: boolean): boole
   return !confirmed && UNCONFIRMED_WORK_SUBSTATUSES.has(substatus);
 }
 
-/** Resolves `duplicateOfId` (an id or a number) to another issue in the tenant. */
-async function resolveDuplicate(tx: Prisma.TransactionClient, tenantId: string, bugId: string, raw: string): Promise<string> {
+/** Resolves `duplicateOfId` (an id or a number) to another issue in the organisation. */
+async function resolveDuplicate(tx: Prisma.TransactionClient, organisationId: string, bugId: string, raw: string): Promise<string> {
   const parsed = parseIssueRef(raw.replace(/^#/, ""));
   const canonical = await tx.bug.findFirst({
-    where: { tenantId, isDeleted: false, ...(parsed.kind === "number" ? { number: parsed.number } : { id: parsed.id }) },
+    where: { organisationId, isDeleted: false, ...(parsed.kind === "number" ? { number: parsed.number } : { id: parsed.id }) },
     select: { id: true },
   });
   if (!canonical || canonical.id === bugId) {
-    const message = "duplicateOfId must be another issue in this workspace.";
+    const message = "duplicateOfId must be another issue in this organisation.";
     throw new IssueApiError(400, message, { error: "invalid_request", message, field: "duplicateOfId" });
   }
   return canonical.id;
@@ -300,6 +309,7 @@ export async function giveConfirmation(
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${found.id} FOR UPDATE`;
     const bug = await tx.bug.findUnique({ where: { id: found.id }, select: bugSelect });
     if (!bug || bug.isDeleted) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
+    refuseProductStep(bug.track);
 
     const before = await confirmationStateOf(bug.id, tx);
     const wasConfirmed = before?.confirmed ?? false;
@@ -308,7 +318,7 @@ export async function giveConfirmation(
       throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status, substatus: bug.substatus });
     }
 
-    const duplicateOfId = input.duplicateOfId ? await resolveDuplicate(tx, bug.tenantId, bug.id, input.duplicateOfId) : null;
+    const duplicateOfId = input.duplicateOfId ? await resolveDuplicate(tx, bug.organisationId, bug.id, input.duplicateOfId) : null;
 
     // One entry per person per class: a manager agent's and a worker's (or the person's) are separate.
     const weightClass = giver.agent && hasLevel(giver.agent.level, "manager") ? "manager" : "working";
@@ -371,7 +381,7 @@ export async function giveConfirmation(
       const clear = confirmationPointsAt(index, platform.triagerClear);
       if (clear > 0) {
         await award(tx, {
-          tenantId: bug.tenantId,
+          organisationId: bug.organisationId,
           userId: giver.userId,
           bugId: bug.id,
           role: "triager",
@@ -383,7 +393,7 @@ export async function giveConfirmation(
       const review = confirmationPointsAt(index, platform.confirmationReviewer);
       if (!duplicate && review > 0) {
         await award(tx, {
-          tenantId: bug.tenantId,
+          organisationId: bug.organisationId,
           userId: giver.userId,
           bugId: bug.id,
           role: "reviewer",
@@ -395,7 +405,7 @@ export async function giveConfirmation(
     }
     if (counted && input.verdict === "reject" && duplicateOfId) {
       await award(tx, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         userId: giver.userId,
         bugId: bug.id,
         role: "triager",
@@ -409,7 +419,7 @@ export async function giveConfirmation(
       const userId = bug.beneficiaryUserId ?? bug.reporterId;
       const rewardConfig = await getProjectRewardConfig(tx, bug.projectId);
       await award(tx, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         userId,
         bugId: bug.id,
         role: "reporter",
@@ -433,12 +443,12 @@ export async function giveConfirmation(
     };
     // Only agent actions are audited (and so can be undone); a person's entry is theirs.
     if (giver.agent) {
-      await audit({ agentId: giver.agent.id, tenantId: bug.tenantId }, "issue.confirmation", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
+      await audit({ agentId: giver.agent.id, organisationId: bug.organisationId }, "issue.confirmation", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
     }
-    await publish(tx, { tenantId: bug.tenantId, type: "issue.confirmation", actorAgentId: giver.agent?.id ?? null, bugId: bug.id, payload });
+    await publish(tx, { organisationId: bug.organisationId, type: "issue.confirmation", actorAgentId: giver.agent?.id ?? null, bugId: bug.id, payload });
     if (newlyConfirmed) {
       await publish(tx, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         type: "issue.confirmed",
         actorAgentId: giver.agent?.id ?? null,
         bugId: bug.id,
@@ -480,7 +490,7 @@ async function moveToOpen(tx: Prisma.TransactionClient, bugId: string, actorId: 
  * `below_threshold` while the confirms are short.
  */
 export async function openConfirmedIssue(
-  agent: { agentId: string; ownerId: string; tenantId: string },
+  agent: { agentId: string; ownerId: string; organisationId: string },
   scope: Scope,
   issueRef: string,
 ): Promise<{ issueId: string; status: "open"; substatus: "open"; confirmations: number; confirmationsNeeded: number }> {
@@ -492,8 +502,9 @@ export async function openConfirmedIssue(
     });
     if (!found) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${found.id} FOR UPDATE`;
-    const bug = await tx.bug.findUnique({ where: { id: found.id }, select: { id: true, status: true, substatus: true, tenantId: true } });
+    const bug = await tx.bug.findUnique({ where: { id: found.id }, select: { id: true, status: true, substatus: true, organisationId: true, track: true } });
     if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
+    refuseProductStep(bug.track);
     if (bug.substatus !== "requires_confirmation") {
       const message = "This issue is not at Requires confirmation.";
       throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status, substatus: bug.substatus });
@@ -507,8 +518,8 @@ export async function openConfirmedIssue(
     }
     await moveToOpen(tx, bug.id, agent.ownerId, "agent");
     const payload = { issueId: bug.id, from: "requires_confirmation", to: "open", confirmations, confirmationsNeeded };
-    await audit({ agentId: agent.agentId, tenantId: bug.tenantId }, "issue.opened", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
-    await publish(tx, { tenantId: bug.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: moveTo("open") } });
+    await audit({ agentId: agent.agentId, organisationId: bug.organisationId }, "issue.opened", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
+    await publish(tx, { organisationId: bug.organisationId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: moveTo("open") } });
     return { issueId: bug.id, ...moveTo("open"), confirmations, confirmationsNeeded };
   });
 }
@@ -566,14 +577,14 @@ export type ConfirmationList = {
 /**
  * Who is reading the list, for the files rule (#confirmation-files): another
  * confirmer's files show only once the viewer has a confirm of their own on
- * the issue; their own entries and workspace admins always see them. Without
+ * the issue; their own entries and organisation admins always see them. Without
  * a viewer every entry's files are hidden.
  */
 export type ConfirmationViewer = { userId: string; admin?: boolean };
 
 /** Every confirmation entry on an issue (by number or id), newest first, with its replies. */
 export async function listConfirmations(
-  scope: { tenantId: string; projectId?: string },
+  scope: { organisationId: string; projectId?: string },
   issueRef: string,
   viewer: ConfirmationViewer | null,
   db: PrismaClient = prisma,
@@ -610,9 +621,9 @@ export async function listConfirmations(
   ]);
   const duplicateIds = [...new Set(rows.map((row) => row.duplicateOfId).filter((id): id is string => Boolean(id)))];
   const duplicates = duplicateIds.length
-    ? await db.bug.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } })
+    ? await db.bug.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, number: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } })
     : [];
-  const duplicateById = new Map(duplicates.map((d) => [d.id, { id: d.id, number: d.number, projectSlug: d.project.slug, orgSlug: d.project.tenant.slug }]));
+  const duplicateById = new Map(duplicates.map((d) => [d.id, { id: d.id, number: d.number, projectSlug: d.project.slug, orgSlug: d.project.organisation.slug }]));
   const counted = new Map(state?.counted.map((entry) => [entry.id, entry.weight]) ?? []);
   const needed = state?.needed ?? (await workflowFor(bug.projectId, db)).confirmationsNeeded;
   const hasOwnConfirm = Boolean(viewer) && rows.some((row) => row.onBehalfOfUserId === viewer?.userId && row.verdict === "confirm" && !row.undoneAt);

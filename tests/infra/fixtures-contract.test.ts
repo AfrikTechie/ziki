@@ -42,8 +42,68 @@ describe("the local fixtures", () => {
     check("bids", "claimId", claims);
     check("bidVotes", "bidId", bids);
     check("bugs", "duplicateOfId", bugs);
+    check("bugs", "linkedIssueId", bugs);
+    check("bugs", "typeId", ids("issueTypes"));
+    check("ideas", "typeId", ids("issueTypes"));
     check("bugs", "assigneeId", users);
     check("comments", "parentId", ids("comments"));
+  });
+
+  describe("marketing work", () => {
+    const marketing = fx.bugs.filter((bug) => bug.track === "marketing");
+    const marketingIds = new Set(marketing.map((bug) => bug.id));
+    const on = (table: string) => fx[table].filter((row) => marketingIds.has(row.bugId));
+
+    it("is at every marketing step, and never at a step marketing skips", () => {
+      const seen = new Set(marketing.map((bug) => String(bug.substatus)));
+      expect([...seen].sort()).toEqual(["accepted", "closed", "in_progress", "open", "published", "requires_review"]);
+    });
+
+    it("has ideas waiting, ready to convert, bad, rejected, archived and converted, each saying why", () => {
+      const ideas = fx.ideas.filter((idea) => idea.track === "marketing");
+      expect(new Set(ideas.map((idea) => idea.status))).toEqual(new Set(["open", "rejected", "archived", "converted"]));
+      for (const idea of ideas) expect(String(idea.rationale ?? ""), String(idea.number)).not.toBe("");
+      const open = ideas.filter((idea) => idea.status === "open");
+      expect(open.some((idea) => Number(idea.score) >= 3)).toBe(true);
+      expect(open.some((idea) => Number(idea.score) < 0)).toBe(true);
+      for (const idea of fx.ideas.filter((row) => row.track !== "marketing")) expect(idea.rationale).toBeUndefined();
+    });
+
+    it("has no confirmation, pull request or deployment, and delivers links instead", () => {
+      expect(on("confirmations")).toEqual([]);
+      expect(on("pullRequestReports")).toEqual([]);
+      for (const bug of marketing) expect(bug.pullRequestUrl).toBeUndefined();
+      expect(on("deliveries").length).toBeGreaterThan(0);
+      for (const delivery of on("deliveries")) {
+        expect(delivery.pullRequestUrl).toBeNull();
+        expect((delivery.deliverableUrls as string[]).length > 0 || Boolean(delivery.deliverableText)).toBe(true);
+      }
+    });
+
+    it("stays within the default revision limit, with a fresh count once reopened", () => {
+      for (const bug of marketing) expect(Number(bug.revisionCount)).toBeLessThanOrEqual(2);
+      expect(marketing.some((bug) => Number(bug.revisionCount) === 2)).toBe(true);
+      const reopened = on("claims").filter((claim) => claim.releaseReason === "revision_limit");
+      expect(reopened.length).toBeGreaterThan(0);
+      for (const claim of reopened) expect(marketing.find((bug) => bug.id === claim.bugId)).toMatchObject({ substatus: "open", revisionCount: 0 });
+    });
+
+    it("counts only judgements since the latest delivery towards work in review", () => {
+      const counted = (bugId: unknown) => {
+        const delivery = on("deliveries").find((row) => row.bugId === bugId)!;
+        return on("testVerdicts").filter((row) => row.bugId === bugId && row.goodToMerge && Number(row.updatedAt) <= Number(delivery.updatedAt)).length;
+      };
+      for (const bug of marketing.filter((row) => row.substatus === "requires_review")) expect(counted(bug.id)).toBeLessThan(3);
+      for (const bug of marketing.filter((row) => row.substatus === "accepted" || row.substatus === "published")) expect(counted(bug.id)).toBeGreaterThanOrEqual(3);
+    });
+
+    it("links only to product issues, and uses only marketing task types", () => {
+      const linked = marketing.filter((bug) => bug.linkedIssueId);
+      expect(linked.length).toBeGreaterThan(0);
+      for (const bug of linked) expect(marketingIds.has(bug.linkedIssueId)).toBe(false);
+      for (const type of fx.issueTypes) expect(type.track).toBe("marketing");
+      for (const row of [...fx.bugs, ...fx.ideas]) expect(row.typeId != null).toBe(row.track === "marketing");
+    });
   });
 
   it("hold no real people: every account is a made-up @fixtures.local one", () => {

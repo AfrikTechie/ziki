@@ -11,7 +11,7 @@ import {
 } from "./support-guide-data";
 import { useProjectRef } from "@/lib/use-project-ref";
 
-export type GuideMode = "avatar" | "nudge" | "chat" | "tour";
+export type GuideMode = "avatar" | "chat" | "tour";
 
 interface Message {
   id: string;
@@ -43,7 +43,7 @@ function OnScreenGuideContent() {
 
   const [mode, setMode] = useState<GuideMode>(() => {
     const requested = searchParams.get("guide_state") as GuideMode;
-    if (requested && ["avatar", "nudge", "chat", "tour"].includes(requested)) {
+    if (requested && ["avatar", "chat", "tour"].includes(requested)) {
       return requested;
     }
     return "avatar";
@@ -65,32 +65,6 @@ function OnScreenGuideContent() {
   const messageCountRef = useRef(1);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const showDevToolbar = useMemo(() => {
-    return (
-      searchParams.get("guide_demo") === "1" ||
-      Boolean(searchParams.get("guide_state")) ||
-      process.env.NODE_ENV !== "production"
-    );
-  }, [searchParams]);
-
-  // Handle gentle auto-nudge after 2.5s if not previously seen on this context
-  useEffect(() => {
-    const storageKey = `ziki_guide_nudge_seen_${pageGuidance.contextKey}`;
-    const alreadySeen = typeof window !== "undefined" && window.sessionStorage.getItem(storageKey);
-
-    if (!alreadySeen) {
-      const timer = setTimeout(() => {
-        setMode((current) => (current === "avatar" ? "nudge" : current));
-        try {
-          window.sessionStorage.setItem(storageKey, "1");
-        } catch {
-          // ignore storage access errors
-        }
-      }, 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [pageGuidance.contextKey]);
 
   // Scroll chat to bottom when messages update
   useEffect(() => {
@@ -196,124 +170,17 @@ function OnScreenGuideContent() {
     },
   ];
 
-  const isInsideApp = typeof document !== "undefined" && Boolean(document.querySelector("[data-app-shell]"));
-
   return (
+    // Above the support link (a small line at the bottom right), and above the agents bar where it is drawn
+    // (#agents-dock, 76px tall), so the chat never sits behind either. Decided in CSS, not at render, so the
+    // server and the browser draw the same thing.
     <aside
       aria-label="Customer Support Guide"
-      className={`fixed right-4 sm:right-6 z-50 flex flex-col items-end transition-all duration-300 pointer-events-none select-none ${
-        isInsideApp
-          ? "bottom-20 sm:bottom-24 lg:bottom-24"
-          : "bottom-5 sm:bottom-6"
-      }`}
+      className="fixed bottom-14 right-4 z-50 flex flex-col items-end pointer-events-none select-none sm:right-6 lg:[body:has([data-dock-strip])_&]:bottom-[88px]"
     >
-      {/* Dev / Reviewer State Switcher Bar */}
-      {showDevToolbar && (
-        <div className="pointer-events-auto mb-2 flex items-center gap-1 rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-[#0c1938]/95 px-3 py-1.5 text-[11px] font-medium shadow-lg backdrop-blur-md">
-          <span className="text-slate-500 dark:text-slate-400 mr-1 font-semibold">Support State:</span>
-          <button
-            type="button"
-            onClick={() => setMode("avatar")}
-            className={`rounded-full px-2.5 py-0.5 transition-colors ${
-              mode === "avatar"
-                ? "bg-electric-blue-strong text-white font-semibold shadow-xs"
-                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            }`}
-          >
-            Avatar Pill
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("nudge")}
-            className={`rounded-full px-2.5 py-0.5 transition-colors ${
-              mode === "nudge"
-                ? "bg-electric-blue-strong text-white font-semibold shadow-xs"
-                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            }`}
-          >
-            Nudge
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("chat")}
-            className={`rounded-full px-2.5 py-0.5 transition-colors ${
-              mode === "chat"
-                ? "bg-electric-blue-strong text-white font-semibold shadow-xs"
-                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            }`}
-          >
-            Support Chat
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("tour")}
-            className={`rounded-full px-2.5 py-0.5 transition-colors ${
-              mode === "tour"
-                ? "bg-electric-blue-strong text-white font-semibold shadow-xs"
-                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            }`}
-          >
-            Guided Tour
-          </button>
-        </div>
-      )}
-
-      {/* ---------------- STATE 2: PROACTIVE NUDGE BUBBLE ---------------- */}
-      {mode === "nudge" && (
-        <div className="pointer-events-auto mb-3 w-80 sm:w-96 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1938] p-4 shadow-2xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-2">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Human Guide Active
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setMode("avatar")}
-              aria-label="Dismiss guide notification"
-              className="rounded p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="mt-2">
-            <h4 className="text-[14px] font-bold text-slate-900 dark:text-white">
-              {pageGuidance.nudgeTitle}
-            </h4>
-            <p className="mt-1 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">
-              {pageGuidance.nudgeText}
-            </p>
-          </div>
-
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setMode("chat")}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-electric-blue-strong px-3 py-1.5 text-[12px] font-semibold text-white shadow hover:opacity-90 transition-opacity"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-              Ask a Question
-            </button>
-            <button
-              type="button"
-              onClick={startTour}
-              className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-            >
-              Quick Tour
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ---------------- STATE 3: INTERACTIVE SUPPORT DRAWER / CHAT ---------------- */}
       {mode === "chat" && (
-        <div className="pointer-events-auto mb-3 flex h-[530px] w-[350px] sm:w-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1938] shadow-2xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-4">
+        <div className="pointer-events-auto flex h-[min(530px,calc(100vh-9rem))] w-[min(350px,calc(100vw-2rem))] sm:w-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1938] shadow-2xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-4">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-blue-950/40 bg-gradient-to-r from-blue-700 to-indigo-900 px-4 py-3 text-white">
             <div className="flex items-center gap-3">
@@ -479,7 +346,7 @@ function OnScreenGuideContent() {
 
       {/* ---------------- STATE 4: GUIDED WALKTHROUGH OVERLAY / BANNER ---------------- */}
       {mode === "tour" && (
-        <div className="pointer-events-auto mb-3 w-80 sm:w-96 rounded-2xl border-2 border-electric-blue bg-white dark:bg-[#0c1938] p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-2">
+        <div className="pointer-events-auto w-80 sm:w-96 rounded-2xl border-2 border-electric-blue bg-white dark:bg-[#0c1938] p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-2">
           <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
             <span className="flex items-center gap-1.5 text-[11px] font-bold text-electric-blue uppercase tracking-wider">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -549,36 +416,17 @@ function OnScreenGuideContent() {
         </div>
       )}
 
-      {/* ---------------- STATE 1: FLOATING AVATAR PILL (Always accessible anchor) ---------------- */}
-      <div className="pointer-events-auto flex items-center gap-2">
-        {mode === "avatar" && (
-          <button
-            type="button"
-            onClick={() => setMode("chat")}
-            className="cursor-pointer group flex items-center gap-2 rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-[#0c1938]/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-all duration-200 hover:border-electric-blue hover:shadow-xl focus-visible:outline-2 focus-visible:outline-electric-blue text-left"
-          >
-            <span className="flex flex-col">
-              <span className="text-[12px] font-bold text-slate-900 dark:text-white group-hover:text-electric-blue">
-                Lost? Ask Support
-              </span>
-              <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                Human Guide • Online
-              </span>
-            </span>
-          </button>
-        )}
-
-        {/* Avatar button */}
-        <button
-          type="button"
-          onClick={() => setMode((prev) => (prev === "avatar" ? "chat" : "avatar"))}
-          aria-label="Toggle Ziki Customer Support Guide"
-          className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 p-1 shadow-xl transition-transform duration-200 hover:scale-105 active:scale-95 focus-visible:outline-2 focus-visible:outline-electric-blue"
-        >
-          <SupportGuideAvatar size="lg" isOnline={true} animated={true} />
-          <span className="sr-only">Toggle Customer Support Guide</span>
-        </button>
-      </div>
+      {/* The way in: small text with the guide's picture at the bottom right corner, in the agents bar where it is
+          drawn (#agents-dock). No pop-up of its own: it opens only when asked. */}
+      <button
+        type="button"
+        onClick={() => setMode((prev) => (prev === "avatar" ? "chat" : "avatar"))}
+        aria-expanded={mode !== "avatar"}
+        className="group pointer-events-auto fixed bottom-3 right-4 z-40 flex items-center gap-2 rounded-full text-[11px] font-semibold text-zk-muted hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue lg:[body:has([data-dock-strip])_&]:bottom-[22px] sm:right-6"
+      >
+        <span className="group-hover:underline">{mode === "avatar" ? "Need help? Ask support" : "Close support"}</span>
+        <SupportGuideAvatar size="sm" isOnline={true} animated={false} />
+      </button>
     </aside>
   );
 }

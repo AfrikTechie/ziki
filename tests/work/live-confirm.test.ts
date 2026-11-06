@@ -28,17 +28,17 @@ vi.mock("@/lib/points/payout", () => ({
 
 import { reportDeployment } from "@/lib/agent-api/deployment";
 
-const scope = { tenantId: "t1", projectId: "p1" };
-const agent = (owner: string) => ({ agentId: `agent-${owner}`, ownerId: owner, tenantId: "t1" });
+const scope = { organisationId: "t1", projectId: "p1" };
+const agent = (owner: string) => ({ agentId: `agent-${owner}`, ownerId: owner, organisationId: "t1" });
 const prod = { environment: "prod", note: "Saw build 1.4.2 on app.zedu.chat with the fix." };
 
 /** A Live issue On staging, solved by Cara. */
-let bug: { id: string; tenantId: string; status: string; substatus: string; assigneeId: string };
+let bug: { id: string; organisationId: string; status: string; substatus: string; assigneeId: string };
 
 beforeEach(() => {
   vi.clearAllMocks();
   db.reports.clear();
-  bug = { id: "bug1", tenantId: "t1", status: "resolved", substatus: "on_staging", assigneeId: "cara" };
+  bug = { id: "bug1", organisationId: "t1", status: "resolved", substatus: "on_staging", assigneeId: "cara" };
   db.tx.bug.findFirst.mockImplementation(async () => ({ ...bug }));
   db.tx.bug.update.mockImplementation(async ({ data }: { data: { substatus: string } }) => {
     bug.substatus = data.substatus;

@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import type { Status } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
+import { bugInOrganisation, currentOrganisationIdFor } from "@/lib/organisation-context";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { formatIssueNumber } from "@/lib/issue-number";
 import { parseIssueRef } from "@/lib/duplicates";
 import { DuplicateLinkRefused, linkDuplicate } from "@/lib/duplicate-link";
@@ -16,12 +16,12 @@ export type DuplicateActionResult = { ok?: true; error?: string };
 
 export type DuplicateCandidate = { id: string; number: number; title: string; status: Status };
 
-const DUPLICATE_FORBIDDEN = "Only an owner or admin of this organization can change duplicates.";
+const DUPLICATE_FORBIDDEN = "Only an owner or admin of this organisation can change duplicates.";
 
-/** Duplicate links are an organization power, not a site-wide admin power. */
+/** Duplicate links are an organisation power, not a site-wide admin power. */
 async function requireOrgAdmin() {
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.admin) return { error: DUPLICATE_FORBIDDEN };
   return { user };
 }
@@ -53,16 +53,16 @@ export async function markDuplicateAction(
   const ref = parseIssueRef(targetRef ?? "");
   if (!ref) return { error: "Enter an issue number, like #12." };
 
-  // #425: both issues must be in the admin's tenant.
-  const tenantId = await currentTenantIdFor(admin.id);
-  // #517: a number is only unique within its tenant, so look it up through
+  // #425: both issues must be in the admin's organisation.
+  const organisationId = await currentOrganisationIdFor(admin.id);
+  // #517: a number is only unique within its organisation, so look it up through
   // the composite key rather than the old site-wide `number` key.
-  const target = tenantId
+  const target = organisationId
     ? await prisma.bug.findUnique({
         where:
           "number" in ref
-            ? { tenantId_number: { tenantId, number: ref.number } }
-            : { id: ref.id, tenantId },
+            ? { organisationId_number: { organisationId, number: ref.number } }
+            : { id: ref.id, organisationId },
         select: { id: true },
       })
     : null;
@@ -71,7 +71,7 @@ export async function markDuplicateAction(
   let previous: string | null = null;
   try {
     const linked = await prisma.$transaction((tx) =>
-      linkDuplicate(tx, { tenantId: tenantId!, bugId, targetId: target.id, actorId: admin.id }),
+      linkDuplicate(tx, { organisationId: organisationId!, bugId, targetId: target.id, actorId: admin.id }),
     );
     if (!linked.unchanged) previous = linked.previous;
   } catch (error) {
@@ -89,7 +89,7 @@ export async function clearDuplicateAction(bugId: string): Promise<DuplicateActi
   if ("error" in gate) return { error: gate.error };
   const admin = gate.user;
   const bug = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(admin.id)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(admin.id)) },
     select: { number: true, duplicateOfId: true, duplicateOf: { select: { id: true, number: true } } },
   });
   if (!bug) return { error: "This issue no longer exists." };
@@ -147,7 +147,7 @@ export async function findDuplicateCandidatesAction(
   if (!text) return [];
   const ref = parseIssueRef(text);
   const base = {
-    ...bugInTenant(await currentTenantIdFor(admin.id)),
+    ...bugInOrganisation(await currentOrganisationIdFor(admin.id)),
     isDeleted: false,
     duplicateOfId: null,
     NOT: { id: bugId },

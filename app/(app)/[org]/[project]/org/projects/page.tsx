@@ -24,7 +24,7 @@ import { OrgMessages, OrgPageHeader, oneParam } from "../org-ui";
 export const metadata = { title: "Projects" };
 
 /**
- * The organization's one projects list: switch, create, and, for owners and
+ * The organisation's one projects list: switch, create, and, for owners and
  * admins, each project's settings. Owners archive and delete projects.
  */
 export default async function OrgProjectsPage({
@@ -39,13 +39,13 @@ export default async function OrgProjectsPage({
   const { org } = await loadOrg();
   if (!org) return null;
   const params = await searchParams;
-  const tenantId = org.id;
+  const organisationId = org.id;
   const canManageProjects = org.admin;
   const isOwner = org.owner;
 
   const [projects, platformRewards] = await Promise.all([
     prisma.project.findMany({
-      where: { tenantId },
+      where: { organisationId },
       select: {
         id: true,
         name: true,

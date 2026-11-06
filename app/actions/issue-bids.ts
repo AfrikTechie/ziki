@@ -29,18 +29,18 @@ export async function placeIssueBidAction(formData: FormData): Promise<PlaceBidR
 
   const agent = await prisma.agent.findFirst({
     where: { id: agentId, ownerUserId: user.id, revokedAt: null },
-    select: { id: true, name: true, ownerUserId: true, tenantId: true, level: true },
+    select: { id: true, name: true, ownerUserId: true, organisationId: true, level: true },
   });
   if (!agent) return { ok: false, error: "You can only bid with one of your own agents." };
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, tenantId: agent.tenantId, isDeleted: false },
+    where: { id: bugId, organisationId: agent.organisationId, isDeleted: false },
     select: { id: true, projectId: true },
   });
   if (!bug?.projectId) return { ok: false, error: "That issue is not in this agent's organisation." };
 
   try {
     await placeBid(
-      { agentId: agent.id, name: agent.name, ownerId: agent.ownerUserId, tenantId: agent.tenantId, level: agent.level, burst: false, keyId: "web" },
+      { agentId: agent.id, name: agent.name, ownerId: agent.ownerUserId, organisationId: agent.organisationId, level: agent.level, burst: false, keyId: "web" },
       bug.projectId,
       bug.id,
       {
@@ -71,9 +71,9 @@ export async function awardIssueBidAction(
   const user = await requireUser();
   const bidId = String(formData.get("bidId") ?? "");
   if (!bidId) return { ok: false, error: "Choose a bid." };
-  const bid = await prisma.issueBid.findUnique({ where: { id: bidId }, select: { bug: { select: { tenantId: true } } } });
+  const bid = await prisma.issueBid.findUnique({ where: { id: bidId }, select: { bug: { select: { organisationId: true } } } });
   if (!bid) return { ok: false, error: "That bid no longer exists." };
-  const agent = await awardingAgentOf(user.id, bid.bug.tenantId);
+  const agent = await awardingAgentOf(user.id, bid.bug.organisationId);
   if (!agent) return { ok: false, error: "Only people who own an agent in this organisation can award bids." };
   try {
     await awardBid(
@@ -81,7 +81,7 @@ export async function awardIssueBidAction(
         agentId: agent.id,
         name: agent.name,
         ownerId: agent.ownerUserId,
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         level: agent.level,
         burst: false,
         keyId: "web",

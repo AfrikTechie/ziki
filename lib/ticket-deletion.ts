@@ -1,12 +1,12 @@
 import type { MembershipRole } from "@prisma/client";
-import { isOrganizationAdmin } from "@/lib/organization-role";
+import { isOrganisationAdmin } from "@/lib/organisation-role";
 import type { AppRole } from "@/lib/roles";
 import type { BugVoterSummary } from "@/lib/voters";
 
 export const TICKET_DELETION_ERRORS = {
-  unauthorized: "Only an owner or admin of this organization can delete issues",
+  unauthorized: "Only an owner or admin of this organisation can delete issues",
   unauthorizedRestore:
-    "Only an owner or admin of this organization can restore issues",
+    "Only an owner or admin of this organisation can restore issues",
   invalidId: "Invalid issue ID",
   notFound: "Issue not found",
   alreadyDeleted: "Issue is already deleted",
@@ -46,12 +46,12 @@ export function retainedSummary(counts?: TicketDeletionCounts): string {
  * zone both print this string, so they cannot drift apart.
  */
 export function deleteSummary(counts?: TicketDeletionCounts): string {
-  return `It will be hidden from regular users. ${retainedSummary(counts)} Owners and admins of this organization can restore it from "View deleted issues".`;
+  return `It will be hidden from regular users. ${retainedSummary(counts)} Owners and admins of this organisation can restore it from "View deleted issues".`;
 }
 
 /** The same facts, once the issue has been deleted (the banner on a deleted issue). */
 export function deletedSummary(counts?: TicketDeletionCounts): string {
-  return `It is hidden from regular users. ${retainedSummary(counts)} Owners and admins of this organization can restore it.`;
+  return `It is hidden from regular users. ${retainedSummary(counts)} Owners and admins of this organisation can restore it.`;
 }
 
 /** What restoring does. Mirrors {@link deleteSummary}: what was hidden comes back as it was. */
@@ -59,18 +59,18 @@ export function restoreSummary(counts?: TicketDeletionCounts): string {
   const kept = counts
     ? `its ${plural(counts.comments, "comment")}, ${plural(counts.votes, "importance mark")} and history`
     : "its comments, importance marks and history";
-  return `It will be visible to everyone who can see this organization's issues again, with ${kept} as they were.`;
+  return `It will be visible to everyone who can see this organisation's issues again, with ${kept} as they were.`;
 }
 
 /**
- * Soft-delete is an organization power: owner, admin, or the site super admin.
+ * Soft-delete is an organisation power: owner, admin, or the site super admin.
  * A site-wide admin who is only a member cannot delete here.
  */
 export function canDeleteTicket(
   role?: AppRole | null,
   membershipRole?: MembershipRole | null,
 ): boolean {
-  return isOrganizationAdmin(membershipRole, role);
+  return isOrganisationAdmin(membershipRole, role);
 }
 
 /** Same people who can delete can restore. */
@@ -78,5 +78,5 @@ export function canRestoreTicket(
   role?: AppRole | null,
   membershipRole?: MembershipRole | null,
 ): boolean {
-  return isOrganizationAdmin(membershipRole, role);
+  return isOrganisationAdmin(membershipRole, role);
 }

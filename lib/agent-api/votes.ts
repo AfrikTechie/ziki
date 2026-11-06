@@ -37,7 +37,7 @@ async function lockedIssue(tx: Tx, caller: AgentContext, projectId: string, bugI
   const locked = await tx.$queryRaw<LockedIssue[]>`
     SELECT "id", "reporterId", "beneficiaryUserId" FROM "Bug"
     WHERE "id" = ${bugId}
-      AND "tenantId" = ${caller.tenantId}
+      AND "organisationId" = ${caller.organisationId}
       AND "projectId" = ${projectId}
       AND "isDeleted" = false
     FOR NO KEY UPDATE
@@ -93,7 +93,7 @@ export async function upvoteIssue(caller: AgentContext, projectId: string, bugId
       await tx.vote.create({ data: { userId: caller.ownerId, bugId, ...data } });
       // The first mark on an issue earns a point; the key keeps it to once per person (#vote-points).
       await award(tx, {
-        tenantId: caller.tenantId,
+        organisationId: caller.organisationId,
         userId: caller.ownerId,
         bugId,
         role: "vote",
@@ -104,7 +104,7 @@ export async function upvoteIssue(caller: AgentContext, projectId: string, bugId
     }
     const importance = await recount(tx, bugId);
     await publish(tx, {
-      tenantId: caller.tenantId,
+      organisationId: caller.organisationId,
       type: "issue.importance",
       actorAgentId: caller.agentId,
       bugId,
@@ -133,7 +133,7 @@ export async function removeUpvote(
     await tx.vote.delete({ where: { id: existing.id } });
     const importance = await recount(tx, bugId);
     await publish(tx, {
-      tenantId: caller.tenantId,
+      organisationId: caller.organisationId,
       type: "issue.importance",
       actorAgentId: caller.agentId,
       bugId,

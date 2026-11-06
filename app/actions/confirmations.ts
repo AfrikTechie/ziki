@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { giveConfirmation, parseConfirmation } from "@/lib/agent-api/confirmations";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -41,11 +41,11 @@ export async function giveConfirmationAction(
   const limit = await consumeRateLimit(`confirmation:${userId}`, ACTION_RATE_LIMITS.addComment);
   if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
 
-  const tenantId = await currentTenantIdFor(userId);
-  if (!tenantId || typeof bugId !== "string" || !bugId) return { error: "Issue not found" };
+  const organisationId = await currentOrganisationIdFor(userId);
+  if (!organisationId || typeof bugId !== "string" || !bugId) return { error: "Issue not found" };
 
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, tenantId, isDeleted: false },
+    where: { id: bugId, organisationId, isDeleted: false },
     select: { id: true, projectId: true },
   });
   if (!bug) return { error: "Issue not found" };
@@ -62,7 +62,7 @@ export async function giveConfirmationAction(
 
   try {
     const input = parseConfirmation(body);
-    const given = await giveConfirmation({ tenantId, userId }, { tenantId, projectId: bug.projectId }, bug.id, input);
+    const given = await giveConfirmation({ organisationId, userId }, { organisationId, projectId: bug.projectId }, bug.id, input);
     revalidatePath("/[org]/[project]", "layout");
     revalidateIssue();
     return {

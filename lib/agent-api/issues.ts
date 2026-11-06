@@ -1,3 +1,4 @@
+import { parseTrackFilter, trackFilter } from "@/lib/marketing/track";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import type { AgentLevel, Prisma } from "@prisma/client";
@@ -13,7 +14,7 @@ import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { currentHold } from "@/lib/issue-holders";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
-import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
+import { eventStreamBus, ORGANISATION_WRITE } from "@/lib/events/stream-bus";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { cursorOrderBy, cursorWhere, decodeCursor, LIMIT_RANGE_ERROR, pageSize, toPage, type IssueCursor } from "@/lib/agent-api/create-policy";
 import { commentedSummary, commentPreview } from "@/lib/activity-log";
@@ -31,6 +32,7 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { latestPullRequestReport, pullRequestStateView } from "@/lib/agent-api/pull-request-report";
 import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 import { entrySummary } from "@/lib/agent-api/entry-fields";
+import { searchWorkItems } from "@/lib/search-index";
 
 export { IssueApiError };
 
@@ -70,6 +72,9 @@ export async function agentIssueRequest(
   try {
     agent = await requireAgent(request);
     requireLevel(agent, level === "read" ? "working" : level);
+    if (agent.pausedAt && action !== "claims.heartbeat" && (action === "work.read" || level !== "read" || options.budget === "write")) {
+      throw new IssueApiError(423, "This agent is paused by its owner.");
+    }
     if (options.budget === "none") {
       // Retired or non-working routes must not spend the caller's budget (#554).
       response = await run(agent);
@@ -100,7 +105,7 @@ export async function agentIssueRequest(
       } catch (error) {
         // Retain the failed record in server logs for investigation/recovery.
         logger.error("[agent-api] request audit failed", {
-          tenantId: agent.tenantId, agentId: agent.agentId, action, target, payload,
+          organisationId: agent.organisationId, agentId: agent.agentId, action, target, payload,
         }, error);
       }
     }
@@ -108,7 +113,7 @@ export async function agentIssueRequest(
   // A committed agent write changes what the work feed lists. Say so now, so
   // the agent's next poll is fresh; the event broadcast follows a moment later.
   if (agent && response.status < 400 && (level !== "read" || options.budget === "write")) {
-    eventStreamBus.emit(TENANT_WRITE, agent.tenantId);
+    eventStreamBus.emit(ORGANISATION_WRITE, agent.organisationId);
   }
   // #646/#596: every charged response — success, validation failure, or a
   // domain error thrown after the charge — reports the same quota.
@@ -126,23 +131,27 @@ export async function issueJson(request: NextRequest): Promise<unknown> {
 export const PROJECT_ID_REQUIRED =
   "projectId is required. Pass it as ?projectId= or in the JSON body. Your owner can copy it from Settings, under Agents.";
 
-/** Every call names a project; a project id alone never grants access to its tenant. */
+/** Every call names a project; a project id alone never grants access to its organisation. */
 export async function issueProject(agent: AgentContext, params: URLSearchParams, bodyProjectId?: string) {
   const queryId = params.get("projectId");
   if (queryId && bodyProjectId && queryId !== bodyProjectId) throw new IssueApiError(400, "Conflicting projectId values.");
   // #563: name the missing parameter instead of a raw validation dump.
   if (!queryId?.trim() && !bodyProjectId?.trim()) throw new IssueApiError(400, PROJECT_ID_REQUIRED);
   const projectId = idSchema.parse(queryId || bodyProjectId);
-  const project = await prisma.project.findFirst({ where: { id: projectId, tenantId: agent.tenantId }, select: { id: true } });
+  const project = await prisma.project.findFirst({ where: { id: projectId, organisationId: agent.organisationId }, select: { id: true } });
   if (!project) throw new IssueApiError(404, "Project not found.");
   // A key issued for one project cannot read or change another (#742).
   assertKeyProject(agent, project.id);
-  return { tenantId: agent.tenantId, projectId: project.id };
+  return { organisationId: agent.organisationId, projectId: project.id };
 }
 
-type Scope = { tenantId: string; projectId: string };
+type Scope = { organisationId: string; projectId: string };
 export const issueSelect = {
-  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true,
+  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true, track: true,
+  // Marketing work: the revision rounds used so far (D4).
+  revisionCount: true,
+  // D6: the related product issue a marketing issue links to, or null.
+  linkedIssue: { select: { id: true, number: true, title: true } },
   // #close-reasons: why, on what evidence and when a closed issue was closed.
   closeReason: true, closeEvidence: true, closedAt: true,
   typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
@@ -174,6 +183,8 @@ export function requireKnownFilter(name: "area", raw: string | null, parsed: str
 }
 
 export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
+  const parsedTrack = parseTrackFilter(params.get("track"));
+  if (!parsedTrack.ok) throw new IssueApiError(400, parsedTrack.message, { error: "invalid_request", field: "track" });
   const status = enumFilter("status", params.get("status"), statusSchema.options);
   const substatus = enumFilter("substatus", params.get("substatus"), substatusSchema.options);
   const assignee = params.get("assignee");
@@ -203,15 +214,56 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
         { description: { contains: escapeSearchQuery(boundSearchTerm(q)), mode: "insensitive" } },
       ] }] }
     : {};
-  const filtered: Prisma.BugWhereInput = {
-    ...scope, isDeleted: false, ...search,
+  const baseFiltered: Prisma.BugWhereInput = {
+    ...scope, ...trackFilter(parsedTrack.track), isDeleted: false,
     ...(status ? { status } : {}),
     ...(substatus ? { substatus } : {}),
     ...(assigneeId !== undefined ? { assigneeId } : {}),
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
   };
-  const where: Prisma.BugWhereInput = { ...filtered, ...cursorWhere(cursor) };
-  const rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
+  let rows;
+  if (q && boundSearchTerm(q).length >= 3) {
+    try {
+      const selectedArea = requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas));
+      const filters = [
+        ...(status ? [`status:=${status}`] : []),
+        ...(substatus ? [`substatus:=${substatus}`] : []),
+        ...(assigneeId === null ? ["hasAssignee:=false"] : typeof assigneeId === "string" ? [`assigneeId:=${assigneeId}`] : []),
+        ...(selectedArea === "none" ? ["hasArea:=false"] : selectedArea ? [`areaId:=${selectedArea}`] : []),
+        // Typesense supports numeric ranges, not string range filters. Fetch
+        // through the cursor timestamp, then apply the full (time, id) cursor
+        // predicate in PostgreSQL before counting the page.
+        ...(cursor ? [`createdAt:<=${cursor.createdAt.getTime()}`] : []),
+      ];
+      const batchSize = limit + 1;
+      const ids: string[] = [];
+      let page = 1;
+      let found = 0;
+      while (true) {
+        const batch = await searchWorkItems({ query: boundSearchTerm(q), kind: "bug", organisationId: scope.organisationId, projectId: scope.projectId, track: parsedTrack.track, page, perPage: batchSize, sortBy: "createdAt:desc,sourceId:desc", queryBy: "title(infix:always),description(infix:always)", extraFilters: filters });
+        found = batch.found;
+        if (page === 1 && found === 0) throw new Error("Typesense returned no candidates; verifying with PostgreSQL.");
+        ids.push(...batch.hits.map((hit) => hit.id));
+        const currentRows = await prisma.bug.findMany({
+          where: { ...baseFiltered, ...cursorWhere(cursor), id: { in: ids } },
+          orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect,
+        });
+        const literalQuery = boundSearchTerm(q).toLocaleLowerCase();
+        rows = currentRows.filter((row) => row.title.toLocaleLowerCase().includes(literalQuery) || row.description.toLocaleLowerCase().includes(literalQuery));
+        if (rows.length > limit || page * batchSize >= found || batch.hits.length === 0) break;
+        page += 1;
+      }
+      const sourceCount = await prisma.bug.count({ where: { ...baseFiltered, ...search, ...cursorWhere(cursor) } });
+      if (rows.length < Math.min(limit + 1, sourceCount)) throw new Error("Typesense candidate page is incomplete; verifying with PostgreSQL.");
+    } catch (error) {
+      console.error("[agent-api/issues] Typesense search failed; using PostgreSQL", error);
+      const where: Prisma.BugWhereInput = { ...baseFiltered, ...search, ...cursorWhere(cursor) };
+      rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
+    }
+  } else {
+    const where: Prisma.BugWhereInput = { ...baseFiltered, ...search, ...cursorWhere(cursor) };
+    rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
+  }
   return toPage(rows.map(withImportance), limit);
 }
 
@@ -287,14 +339,17 @@ export async function readAgentIssue(scope: Scope, id: string) {
 
 /**
  * How many issues sit in each status, and ideas in each idea status, in one
- * project: the numbers the issue tabs show. Deleted ones are not counted.
+ * project and track: the numbers the issue tabs show. Deleted ones are not counted.
  * `all` is every issue.
  */
-export async function countAgentIssues(scope: Scope) {
+export async function countAgentIssues(scope: Scope, params: URLSearchParams) {
+  const parsedTrack = parseTrackFilter(params.get("track"));
+  if (!parsedTrack.ok) throw new IssueApiError(400, parsedTrack.message, { error: "invalid_request", field: "track" });
+  const selectedTrack = trackFilter(parsedTrack.track);
   const [issueRows, substatusRows, ideaRows] = await Promise.all([
-    prisma.bug.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
-    prisma.bug.groupBy({ by: ["substatus"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
-    prisma.idea.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
+    prisma.bug.groupBy({ by: ["status"], where: { ...scope, ...selectedTrack, isDeleted: false }, _count: { _all: true } }),
+    prisma.bug.groupBy({ by: ["substatus"], where: { ...scope, ...selectedTrack, isDeleted: false }, _count: { _all: true } }),
+    prisma.idea.groupBy({ by: ["status"], where: { ...scope, ...selectedTrack, isDeleted: false }, _count: { _all: true } }),
   ]);
   const issues = Object.fromEntries(statusSchema.options.map((status) => [status, 0])) as Record<(typeof statusSchema.options)[number], number>;
   for (const row of issueRows) issues[row.status] = row._count._all;
@@ -344,7 +399,7 @@ export async function listAgentIssueComments(scope: Scope, issueRef: string, par
   if (params.has("type")) throw new IssueApiError(400, "comment_has_no_type", { message: TYPED_COMMENT_MESSAGE });
 
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-  const id = await issueIdFor(prisma, issueRef, scope.tenantId);
+  const id = await issueIdFor(prisma, issueRef, scope.organisationId);
   const issue = id ? await prisma.bug.findFirst({ where: { ...scope, id, isDeleted: false }, select: { id: true } }) : null;
   if (!issue) throw new IssueApiError(404, "Issue not found.");
   const rows = await prisma.comment.findMany({
@@ -361,10 +416,10 @@ export async function listAgentIssueComments(scope: Scope, issueRef: string, par
   return { ...page, items: page.items.map(withCommentVotes) };
 }
 
-async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: string, body: string) {
+async function normalizeOrganisationMentions(db: Prisma.TransactionClient, organisationId: string, body: string) {
   const ids = extractMentionedUserIds(body);
   const users = ids.length ? await db.user.findMany({
-    where: { id: { in: ids }, memberships: { some: { tenantId } } }, select: { id: true, name: true },
+    where: { id: { in: ids }, memberships: { some: { organisationId } } }, select: { id: true, name: true },
   }) : [];
   return normalizeMentions(body, new Map(users.map((user) => [user.id, user.name])));
 }
@@ -382,7 +437,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
   let parentAuthorId: string | null = null;
   const comment = await prisma.$transaction(async (tx) => {
     // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-    const resolvedId = await issueIdFor(tx, issueRef, scope.tenantId);
+    const resolvedId = await issueIdFor(tx, issueRef, scope.organisationId);
     const found = resolvedId ? await tx.bug.findFirst({
       where: { ...scope, id: resolvedId, isDeleted: false },
       select: { id: true, title: true, reporterId: true, assigneeId: true, status: true, substatus: true, pullRequestUrl: true },
@@ -398,7 +453,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
       throw new IssueApiError(error.status, error.message);
     }
     parentAuthorId = placement.parentAuthorId;
-    const body = await normalizeTenantMentions(tx, scope.tenantId, input.body);
+    const body = await normalizeOrganisationMentions(tx, scope.organisationId, input.body);
     const created = await tx.comment.create({
       data: {
         bugId,
@@ -441,7 +496,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
       create: { bugId, userId: agent.ownerId }, update: {} });
     await audit(agent, "comment.created", created.id, { authorId: agent.ownerId }, { db: tx, bugId });
     await publish(tx, {
-      tenantId: scope.tenantId,
+      organisationId: scope.organisationId,
       type: "comment.created",
       payload: { commentId: created.id, issueId: bugId, authorId: agent.ownerId },
       actorAgentId: agent.agentId,

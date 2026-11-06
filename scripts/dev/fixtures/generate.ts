@@ -1,6 +1,6 @@
 /**
  * Generates the local Ziki fixtures (scripts/dev/fixtures/local-ziki.json): a
- * "Demo" workspace whose issues look like real Ziki's, spread over every
+ * "Demo" organisation whose issues look like real Ziki's, spread over every
  * status and substatus, with confirmations, bids, votes, claims, deliveries,
  * judgements, merge reviews, pull request reports, comments and importance.
  *
@@ -44,9 +44,16 @@ const hex = (n: number) => Array.from({ length: n }, () => "0123456789abcdef"[in
 // ---------------------------------------------------------------------------
 
 export const FIXTURE_PREFIX = "fx";
-export const FIXTURE_TENANT = { slug: "demo", name: "Demo" };
+export const FIXTURE_ORGANISATION = { slug: "demo", name: "Demo" };
 export const FIXTURE_PROJECT = { slug: "demo", name: "Demo", repoUrl: "https://github.com/example/demo-app" };
-/** The workspace owner you sign in as locally. */
+export const FIXTURE_BRIEF = {
+  product: "Demo, a task app for small teams.",
+  audience: "Team leads at companies of 5 to 50 people.",
+  website: "https://example.com",
+  currentFocus: "Getting the first hundred teams to invite a colleague.",
+  outOfScope: "Paid advertising.",
+};
+/** The organisation owner you sign in as locally. */
 export const FIXTURE_LOGIN = { email: "demo@fixtures.local", password: "ziki-demo-password" };
 
 type Level = "working" | "manager" | "merger";
@@ -207,7 +214,7 @@ ${summary}
 
 ## Steps to reproduce
 
-1. Sign in to the demo workspace as a member.
+1. Sign in to the demo organisation as a member.
 2. Open ${t.where}.
 3. ${pick(["Change a value and save it.", "Send the request with an unusual value.", "Repeat the action twice quickly.", "Resize the window to 375 px.", "Leave the page open for a few minutes and come back."])}
 
@@ -240,7 +247,7 @@ type Row = Record<string, unknown>;
 const rows: Record<string, Row[]> = {
   users: [], memberships: [], agents: [], areas: [], ideas: [], ideaVerdicts: [], bugs: [], confirmations: [],
   bids: [], bidVotes: [], claims: [], deliveries: [], testVerdicts: [], mergeReviews: [], pullRequestReports: [],
-  comments: [], votes: [], activities: [],
+  comments: [], votes: [], activities: [], issueTypes: [],
 };
 
 for (const p of PEOPLE) {
@@ -268,6 +275,7 @@ const PLAN: Array<[string, string, number]> = [
   ["resolved", "on_prod", 50],
   ["closed", "closed", 10],
 ];
+const STATUS_BY_MARKETING = { open: "open", in_progress: "in_progress", requires_review: "done", accepted: "done", published: "resolved", closed: "closed" } as const;
 const CLOSE_REASONS = ["superseded", "not_reproducible", "already_implemented", "duplicate", "not_planned", "withdrawn"];
 const STAGE_ORDER = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod"];
 
@@ -537,6 +545,373 @@ for (const [status, count] of IDEA_PLAN) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Marketing work, in every state a marketing idea or issue can be in. It draws
+// no random numbers and comes last, so the rows above stay as they are.
+// ---------------------------------------------------------------------------
+
+const MARKETING_TYPES = [
+  { key: "blog", name: "Blog post", description: "A post on the project's blog." },
+  { key: "social", name: "Social post", description: "A post or thread on a social network." },
+  { key: "page", name: "Landing page", description: "Copy for a page on the website." },
+  { key: "outreach", name: "Outreach", description: "Reaching out to a person, community or publication." },
+] as const;
+type MarketingType = (typeof MARKETING_TYPES)[number]["key"];
+for (const t of MARKETING_TYPES) {
+  rows.issueTypes.push({ id: id("issuetype", t.key), name: t.name, description: t.description, track: "marketing" });
+}
+
+type MarketingIssue = {
+  substatus: "open" | "in_progress" | "requires_review" | "accepted" | "published" | "closed";
+  title: string;
+  summary: string;
+  description: string;
+  rationale: string;
+  type: MarketingType;
+  /** The agent that proposed it. */
+  reporter: string;
+  /** The agent holding (or, once reopened, that last held) the claim. */
+  worker?: string;
+  /** Agents with an open bid. */
+  bidders?: string[];
+  /** How earlier rounds of this worker's delivery were sent back. */
+  rounds?: Array<"judgement" | "manager_reject">;
+  /** The worker used up every round, so it reopened for bids with a fresh count. */
+  reopened?: boolean;
+  deliverable?: string;
+  /** The finished work as Markdown, on a delivery with no link. */
+  deliverableText?: string;
+  /** Linked to a related product issue (D6). */
+  linked?: boolean;
+  comment?: string;
+};
+
+const MARKETING_ISSUES: MarketingIssue[] = [
+  {
+    substatus: "published", type: "blog", reporter: "amara-m", worker: "demo-w", linked: true,
+    title: "Write a launch post for the new issue list",
+    summary: "A short post explaining what changed in the issue list and why.",
+    description: "Write and publish a post for people who already use the issue list. Cover what changed, with screenshots.",
+    rationale: "People keep asking what changed, and a post answers them all at once.",
+    deliverableText: [
+      "# What changed in the issue list",
+      "",
+      "The issue list now reads the way the work moves. Each tab holds one main status, and every row says which step it is on.",
+      "",
+      "## What you will notice",
+      "",
+      "- **One status per issue.** A row says *Open · Requires confirmation*, and nothing else competes with it.",
+      "- **Who holds the work.** The holder sits on the row, so you can see what is taken at a glance.",
+      "- **Faster search.** Results now include the text of each description.",
+      "",
+      "## Why we changed it",
+      "",
+      "People kept asking what a label meant. Now there is only one to read.",
+    ].join("\n"),
+  },
+  {
+    substatus: "published", type: "social", reporter: "demo-m", worker: "bayo-w",
+    title: "Post a thread on how agents bid for work",
+    summary: "A thread walking through one issue from bid to delivery.",
+    description: "Take one real issue and show each step: the bids, the award, the delivery and the review. Keep it under eight posts.",
+    rationale: "The bidding step is what makes people curious, and it is easier to show than to explain.",
+    deliverable: "https://example.com/social/how-bidding-works",
+  },
+  {
+    substatus: "published", type: "page", reporter: "amara-m", worker: "chen-w",
+    title: "Rewrite the pricing page intro",
+    summary: "A clearer first paragraph for the pricing page.",
+    description: "The intro talks about features before it says who the product is for. Rewrite the first two paragraphs and test them on three readers.",
+    rationale: "Visitors leave the pricing page before they reach the plans.",
+    deliverable: "https://example.com/pricing",
+  },
+  {
+    substatus: "accepted", type: "blog", reporter: "demo-m", worker: "dara-w",
+    title: "Write a guide to reporting a good bug",
+    summary: "A short guide on what makes a report easy to confirm.",
+    description: "Show one vague report and the same report done well. Cover steps, expected and actual behaviour, and screenshots.",
+    rationale: "Clear reports get confirmed sooner, and new members ask how to write one.",
+    deliverable: "https://example.com/drafts/good-bug-reports",
+  },
+  {
+    substatus: "accepted", type: "outreach", reporter: "amara-m", worker: "efe-w",
+    title: "Pitch the agent workflow to three newsletters",
+    summary: "A short pitch sent to three newsletters that cover developer tools.",
+    description: "Find three newsletters that cover developer tools and write each one a short, specific pitch. Link the sent pitches and any replies.",
+    rationale: "Our best signups so far came from newsletters, and we have not pitched one this quarter.",
+    deliverable: "https://example.com/drafts/newsletter-pitches",
+  },
+  {
+    substatus: "requires_review", type: "social", reporter: "demo-m", worker: "farah-w",
+    title: "Share the keyboard shortcuts as a short clip",
+    summary: "A 30-second clip showing the shortcuts people miss.",
+    description: "Record the issue list and the issue page being used by keyboard alone. Add captions, because most people watch without sound.",
+    rationale: "Support questions show that most people never find the shortcuts.",
+    deliverable: "https://example.com/drafts/shortcuts-clip",
+  },
+  {
+    substatus: "requires_review", type: "page", reporter: "amara-m", worker: "goke-w", rounds: ["judgement"], linked: true,
+    title: "Explain two-factor sign-in on the security page",
+    summary: "A plain explanation of two-factor sign-in for people choosing a tool.",
+    description: "Say what two-factor sign-in protects, how to turn it on, and what happens if a device is lost. Avoid jargon.",
+    rationale: "Teams ask about this before they sign up, and the page doesn't mention it.",
+    deliverable: "https://example.com/drafts/security-page",
+    comment: "The second version answers the lost device question. Please check that part first.",
+  },
+  {
+    substatus: "in_progress", type: "blog", reporter: "demo-m", worker: "hana-w",
+    title: "Write up how we review delivered work",
+    summary: "A post on how judgements and manager reviews work together.",
+    description: "Explain who judges delivered work, what a manager review adds, and what happens when work is sent back.",
+    rationale: "People outside the project don't see why the review steps are worth the wait.",
+  },
+  {
+    substatus: "in_progress", type: "social", reporter: "amara-m", worker: "ike-w", rounds: ["judgement"],
+    title: "Turn the release notes into a short thread",
+    summary: "A thread on the three changes people will notice most.",
+    description: "Pick the three most visible changes from the latest release notes and give each one a post with a screenshot.",
+    rationale: "Release notes get little reach on their own.",
+    deliverable: "https://example.com/drafts/release-thread",
+  },
+  {
+    substatus: "in_progress", type: "outreach", reporter: "demo-m", worker: "jade-w", rounds: ["judgement", "manager_reject"],
+    title: "Invite three open source projects to try Ziki",
+    summary: "A personal invitation to three projects with active issue trackers.",
+    description: "Choose three projects whose maintainers would benefit, and write to each one about their own tracker. Link the sent messages.",
+    rationale: "Real projects using it in public would show more than anything we could write.",
+    deliverable: "https://example.com/drafts/project-invites",
+  },
+  {
+    substatus: "open", type: "blog", reporter: "amara-m", worker: "kofi-w", reopened: true, bidders: ["bayo-w"],
+    title: "Write a comparison with spreadsheet tracking",
+    summary: "An honest comparison for teams still tracking work in a spreadsheet.",
+    description: "Say where a spreadsheet is enough and where it stops working. Include what moving over costs.",
+    rationale: "Most teams we talk to are moving from a spreadsheet, not from another tracker.",
+    deliverable: "https://example.com/drafts/spreadsheet-comparison",
+    comment: "This is open again after two rounds. The review notes on the last delivery are still useful.",
+  },
+  {
+    substatus: "open", type: "page", reporter: "demo-m", bidders: ["chen-w", "efe-w"], linked: true,
+    title: "Add a page on how points are earned",
+    summary: "One page explaining rewards, for people deciding whether to join.",
+    description: "Explain how a reward is set, when it is paid and what reporters and reviewers earn. Link to the agent documentation for detail.",
+    rationale: "New members ask this first, and the answer is spread across several pages.",
+  },
+  {
+    substatus: "open", type: "social", reporter: "amara-m",
+    title: "Share one delivered issue each week",
+    summary: "A weekly post showing one piece of delivered work.",
+    description: "Each week pick one delivered issue and show the before and after. Start with four weeks and review the reach.",
+    rationale: "Regular proof of finished work builds more trust than announcements.",
+  },
+  {
+    substatus: "closed", type: "outreach", reporter: "demo-m",
+    title: "Sponsor a conference newsletter",
+    summary: "A paid slot in a conference newsletter.",
+    description: "Find the price and audience for a sponsored slot, then book it if the numbers make sense.",
+    rationale: "It would put the product in front of the people who attend.",
+  },
+];
+
+const MARKETING_JUDGES = ["goke-w", "hana-w", "kofi-w", "efe-w", "jade-w", "ike-w", "farah-w", "chen-w"];
+const linkableIssues = rows.bugs.filter((b) => b.substatus === "on_prod").map((b) => String(b.id));
+
+for (const [index, m] of MARKETING_ISSUES.entries()) {
+  const num = ++issueNumber;
+  const ideaNum = ++ideaNumber;
+  const bug = id("bug", num);
+  const idea = id("idea", ideaNum);
+  const reporter = ownerOf(m.reporter);
+  const typeId = id("issuetype", m.type);
+  const reviewer = m.worker && ownerOf(m.worker) === "amara" ? "demo-m" : "amara-m";
+  let clock = (30 - index) * DAY;
+  const step = (minutes = 6 * 60) => (clock = Math.max(5, clock - minutes));
+
+  rows.ideas.push({
+    id: idea, number: ideaNum, title: m.title, summary: m.summary, description: m.description, rationale: m.rationale, track: "marketing", typeId,
+    status: "converted", score: 3, reporterId: userId(reporter), beneficiaryUserId: userId(reporter), createdByAgentId: agentId(m.reporter),
+    convertedAt: clock - 120, convertedByAgentId: agentId(reviewer), issueId: bug, ago: clock,
+  });
+  rows.ideaVerdicts.push({
+    id: id("ideaverdict", `${ideaNum}-1`), ideaId: idea, onBehalfOfUserId: userId(ownerOf(reviewer)), agentId: agentId(reviewer), opinion: "good", votes: 3, weightClass: "manager",
+    summary: "Worth doing.", description: `${m.rationale} It is small enough to finish and easy to judge.`, ago: clock - 60,
+  });
+  step();
+  const b: Row = {
+    id: bug, number: num, title: m.title, summary: m.summary, description: m.description, track: "marketing", typeId, status: STATUS_BY_MARKETING[m.substatus], substatus: m.substatus,
+    revisionCount: m.reopened ? 0 : m.rounds?.length ?? 0, reporterId: userId(reporter), beneficiaryUserId: userId(reporter), createdByAgentId: agentId(m.reporter), voteCount: 0, ago: clock,
+    ...(m.linked ? { linkedIssueId: linkableIssues[index] } : {}),
+  };
+  rows.bugs.push(b);
+  rows.activities.push({ id: id("activity", rows.activities.length + 1), bugId: bug, actorId: userId(reporter), type: "created", summary: "Converted from an idea: moved to Open · Open", metadata: null, ago: clock });
+  if (m.comment) comment(bug, m.reporter, m.comment, Math.max(5, clock - 60));
+
+  if (m.substatus === "closed") {
+    b.closeReason = "not_planned";
+    b.closeEvidence = "The slot costs more than the quarter's budget, and the audience overlaps with channels we already use.";
+    b.closedAt = step();
+    activity(bug, ownerOf(reviewer), "Closed as not planned", clock, "open", "closed");
+    continue;
+  }
+
+  // Open bids, for work nobody holds.
+  const bidRow = (agent: string, n: number, extra: Row = {}) => {
+    const row: Row = {
+      id: id("bid", `${num}-${n}`), bugId: bug, agentId: agentId(agent), beneficiaryUserId: userId(ownerOf(agent)), summary: "I can have a draft ready this week.",
+      description: "Plan: write a first draft, check it with two people who haven't seen it, then publish it and link it in the delivery.", withdrawnAt: null, ago: step(), ...extra,
+    };
+    rows.bids.push(row);
+    return row;
+  };
+  const worker = m.worker;
+  if (!worker) {
+    for (const [n, agent] of (m.bidders ?? []).entries()) bidRow(agent, n + 1);
+    continue;
+  }
+
+  // Awarded to the worker: the claim stays active until the work is published or reopened.
+  const claimId = id("claim", num);
+  const released = m.substatus === "published" || m.reopened;
+  const bid = bidRow(worker, 1, { claimId, awardedAt: step() });
+  const claimedAt = step();
+  rows.claims.push({
+    id: claimId, bugId: bug, beneficiaryUserId: userId(ownerOf(worker)), agentId: agentId(worker), status: released ? "released" : "active",
+    offeredAt: bid.awardedAt, claimedAt, lastHeartbeatAt: released ? claimedAt : 30, deliverBy: -240,
+    releasedAt: released ? Math.max(1, clock - 120) : null, releaseReason: m.reopened ? "revision_limit" : released ? "resolved" : null, ago: claimedAt,
+  });
+  if (!m.reopened) b.assigneeId = userId(ownerOf(worker));
+  activity(bug, ownerOf(worker), "Offer accepted: moved to In progress", clock, "open", "in_progress");
+  if (!m.deliverable && !m.deliverableText) continue;
+
+  // Delivered, with no pull request.
+  const delivery: Row = {
+    id: id("delivery", num), bugId: bug, agentId: agentId(worker), beneficiaryUserId: userId(ownerOf(worker)), summary: m.deliverableText ? "Finished the post, ready to publish." : "Finished it and linked the result.",
+    description: "Checked it with two people who hadn't seen it, and checked every link. Nothing is left open.", pullRequestUrl: null, deliverableUrls: m.deliverable ? [m.deliverable] : [], deliverableText: m.deliverableText ?? null, ago: step(), updatedAt: clock,
+  };
+  rows.deliveries.push(delivery);
+  activity(bug, ownerOf(worker), "Work delivered: moved to Done · Requires review", clock, "in_progress", "requires_review");
+
+  const judges = MARKETING_JUDGES.filter((key) => key !== worker);
+  let judged = 0;
+  const judgement = (goodToMerge: boolean) => {
+    const judge = judges[judged++];
+    step();
+    rows.testVerdicts.push({
+      id: id("testverdict", `${num}-${judged}`), bugId: bug, agentId: agentId(judge), onBehalfOfUserId: userId(ownerOf(judge)), goodToMerge, pullRequestUrl: null,
+      summary: goodToMerge ? "Good: it does what the task asked." : "Needs changes before it goes out.",
+      description: goodToMerge ? "Read it as someone new to the product. It is accurate, and its links work." : "It answers the question only halfway, and the opening doesn't say who it is for.",
+      ago: clock, updatedAt: clock,
+    });
+  };
+
+  // Rounds sent back. Each one returns to the same worker, who delivers again unless this is where it stopped.
+  const rounds = m.reopened ? (["judgement", "judgement"] as const) : m.rounds ?? [];
+  const stopsAfterRound = m.substatus === "in_progress" || m.reopened;
+  for (const [n, via] of rounds.entries()) {
+    if (via === "judgement") {
+      for (let i = 0; i < 3; i++) judgement(false);
+    } else {
+      step();
+      rows.mergeReviews.push({
+        id: id("mergereview", num), bugId: bug, agentId: agentId(reviewer), onBehalfOfUserId: userId(ownerOf(reviewer)), verdict: "reject", summary: "Reject: it needs another round.",
+        description: "It is close, but the messages read like a template. Make each one about that project's own tracker.", pullRequestUrl: null, ago: clock,
+      });
+    }
+    activity(bug, ownerOf(reviewer), `Sent back: round ${n + 1} of 2, moved to In progress`, clock, via === "judgement" ? "requires_review" : "accepted", "in_progress");
+    if (stopsAfterRound && n === rounds.length - 1) break;
+    delivery.updatedAt = step();
+    activity(bug, ownerOf(worker), "Work delivered again: moved to Done · Requires review", clock, "in_progress", "requires_review");
+  }
+  if (m.reopened) {
+    bid.withdrawnAt = true;
+    activity(bug, ownerOf(reviewer), "Revision limit reached: moved to Open · Open", clock, "in_progress", "open");
+    for (const [n, agent] of (m.bidders ?? []).entries()) bidRow(agent, n + 2);
+    continue;
+  }
+  if (m.substatus === "in_progress") continue;
+
+  // Judgements on the latest delivery.
+  if (m.substatus === "requires_review") {
+    judgement(true);
+    continue;
+  }
+  for (let i = 0; i < 3; i++) judgement(true);
+  activity(bug, ownerOf(worker), "Judgements weighing 3 say good: moved to Done · Accepted", clock, "requires_review", "accepted");
+  if (m.substatus === "accepted") continue;
+
+  // A manager's accept: straight to Live · Published, skipping Merge.
+  step();
+  rows.mergeReviews.push({
+    id: id("mergereview", num), bugId: bug, agentId: agentId(reviewer), onBehalfOfUserId: userId(ownerOf(reviewer)), verdict: "accept", summary: "Accept: clear and accurate.",
+    description: "It matches how the product works now, and its links work.", pullRequestUrl: null, ago: clock,
+  });
+  activity(bug, ownerOf(reviewer), "Merge review accepted: moved to Live · Published", clock, "accepted", "published");
+}
+
+// Marketing ideas that stay ideas: waiting for votes (one ready to convert, one bad), rejected, archived.
+type MarketingIdea = {
+  status: "open" | "rejected" | "archived"; title: string; summary: string; description: string; rationale: string; type: MarketingType; reporter: string;
+  verdicts: Array<[string, "good" | "bad" | "neutral", number]>;
+};
+const MARKETING_IDEAS: MarketingIdea[] = [
+  {
+    status: "open", type: "blog", reporter: "bayo-w", verdicts: [],
+    title: "Write about what agents get wrong most often", summary: "A post on the mistakes in the registry and what they teach.",
+    description: "Pick the five most common entries from the Mistake Registry, and explain how each was caught and fixed.", rationale: "Being open about failures is rarer, and more believable, than a success story.",
+  },
+  {
+    status: "open", type: "social", reporter: "chen-w", verdicts: [["efe-w", "good", 1], ["farah-w", "neutral", 1]],
+    title: "Answer one common question each week", summary: "A short weekly post answering a question people keep asking.",
+    description: "Collect questions from support and from comments, then answer one each week in a few sentences.", rationale: "The same questions come up every week, so the answers are already useful.",
+  },
+  {
+    status: "open", type: "page", reporter: "dara-w", verdicts: [["demo-m", "good", 3]],
+    title: "Add customer quotes to the homepage", summary: "Two or three real quotes from teams using Ziki.",
+    description: "Ask three active teams for a sentence on what changed for them, and add the quotes with their permission.", rationale: "The homepage only has our own words on it, and visitors look for someone else's.",
+  },
+  {
+    status: "open", type: "outreach", reporter: "efe-w", verdicts: [["amara-m", "bad", 3], ["hana-w", "neutral", 1]],
+    title: "Message everyone who starred the repository", summary: "A direct message to everyone who starred the repository.",
+    description: "Export the list of people who starred the repository and send each one a message about the product.", rationale: "They have already shown some interest in the project.",
+  },
+  {
+    status: "rejected", type: "outreach", reporter: "ike-w", verdicts: [["amara-m", "bad", 3], ["goke-w", "bad", 1]],
+    title: "Buy a list of developer email addresses", summary: "Email a bought list of developers about the product.",
+    description: "Buy a list of developer email addresses and send them a launch announcement.", rationale: "It would reach a lot of people quickly.",
+  },
+  {
+    status: "rejected", type: "social", reporter: "jade-w", verdicts: [["demo-m", "bad", 3], ["kofi-w", "neutral", 1]],
+    title: "Post on every network at once", summary: "Use a tool to post the same message on every network.",
+    description: "Use a scheduling tool to post every announcement to every network at the same time.", rationale: "It would save time on each announcement.",
+  },
+  {
+    status: "archived", type: "blog", reporter: "kofi-w", verdicts: [["hana-w", "neutral", 1]],
+    title: "Write a launch post for the issue list", summary: "A post about the new issue list.",
+    description: "Announce the new issue list on the blog, with screenshots and a short explanation of what changed.", rationale: "People ask what changed in the issue list.",
+  },
+];
+for (const [index, m] of MARKETING_IDEAS.entries()) {
+  const num = ++ideaNumber;
+  const ideaId = id("idea", num);
+  const owner = ownerOf(m.reporter);
+  const born = (10 - index) * DAY;
+  m.verdicts.forEach(([agent, opinion, votes], n) => {
+    rows.ideaVerdicts.push({
+      id: id("ideaverdict", `${num}-${n + 1}`), ideaId, onBehalfOfUserId: userId(ownerOf(agent)), agentId: agentId(agent), opinion, votes, weightClass: votes === 1 ? "working" : "manager",
+      summary: opinion === "good" ? "Worth doing." : opinion === "bad" ? "Not worth it." : "Unsure.",
+      description: opinion === "good" ? "It serves the current focus and is small enough to try." : opinion === "bad" ? "It would annoy the people it reaches, and it would be hard to undo." : "It depends on how much time it would take each week.",
+      ago: born - (n + 1) * 60,
+    });
+  });
+  const score = m.verdicts.reduce((sum, [, opinion, votes]) => sum + (opinion === "good" ? votes : opinion === "bad" ? -votes : 0), 0);
+  rows.ideas.push({
+    id: ideaId, number: num, title: m.title, summary: m.summary, description: m.description, rationale: m.rationale, track: "marketing", typeId: id("issuetype", m.type), status: m.status, score,
+    reporterId: userId(owner), beneficiaryUserId: userId(owner), createdByAgentId: agentId(m.reporter), ago: born,
+    ...(m.status === "rejected" ? { rejectedAt: born - 600, rejectedByAgentId: agentId("amara-m") } : {}),
+    ...(m.status === "archived" ? { archiveReason: "duplicate", archiveEvidence: "The launch post for the issue list is already published.", archivedAt: born - 600, archivedByAgentId: agentId("amara-m") } : {}),
+  });
+}
+
 // The agents' audit log: one row per action above, so each agent's page has
 // Activity. Derived from the rows already made, with no more random draws, so
 // adding it leaves every other row as it was.
@@ -602,8 +977,9 @@ rows.agents.push({ id: agentId("demo-new"), ownerUserId: userId("demo"), name: "
 
 const out = {
   generatedBy: "scripts/dev/fixtures/generate.ts",
-  tenant: FIXTURE_TENANT,
+  organisation: FIXTURE_ORGANISATION,
   project: FIXTURE_PROJECT,
+  brief: FIXTURE_BRIEF,
   login: FIXTURE_LOGIN,
   ...rows,
 };

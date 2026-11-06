@@ -1,16 +1,19 @@
+import { trackFilter } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { reviewerConflict } from "@/lib/agents/independence";
+import type { WorkTrack } from "@prisma/client";
+
+export type ReviewType = "confirmation" | "test";
 
 export type ReviewableIssue = {
   id: string;
   number: number;
   title: string;
   projectId: string;
-  /** A confirmed issue with a fix to test. */
   stage: "ready";
-  reviewType: "test";
+  reviewType: ReviewType;
   pullRequestUrl?: string | null;
   createdAt: Date;
 };
@@ -22,6 +25,7 @@ export async function findReviewableIssues(
   agent: AgentContext,
   projectId: string,
   reviewType: "test" = "test",
+  track: WorkTrack = "product",
 ): Promise<ReviewableIssue[]> {
   requireLevel(agent, "working");
 
@@ -32,11 +36,12 @@ export async function findReviewableIssues(
   if (reviewType === "test") {
     const testCandidates = await prisma.bug.findMany({
       where: {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         projectId,
+        ...trackFilter(track),
         isDeleted: false,
         substatus: "requires_review",
-        pullRequestUrl: { not: null },
+        ...(track === "marketing" ? {} : { pullRequestUrl: { not: null } }),
         testVerdicts: {
           none: {
             agentId: agent.agentId,
@@ -63,7 +68,6 @@ export async function findReviewableIssues(
     });
 
     for (const bug of testCandidates) {
-
       const reviewed = {
         reporterId: bug.reporterId,
         beneficiaryUserId: bug.beneficiaryUserId,

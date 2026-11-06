@@ -33,7 +33,7 @@ const balanceQuerySchema = z
 /**
  * GET /api/v1/agents/me/points?from=&to= — the balance of the person this key
  * works for (#618), summed from the append-only PointEntry ledger inside the
- * agent's tenant. The owner's, never a stranger's: the person comes from the
+ * agent's organisation. The owner's, never a stranger's: the person comes from the
  * agent row, as on every other route here.
  *
  * `from`/`to` are optional inclusive ISO-8601 bounds on when the entry was
@@ -41,7 +41,7 @@ const balanceQuerySchema = z
  * A date-only `to` bound includes the entire UTC day through 23:59:59.999Z.
  * Non-ISO strings return 400.
  * The wallet address is deliberately not in this response: it is readable only
- * by the person and tenant admins, and an agent is neither.
+ * by the person and organisation admins, and an agent is neither.
  *
  * Rate: charged as a read. Audited as `points.balance`.
  */
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     const to = parseBound(parsed.data.to, true);
 
     const balance = await pointBalance(prisma, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       userId: agent.ownerId,
       from,
       to,
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       user_id: agent.ownerId,
-      tenant_id: agent.tenantId,
+      organisation_id: agent.organisationId,
       lifetime: balance.lifetime,
       period: balance.period,
     });

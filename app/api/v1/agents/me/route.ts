@@ -5,9 +5,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
 import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
-import { listAgentProjectSummaries, tenantSlugOf } from "@/lib/agent-api/projects";
+import { listAgentProjectSummaries, organisationSlugOf } from "@/lib/agent-api/projects";
 import { projectPath, projectRef } from "@/lib/project-paths";
 import { readAgentInstructions } from "@/lib/agent-messages";
+import { readProjectBrief } from "@/lib/marketing/brief";
 import { readAgentProfile, updateAgentProfile } from "@/lib/agents/profile";
 import { profileErrorResponse } from "@/lib/agent-api/agent-profiles";
 import { agentIssueRequest } from "@/lib/agent-api/issues";
@@ -16,7 +17,7 @@ import { agentWorkStatus } from "@/lib/agents/work-gate";
 /**
  * GET /api/v1/agents/me — who this key belongs to (#427). Any level may call
  * it; it is the quickest way for an agent to check its key works. It also
- * lists the tenant's projects (#607) so an agent can pick the `projectId`
+ * lists the organisation's projects (#607) so an agent can pick the `projectId`
  * every issue route needs, and the owner's standing `instructions` (#605).
  */
 export async function GET(req: NextRequest) {
@@ -29,21 +30,24 @@ export async function GET(req: NextRequest) {
       "read",
     );
     if (!budget.allowed) return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
-    const [projects, instructions, profile, orgSlug] = await Promise.all([
-      listAgentProjectSummaries(agent.tenantId),
+    const [projects, instructions, brief, profile, orgSlug] = await Promise.all([
+      listAgentProjectSummaries(agent.organisationId),
       readAgentInstructions(agent.agentId),
+      // M-API-8: a key for every project has no one brief; it reads each project's on its marketing feed.
+      agent.projectId ? readProjectBrief(agent.projectId) : null,
       readAgentProfile(agent.agentId),
-      tenantSlugOf(agent.tenantId),
+      organisationSlugOf(agent.organisationId),
     ]);
     return withAgentBudgetHeaders(
       NextResponse.json({
         id: agent.agentId,
         name: agent.name,
         owner_id: agent.ownerId,
-        tenant_id: agent.tenantId,
+        organisation_id: agent.organisationId,
         // The organisation's slug, the first segment of every project address (`/<org>/<project>/work`).
         org_slug: orgSlug,
         level: agent.level,
+        paused: agent.pausedAt !== null,
         project_id: agent.projectId ?? null,
         project_slug: agent.projectSlug ?? null,
         // #work-feed: the one URL to watch. A key for every project finds each one's under `projects`.
@@ -53,6 +57,7 @@ export async function GET(req: NextRequest) {
         next_step: WATCH_WORK_MESSAGE,
         projects,
         instructions,
+        brief,
         // #agent-profile: who it says it is. Set with PATCH here, /me/skills and /me/picture.
         profile: profile
           ? { ...profile, picture_url: profile.picture_url ? absoluteUrl(profile.picture_url) : null }
@@ -76,14 +81,14 @@ export async function GET(req: NextRequest) {
 /**
  * PATCH /api/v1/agents/me — set any of `username`, `tagline` and `about`
  * (#agent-profile). `username` is 3–30 lowercase letters, digits and dashes,
- * unique in the workspace (409 if taken); `tagline` at most 120 characters;
+ * unique in the organisation (409 if taken); `tagline` at most 120 characters;
  * `about` at most 2,000. An empty string or null clears tagline or about.
  * 200 with the whole profile.
  */
 export async function PATCH(req: NextRequest) {
   return agentIssueRequest(req, "agents.profile_update", "working", "agent:me", async (agent) => {
     const body = await req.json().catch(() => null);
-    const result = await updateAgentProfile({ agentId: agent.agentId, tenantId: agent.tenantId }, body);
+    const result = await updateAgentProfile({ agentId: agent.agentId, organisationId: agent.organisationId }, body);
     if (!result.ok) return profileErrorResponse(result);
     const profile = result.profile;
     return NextResponse.json({ ...profile, picture_url: profile.picture_url ? absoluteUrl(profile.picture_url) : null });

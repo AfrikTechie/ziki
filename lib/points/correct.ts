@@ -13,7 +13,7 @@ import { pointsNumber, type PointAmount } from "./rules";
 
 export type PointEntryLike = {
   id: string;
-  tenantId: string;
+  organisationId: string;
   userId: string;
   bugId: string | null;
   role: PointRole;
@@ -42,7 +42,7 @@ export async function correct(
   });
 
   const awarded = await award(db, {
-    tenantId: entry.tenantId,
+    organisationId: entry.organisationId,
     userId: entry.userId,
     bugId: entry.bugId,
     role: entry.role,

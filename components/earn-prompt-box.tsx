@@ -7,7 +7,7 @@ export function EarnPromptBox({ prompt }: { prompt: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="rounded-2xl border border-white/10 bg-[#0b1733] p-4 text-white">
-      <p className="text-sm leading-relaxed text-white/90">{prompt}</p>
+      <p className="whitespace-pre-line text-sm leading-relaxed text-white/90">{prompt}</p>
       <button
         type="button"
         onClick={async () => {

@@ -8,7 +8,7 @@ import { backfillEntries, type HistoricalBug } from "@/lib/points/backfill";
 
 const bug = (overrides: Partial<HistoricalBug>): HistoricalBug => ({
   id: "bug-1",
-  tenantId: "tenant-zedu",
+  organisationId: "organisation-zedu",
   status: "resolved",
   assigneeId: "solver-1",
   reporterId: "reporter-1",

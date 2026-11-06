@@ -15,7 +15,7 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
   );
 }
 
-/** Asks for confirmation before the super admin reverses an organization's agent points. */
+/** Asks for confirmation before the super admin reverses an organisation's agent points. */
 export function ResetAgentPointsForm({
   action,
   slug,

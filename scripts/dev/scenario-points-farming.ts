@@ -1,5 +1,5 @@
 /**
- * Local scenario: three people in the Demo workspace with point histories to
+ * Local scenario: three people in the Demo organisation with point histories to
  * try the profile's "Where the points came from" section (#points-sources)
  * against, from honest to farmed. Their ledger entries use the same sourceKey
  * formats as the real awards (lib/points/rules.ts), on real Demo issues.
@@ -18,13 +18,13 @@
  * (`scn-pf-*`) and emails (`*@scenario.local`), and a rerun deletes and
  * recreates just this scenario's people, agents, ideas and ledger entries.
  * It refuses to run against anything but a local database. Run
- * `pnpm db:fixtures` first so the Demo workspace exists. Sign in as
+ * `pnpm db:fixtures` first so the Demo organisation exists. Sign in as
  * demo@fixtures.local (an owner, so it sees everyone's breakdown); the script
  * prints the three profile addresses.
  */
 import { PrismaClient } from "@prisma/client";
 
-const TENANT_ID = "fx-tenant";
+const ORGANISATION_ID = "fx-organisation";
 const PROJECT_ID = "fx-project";
 const P = "scn-pf";
 
@@ -72,14 +72,14 @@ async function main() {
   const withinDays = (days: number) => ago(Math.floor(random() * days * DAY));
 
   try {
-    const tenant = await db.tenant.findUnique({ where: { id: TENANT_ID }, select: { id: true } });
-    if (!tenant) throw new Error("The Demo workspace isn't loaded. Run `pnpm db:fixtures` first.");
+    const organisation = await db.organisation.findUnique({ where: { id: ORGANISATION_ID }, select: { id: true } });
+    if (!organisation) throw new Error("The Demo organisation isn't loaded. Run `pnpm db:fixtures` first.");
     const bugs = await db.bug.findMany({
-      where: { tenantId: TENANT_ID, isDeleted: false },
+      where: { organisationId: ORGANISATION_ID, isDeleted: false },
       orderBy: { number: "asc" },
       select: { id: true },
     });
-    if (bugs.length < 50) throw new Error("The Demo workspace has too few issues; run `pnpm db:fixtures`.");
+    if (bugs.length < 50) throw new Error("The Demo organisation has too few issues; run `pnpm db:fixtures`.");
     const bugAt = (index: number) => bugs[index % bugs.length].id;
 
     // A rerun replaces only this scenario's rows.
@@ -93,11 +93,11 @@ async function main() {
     const person = async (key: string, name: string, agents: string[]) => {
       const id = `${P}-user-${key}`;
       await db.user.create({ data: { id, name, email: `${key}@scenario.local` } });
-      await db.membership.create({ data: { tenantId: TENANT_ID, userId: id, role: "member" } });
+      await db.membership.create({ data: { organisationId: ORGANISATION_ID, userId: id, role: "member" } });
       const agentIds: string[] = [];
       for (const [index, agentName] of agents.entries()) {
         const agentId = `${P}-agent-${key}-${index}`;
-        await db.agent.create({ data: { id: agentId, tenantId: TENANT_ID, ownerUserId: id, name: agentName, level: "working" } });
+        await db.agent.create({ data: { id: agentId, organisationId: ORGANISATION_ID, ownerUserId: id, name: agentName, level: "working" } });
         agentIds.push(agentId);
       }
       return { id, agentIds };
@@ -122,7 +122,7 @@ async function main() {
       const id = `${P}-idea-felix-${i}`;
       await db.idea.create({
         data: {
-          id, tenantId: TENANT_ID, projectId: PROJECT_ID, reporterId: felix.id, beneficiaryUserId: felix.id,
+          id, organisationId: ORGANISATION_ID, projectId: PROJECT_ID, reporterId: felix.id, beneficiaryUserId: felix.id,
           title: `Felix's idea ${i + 1}: make the dashboard pop`, description: "Make it better. More colour, more everything.",
           createdAt: ago((10 - i) * DAY),
         },
@@ -175,7 +175,7 @@ async function main() {
     await db.pointEntry.createMany({
       data: entries.map((entry, index) => ({
         id: entry.id ?? `${P}-pe-${index}`,
-        tenantId: TENANT_ID,
+        organisationId: ORGANISATION_ID,
         userId: entry.userId,
         agentId: entry.agentId,
         role: entry.role,
@@ -190,7 +190,7 @@ async function main() {
     });
 
     const base = process.env.SCENARIO_BASE_URL ?? "http://localhost:3001";
-    console.log(`Wrote ${entries.length} ledger entries for three people in the Demo workspace.`);
+    console.log(`Wrote ${entries.length} ledger entries for three people in the Demo organisation.`);
     console.log("Sign in as demo@fixtures.local and open:");
     console.log(`  Nadia Normal (honest):  ${base}/users/${nadia.id}`);
     console.log(`  Felix Farmer (farmed):  ${base}/users/${felix.id}`);

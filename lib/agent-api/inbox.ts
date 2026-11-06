@@ -16,7 +16,7 @@ import {
 /**
  * Agent inbox (#601).
  *
- * `/api/v1/events` is the whole tenant's feed. The inbox is only what is
+ * `/api/v1/events` is the whole organisation's feed. The inbox is only what is
  * addressed to one agent: an offer to it, a reply to its comment, a mention
  * of it or its owner, an answer to its question, a person's decision on what it
  * proposed, or a release of its claim. `publish()` writes the rows in the
@@ -33,7 +33,7 @@ export type InboxDelivery = { agentId: string; kind: InboxKind; commentId?: stri
 
 export type InboxEvent = {
   id: string;
-  tenantId: string;
+  organisationId: string;
   type: string;
   payload: Prisma.InputJsonObject;
   actorAgentId?: string | null;
@@ -56,17 +56,17 @@ async function claimAgentId(db: Db, claimId: unknown): Promise<string | null> {
 }
 
 /**
- * Agents @mentioned by name (#603), then the tenant's live agents whose owner
- * was @mentioned, except the author. `writeInbox` drops out-of-tenant ids.
+ * Agents @mentioned by name (#603), then the organisation's live agents whose owner
+ * was @mentioned, except the author. `writeInbox` drops out-of-organisation ids.
  */
 async function mentionDeliveries(
-  db: Db, tenantId: string, body: string, authorAgentId: string | null, commentId: string | null,
+  db: Db, organisationId: string, body: string, authorAgentId: string | null, commentId: string | null,
 ): Promise<InboxDelivery[]> {
   const direct = extractMentionedAgentIds(body).map((id) => ({ id }));
   const userIds = extractMentionedUserIds(body);
   const owned = userIds.length
     ? await db.agent.findMany({
-        where: { tenantId, revokedAt: null, ownerUserId: { in: userIds } },
+        where: { organisationId, revokedAt: null, ownerUserId: { in: userIds } },
         select: { id: true },
       })
     : [];
@@ -77,7 +77,7 @@ async function mentionDeliveries(
 
 /**
  * Which agents an event is addressed to, and as what. Pure routing: the
- * caller drops revoked or out-of-tenant agents and duplicates.
+ * caller drops revoked or out-of-organisation agents and duplicates.
  */
 export async function inboxRecipients(db: Db, event: InboxEvent): Promise<InboxDelivery[]> {
   const payload = event.payload as Record<string, unknown>;
@@ -150,13 +150,13 @@ export async function inboxRecipients(db: Db, event: InboxEvent): Promise<InboxD
       const reply: InboxDelivery[] = parentAgentId && parentAgentId !== comment.agentId
         ? [{ agentId: parentAgentId, kind: "reply", commentId }]
         : [];
-      return [...reply, ...await mentionDeliveries(db, event.tenantId, comment.body, comment.agentId, commentId)];
+      return [...reply, ...await mentionDeliveries(db, event.organisationId, comment.body, comment.agentId, commentId)];
     }
     case "idea.created": {
       const ideaId = text(payload.ideaId);
       if (!ideaId) return [];
       const idea = await db.idea.findUnique({ where: { id: ideaId }, select: { description: true } });
-      return idea ? mentionDeliveries(db, event.tenantId, idea.description, event.actorAgentId ?? null, null) : [];
+      return idea ? mentionDeliveries(db, event.organisationId, idea.description, event.actorAgentId ?? null, null) : [];
     }
     default: {
       if (!REDESIGN_DECISIONS.has(event.type)) return [];
@@ -184,7 +184,7 @@ export async function writeInbox(db: Db, event: InboxEvent): Promise<number> {
   });
   if (!deliveries.length) return 0;
   const live = await db.agent.findMany({
-    where: { id: { in: [...seen] }, tenantId: event.tenantId, revokedAt: null },
+    where: { id: { in: [...seen] }, organisationId: event.organisationId, revokedAt: null },
     select: { id: true },
   });
   const allowed = new Set(live.map((agent) => agent.id));
@@ -263,7 +263,7 @@ export async function inboxIssuePaths(items: readonly InboxItemRow[]): Promise<M
   if (ids.length === 0) return new Map();
   const bugs = await prisma.bug.findMany({
     where: { id: { in: ids } },
-    select: { id: true, number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+    select: { id: true, number: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
   });
   return new Map(bugs.map((bug) => [bug.id, issueHref(bug)]));
 }
@@ -315,7 +315,7 @@ export async function markInboxRead(
   const readAt = new Date();
   if ("ids" in input) {
     const { count } = await prisma.agentInboxItem.updateMany({
-      where: { agentId: agent.agentId, id: { in: input.ids }, readAt: null },
+      where: { agentId: agent.agentId, id: { in: input.ids }, readAt: null, NOT: { eventType: "agent.steer" } },
       data: { readAt },
     });
     if (count) await markMessagesRead(agent.agentId, readAt);
@@ -330,6 +330,7 @@ export async function markInboxRead(
     where: {
       agentId: agent.agentId,
       readAt: null,
+      NOT: { eventType: "agent.steer" },
       OR: [{ createdAt: { lt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { lte: anchor.id } }],
     },
     data: { readAt },

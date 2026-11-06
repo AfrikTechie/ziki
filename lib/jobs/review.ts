@@ -33,7 +33,7 @@ const OFFER_STATUSES = ["offered", "accepted", "completed"] as const;
 
 export type JobForReview = {
   id: string;
-  tenantId: string;
+  organisationId: string;
   projectId: string;
   /** $ per accepted row; the database's Decimal or a number. */
   pointsPerAccepted: number | { toNumber(): number };
@@ -56,16 +56,16 @@ type Candidate = ReviewOfferCandidate & { agentId: string };
  */
 async function findEligibleReviewers(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   submission: SubmissionForReview,
   excludeUserIds: Set<string>,
 ): Promise<Candidate[]> {
   const memberships = await db.membership.findMany({
     where: {
-      tenantId,
+      organisationId,
       user: {
         agents: {
-          some: { tenantId, revokedAt: null },
+          some: { organisationId, revokedAt: null },
         },
       },
     },
@@ -74,7 +74,7 @@ async function findEligibleReviewers(
       user: {
         select: {
           agents: {
-            where: { tenantId, revokedAt: null },
+            where: { organisationId, revokedAt: null },
             orderBy: { createdAt: "asc" },
             take: 1,
             select: { id: true },
@@ -120,7 +120,7 @@ async function findEligibleReviewers(
  */
 export async function createJobReviewOffers(
   db: Db,
-  caller: { agentId?: string; tenantId: string },
+  caller: { agentId?: string; organisationId: string },
   job: JobForReview,
   submission: SubmissionForReview,
 ): Promise<number> {
@@ -132,13 +132,13 @@ export async function createJobReviewOffers(
 
 async function createJobReviewOffersForCandidates(
   db: Db,
-  caller: { agentId?: string; tenantId: string },
+  caller: { agentId?: string; organisationId: string },
   job: JobForReview,
   submission: SubmissionForReview,
   excludedUserIds: Set<string>,
   limit = DEFAULT_REVIEW_VERDICTS_NEEDED,
 ): Promise<number> {
-  const candidates = await findEligibleReviewers(db, job.tenantId, submission, excludedUserIds);
+  const candidates = await findEligibleReviewers(db, job.organisationId, submission, excludedUserIds);
 
   if (!candidates.length) {
     return 0;
@@ -160,7 +160,7 @@ async function createJobReviewOffersForCandidates(
 
     const expiresAt = new Date(now.getTime() + REVIEW_OFFER_TTL_MS).toISOString();
     await publish(db, {
-      tenantId: job.tenantId,
+      organisationId: job.organisationId,
       type: "job.review.requested",
       actorAgentId: caller.agentId ?? null,
       payload: {
@@ -199,7 +199,7 @@ export async function ensureJobReviewOffers(submissionId: string): Promise<numbe
         beneficiaryUserId: true,
         reviewsNeeded: true,
         status: true,
-        job: { select: { id: true, tenantId: true, projectId: true, pointsPerAccepted: true } },
+        job: { select: { id: true, organisationId: true, projectId: true, pointsPerAccepted: true } },
       },
     });
     if (!submission || submission.status !== "pending") return 0;
@@ -233,7 +233,7 @@ export async function ensureJobReviewOffers(submissionId: string): Promise<numbe
 
     return createJobReviewOffersForCandidates(
       tx,
-      { tenantId: submission.job.tenantId },
+      { organisationId: submission.job.organisationId },
       submission.job,
       submission,
       excludedUserIds,
@@ -315,9 +315,9 @@ export async function acceptJobReviewOffer(agent: AgentContext, offerId: string)
   const result = await prisma.$transaction(async (tx) => {
     const offer = await tx.jobReviewOffer.findUnique({
       where: { id: offerId },
-      include: { submission: { select: { id: true, job: { select: { tenantId: true } } } } },
+      include: { submission: { select: { id: true, job: { select: { organisationId: true } } } } },
     });
-    if (!offer || offer.submission.job.tenantId !== agent.tenantId) {
+    if (!offer || offer.submission.job.organisationId !== agent.organisationId) {
       throw new IssueApiError(404, "Review offer not found.");
     }
     if (offer.agentId !== agent.agentId) {
@@ -393,9 +393,9 @@ export async function reviewJobSubmission(
 
     const submission = await tx.jobSubmission.findUnique({
       where: { id: submissionId },
-      include: { job: { select: { id: true, tenantId: true, projectId: true, pointsPerAccepted: true } } },
+      include: { job: { select: { id: true, organisationId: true, projectId: true, pointsPerAccepted: true } } },
     });
-    if (!submission || submission.job.tenantId !== agent.tenantId) {
+    if (!submission || submission.job.organisationId !== agent.organisationId) {
       throw new IssueApiError(404, "Submission not found.");
     }
     if (submission.beneficiaryUserId === agent.ownerId) {
@@ -459,7 +459,7 @@ export async function reviewJobSubmission(
       if (distinctOwners.size >= submission.reviewsNeeded) {
         status = "accepted";
         const written = await award(tx, {
-          tenantId: submission.job.tenantId,
+          organisationId: submission.job.organisationId,
           userId: submission.beneficiaryUserId,
           bugId: null,
           role: "submission",
@@ -477,7 +477,7 @@ export async function reviewJobSubmission(
 
     await audit(agent, "job.submission.reviewed", review.id, { submissionId, status }, { db: tx });
     await publish(tx, {
-      tenantId: submission.job.tenantId,
+      organisationId: submission.job.organisationId,
       type: "job.submission.reviewed",
       actorAgentId: agent.agentId,
       payload: {

@@ -39,13 +39,15 @@ export function isPublicPath(
     pathWithoutBase === "/for-agents" ||
     pathWithoutBase === "/developers" ||
     pathWithoutBase === "/earn" ||
+    // A business's own link from an earner's email (#earn-outreach): opened by people who aren't signed in.
+    /^\/r\/[a-z0-9]{4,16}$/.test(pathWithoutBase) ||
     isAuthPage ||
     isPasswordResetPage ||
     isPublicAgentPath(pathWithoutBase) ||
     isIssuePreview ||
     pathWithoutBase === "/" ||
     pathWithoutBase.startsWith("/session-expired") ||
-    // Shareable invite links (#444). Guests must see the organization and
+    // Shareable invite links (#444). Guests must see the organisation and
     // sign in with Google before the link is used; the page itself never
     // spends a use.
     pathWithoutBase === "/join" ||
@@ -55,6 +57,9 @@ export function isPublicPath(
     // The scheduler calls the platform sweeps with Bearer CRON_SECRET and no
     // session (#571); the route rejects a wrong or missing secret itself.
     pathWithoutBase === "/api/internal/cron" ||
+    // GitHub's webhooks (#github-status) carry no session; the route checks
+    // their signature against GITHUB_WEBHOOK_SECRET itself.
+    pathWithoutBase === "/api/github/webhook" ||
     // The agent API (#427) authenticates every call with an agent key, not a
     // session; each route rejects a request without one.
     pathWithoutBase.startsWith("/api/v1/") ||

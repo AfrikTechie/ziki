@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 "use client";
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { unstable_rethrow } from "next/navigation";
@@ -11,6 +11,14 @@ import { CreateBugForm } from "@/components/create-issue-form";
 vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
   unstable_rethrow: vi.fn(),
+  useRouter: () => ({ back: vi.fn() }),
+}));
+
+const issueTypes = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn(), upsert: vi.fn() }));
+vi.mock("@/lib/prisma", () => ({ prisma: { issueType: issueTypes } }));
+vi.mock("next/cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/cache")>()),
+  unstable_cache: <T,>(read: T) => read,
 }));
 
 vi.mock("@/app/actions/issues", () => ({
@@ -273,4 +281,58 @@ describe("CreateBugForm quick report in a modal (#report-modal)", () => {
     );
   });
 
+});
+
+describe("marketing task types and the report form", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("offers only product types", async () => {
+    issueTypes.findMany.mockResolvedValue([{ id: "fix", name: "Fix", isActive: true }]);
+    const { getIssueTypes } = await import("@/lib/lookups");
+    await getIssueTypes("t1");
+    expect(issueTypes.findMany.mock.calls[0][0].where).toEqual({ organisationId: "t1", track: "product" });
+  }, 15000);
+
+  it("still sets up the product types in an organisation that only has marketing types", async () => {
+    issueTypes.count.mockImplementation(async ({ where }: { where: { track?: string } }) => (where.track === "product" ? 0 : 4));
+    const { ensureDefaultIssueTypes } = await import("@/lib/issue-types");
+    await ensureDefaultIssueTypes("t1");
+    expect(issueTypes.upsert).toHaveBeenCalled();
+  });
+
+  it("files a marketing idea in this project with the chosen type and rationale, and asks for no points (D5)", async () => {
+    const { NewMarketingTaskForm } = await import("@/components/marketing/tasks/new-marketing-task-form");
+    mockedCreateBug.mockResolvedValue({ ok: true });
+    render(<NewMarketingTaskForm projectId="project-1" types={[{ id: "blog", name: "Blog post" }]} />);
+
+    expect(screen.queryByLabelText(/points/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Write a launch post" } });
+    fireEvent.change(screen.getByLabelText("Rationale"), { target: { value: "People keep asking what changed." } });
+    fireEvent.submit(screen.getByRole("button", { name: "Propose task" }).closest("form")!);
+
+    await waitFor(() => expect(mockedCreateBug).toHaveBeenCalledTimes(1));
+    const sent = mockedCreateBug.mock.calls[0]![0];
+    expect(Object.fromEntries(sent.entries())).toMatchObject({
+      track: "marketing",
+      projectId: "project-1",
+      typeId: "blog",
+      title: "Write a launch post",
+      rationale: "People keep asking what changed.",
+    });
+  }, 15000);
+
+  it("shows why a marketing proposal was refused", async () => {
+    const { NewMarketingTaskForm } = await import("@/components/marketing/tasks/new-marketing-task-form");
+    mockedCreateBug.mockResolvedValue({ error: "Say why this is worth doing.", field: "rationale" });
+    render(<NewMarketingTaskForm projectId="project-1" types={[{ id: "blog", name: "Blog post" }]} />);
+
+    fireEvent.submit(screen.getByRole("button", { name: "Propose task" }).closest("form")!);
+    expect((await screen.findByRole("alert")).textContent).toBe("Say why this is worth doing.");
+  }, 15000);
+
+  it("can't be submitted when the organisation has no marketing types", async () => {
+    const { NewMarketingTaskForm } = await import("@/components/marketing/tasks/new-marketing-task-form");
+    render(<NewMarketingTaskForm projectId="project-1" types={[]} />);
+    expect((screen.getByRole("button", { name: "Propose task" }) as HTMLButtonElement).disabled).toBe(true);
+  }, 15000);
 });

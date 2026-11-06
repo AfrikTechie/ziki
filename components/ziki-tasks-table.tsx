@@ -1,14 +1,13 @@
 import Link from "next/link";
-import { SIGNUP_BONUS, stageTasks, zikiTaskPath, type EarnStage } from "@/lib/earn/draft";
+import { SIGNUP_BONUS, stageTasks, zikiTaskPath, type EarnStage, type EarnTaskId } from "@/lib/earn/draft";
 
 /**
  * The Ziki tasks list (#earn-drafts, Mark's review): in the main list's own
- * table style (Reward, Task, Status), one task at a time. The next one has
- * Start; later ones say "After task N"; each row opens the task's own page.
+ * table style (Reward, Task, Status). All four tasks are open at once: each one that
+ * isn't paid has Start, and each row opens the task's own page.
  */
-export function ZikiTasksTable({ stage, started = null }: { stage: EarnStage; started?: number | null }) {
-  const tasks = stageTasks(stage);
-  const nextIndex = tasks.findIndex((task) => !task.done);
+export function ZikiTasksTable({ stage, done }: { stage: EarnStage; /** The tasks that are paid, from the person's own confirmed tasks. */ done?: readonly EarnTaskId[] }) {
+  const tasks = stageTasks(stage, done);
   return (
     <section aria-labelledby="ziki-tasks-heading" className="overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
       <h2 id="ziki-tasks-heading" className="sr-only">Ziki tasks</h2>
@@ -33,7 +32,6 @@ export function ZikiTasksTable({ stage, started = null }: { stage: EarnStage; st
           </li>
         ) : null}
         {tasks.map((task, i) => {
-          const next = i === nextIndex;
           return (
             <li key={task.id} className="relative grid grid-cols-[4.5rem_minmax(0,1fr)_8rem] items-center gap-4 px-4 py-4 hover:bg-zk-chip/50 sm:px-6">
               <span className={`text-center font-mono text-base font-bold tabular-nums ${task.done ? "text-zk-muted" : "text-zk-ok-fg"}`}>${task.pay}</span>
@@ -50,16 +48,10 @@ export function ZikiTasksTable({ stage, started = null }: { stage: EarnStage; st
               <span className="relative z-10 flex justify-end">
                 {task.done ? (
                   <span className="inline-flex items-center rounded-full bg-zk-ok-bg px-3 py-1.5 text-xs font-bold text-zk-ok-fg">Paid</span>
-                ) : next && started === i + 1 ? (
-                  <Link href={zikiTaskPath(i + 1)} aria-label={`In progress: ${task.title}`} className="inline-flex items-center rounded-full bg-zk-tint px-3 py-1.5 text-xs font-bold text-zk-accent hover:underline">
-                    In progress
-                  </Link>
-                ) : next ? (
+                ) : (
                   <Link href={zikiTaskPath(i + 1)} aria-label={`Start: ${task.title}`} className="inline-flex min-h-10 items-center rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white hover:bg-[#2552af] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2">
                     Start
                   </Link>
-                ) : (
-                  <span className="inline-flex items-center rounded-full bg-zk-chip px-2.5 py-1 text-xs font-bold text-zk-muted">After task {i}</span>
                 )}
               </span>
             </li>

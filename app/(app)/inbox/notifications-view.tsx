@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor, notificationInTenant } from "@/lib/tenant-context";
+import { currentOrganisationIdFor, notificationInOrganisation } from "@/lib/organisation-context";
 import { requireUser } from "@/lib/auth-helpers";
 import { LocalTime } from "@/components/local-time";
 import { MarkAllReadButton } from "@/components/mark-all-read-button";
 import { PaginationControls } from "@/components/pagination-controls";
 import { calculatePagination } from "@/lib/pagination";
 import { BASE_PATH } from "@/lib/base-path";
+import type { WorkTrack } from "@prisma/client";
+import { notificationTrackWhere } from "@/lib/my-work-filter";
 
 const PAGE_SIZE = 50;
 
@@ -14,24 +16,27 @@ const PAGE_SIZE = 50;
 export async function NotificationsView({
   searchParams,
 }: {
-  searchParams?: Promise<{ scope?: string | string[]; page?: string | string[] }>;
+  searchParams?: Promise<{ scope?: string | string[]; page?: string | string[]; track?: WorkTrack | "all" }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
-  const allWorkspaces = params?.scope === "all";
-  const tenantId = await currentTenantIdFor(user.id);
-  const scope = notificationInTenant(tenantId, allWorkspaces);
-  const totalCount = await prisma.notification.count({ where: { userId: user.id, ...scope } });
+  const allOrganisations = params?.scope === "all";
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const scope = notificationInOrganisation(organisationId, allOrganisations);
+  const track = params?.track ?? "all";
+  const trackQuery = track === "all" ? "" : `track=${track}`;
+  const listed = { userId: user.id, ...scope, ...notificationTrackWhere(track) };
+  const totalCount = await prisma.notification.count({ where: listed });
   const pagination = calculatePagination({ page: params?.page, pageSize: PAGE_SIZE, totalCount });
-  const [notifications, unread, workspaceCount] = await Promise.all([
+  const [notifications, unread, organisationCount] = await Promise.all([
     prisma.notification.findMany({
-      where: { userId: user.id, ...scope },
+      where: listed,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: pagination.skip,
       take: pagination.take,
-      select: { id: true, title: true, tenant: { select: { name: true } }, readAt: true, createdAt: true },
+      select: { id: true, title: true, organisation: { select: { name: true } }, readAt: true, createdAt: true },
     }),
-    prisma.notification.count({ where: { userId: user.id, readAt: null, ...scope } }),
+    prisma.notification.count({ where: { ...listed, readAt: null } }),
     prisma.membership.count({ where: { userId: user.id } }),
   ]);
 
@@ -51,31 +56,33 @@ export async function NotificationsView({
             {unread === 0 ? "You're all caught up." : `${unread} unread`}
           </p>
         </div>
-        {unread > 0 ? <MarkAllReadButton allWorkspaces={allWorkspaces} /> : null}
+        {unread > 0 ? <MarkAllReadButton allOrganisations={allOrganisations} track={track} /> : null}
       </div>
 
-      {workspaceCount > 1 ? (
-        <nav className="flex gap-1.5" aria-label="Notification workspaces">
+      {organisationCount > 1 ? (
+        <nav className="flex gap-1.5" aria-label="Notification organisations">
           <Link
-            href="/inbox"
-            aria-current={!allWorkspaces ? "page" : undefined}
-            className={scopePill(!allWorkspaces)}
+            href={trackQuery ? `/inbox?${trackQuery}` : "/inbox"}
+            aria-current={!allOrganisations ? "page" : undefined}
+            className={scopePill(!allOrganisations)}
           >
-            This workspace
+            This organisation
           </Link>
           <Link
-            href="/inbox?scope=all"
-            aria-current={allWorkspaces ? "page" : undefined}
-            className={scopePill(allWorkspaces)}
+            href={`/inbox?scope=all${trackQuery ? `&${trackQuery}` : ""}`}
+            aria-current={allOrganisations ? "page" : undefined}
+            className={scopePill(allOrganisations)}
           >
-            All workspaces
+            All organisations
           </Link>
         </nav>
       ) : null}
 
       {notifications.length === 0 ? (
         <div className="rounded-[20px] border border-dashed border-zk-border bg-zk-surface p-6 text-sm text-zk-muted">
-          <p className="font-semibold text-zk-text">No notifications yet</p>
+          <p className="font-semibold text-zk-text">
+            {track === "all" ? "No notifications yet" : `No ${track} notifications`}
+          </p>
           <p className="mt-1">
             New comments, mentions, assignments and status changes on issues
             you&apos;re watching will show up here.
@@ -109,8 +116,8 @@ export async function NotificationsView({
                     <span className="mt-0.5 block text-xs text-zk-muted">
                       <LocalTime date={n.createdAt} />
                     </span>
-                    {workspaceCount > 1 && n.tenant ? (
-                      <span className="mt-1 block text-xs text-zk-muted">{n.tenant.name}</span>
+                    {organisationCount > 1 && n.organisation ? (
+                      <span className="mt-1 block text-xs text-zk-muted">{n.organisation.name}</span>
                     ) : null}
                   </span>
                 </a>
@@ -126,7 +133,7 @@ export async function NotificationsView({
           totalCount={pagination.totalCount}
           from={pagination.from}
           to={pagination.to}
-          queryParams={{ scope: allWorkspaces ? "all" : undefined }}
+          queryParams={{ scope: allOrganisations ? "all" : undefined, track: track === "all" ? undefined : track }}
           basePath="/inbox"
           itemLabel="notification"
         />

@@ -9,15 +9,15 @@ import { loadOrg } from "./org-context";
 import { OrgPageHeader, oneParam } from "./org-ui";
 
 /* Static on purpose: a title built from the name could leak into shared history. */
-export const metadata: Metadata = { title: "Organization" };
+export const metadata: Metadata = { title: "Organisation" };
 
-/** People, projects and agents in one organization, counted in the database. */
-async function orgCounts(tenantId: string) {
+/** People, projects and agents in one organisation, counted in the database. */
+async function orgCounts(organisationId: string) {
   try {
     const [members, projects, agents] = await Promise.all([
-      prisma.membership.count({ where: { tenantId } }),
-      prisma.project.count({ where: { tenantId, archivedAt: null } }),
-      prisma.agent.count({ where: { tenantId, revokedAt: null } }),
+      prisma.membership.count({ where: { organisationId } }),
+      prisma.project.count({ where: { organisationId, archivedAt: null } }),
+      prisma.agent.count({ where: { organisationId, revokedAt: null } }),
     ]);
     return { members, projects, agents };
   } catch (error) {
@@ -27,8 +27,8 @@ async function orgCounts(tenantId: string) {
 }
 
 /**
- * The organization's overview: who and what is in it, and how its issues
- * moved over a date range. Every figure is this organization's only.
+ * The organisation's overview: who and what is in it, and how its issues
+ * moved over a date range. Every figure is this organisation's only.
  */
 export default async function OrgOverviewPage({
   params: routeParams,

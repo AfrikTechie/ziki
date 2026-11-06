@@ -24,14 +24,14 @@ export async function bulkCloseAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const slug = String(formData.get("slug") ?? "");
   const projectId = String(formData.get("projectId") ?? "");
-  const project = await prisma.project.findFirst({ where: { id: projectId, slug }, select: { id: true, tenantId: true, slug: true, tenant: { select: { slug: true } } } });
+  const project = await prisma.project.findFirst({ where: { id: projectId, slug }, select: { id: true, organisationId: true, slug: true, organisation: { select: { slug: true } } } });
   if (!project) redirect("/home");
   const back = projectPath(refOf(project), "/issues/bulk-close");
-  const agent = await awardingAgentOf(user.id, project.tenantId);
+  const agent = await awardingAgentOf(user.id, project.organisationId);
   if (!agent || (agent.level !== "manager" && agent.level !== "merger")) {
     redirect(`${back}?error=${encodeURIComponent("Only a person with a manager agent can close issues.")}`);
   }
-  const context = { agentId: agent.id, name: agent.name, ownerId: agent.ownerUserId, tenantId: agent.tenantId, level: agent.level, burst: false, keyId: "web" };
+  const context = { agentId: agent.id, name: agent.name, ownerId: agent.ownerUserId, organisationId: agent.organisationId, level: agent.level, burst: false, keyId: "web" };
   const { closeThreshold } = await workflowFor(project.id);
 
   const picked = formData.getAll("issue").map(String).filter(Boolean);

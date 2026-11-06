@@ -6,7 +6,7 @@ import { LocalTime } from "@/components/local-time";
 import { truncateCommentBody, type CommentNode } from "@/lib/comments";
 import { canDeleteComment } from "@/lib/comment-permissions";
 import type { AppRole } from "@/lib/roles";
-import type { OrganizationRole } from "@/lib/organization-role";
+import type { OrganisationRole } from "@/lib/organisation-role";
 import { deleteCommentAction, upvoteCommentAction } from "@/app/actions/comments";
 import { CommentBody } from "@/components/comment-body";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
@@ -17,12 +17,12 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 
 type AttachmentsByComment = Record<string, AttachmentView[]>;
-/** Each author's role in the issue's organization, by user id (#489). */
-type OrganizationRoles = Record<string, OrganizationRole>;
+/** Each author's role in the issue's organisation, by user id (#489). */
+type OrganisationRoles = Record<string, OrganisationRole>;
 type ViewerProps = {
   currentUserId?: string;
   currentUserRole?: AppRole | null;
-  tenantAdmin?: boolean;
+  organisationAdmin?: boolean;
   /** A deleted issue: not even its author's own delete. */
   readOnly?: boolean;
   /** Set while the issue takes comments (not deleted): top-level comments take replies. */
@@ -182,9 +182,9 @@ function CommentItem({
   users,
   currentUserId,
   currentUserRole,
-  tenantAdmin = false,
+  organisationAdmin = false,
   attachmentsByComment = {},
-  organizationRoles = {},
+  organisationRoles = {},
   readOnly = false,
   replyBugId,
   markedImportantBy = [],
@@ -193,14 +193,14 @@ function CommentItem({
   reporterId: string;
   users: UserOption[];
   attachmentsByComment?: AttachmentsByComment;
-  organizationRoles?: OrganizationRoles;
+  organisationRoles?: OrganisationRoles;
 } & ViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
   const toast = useToast();
   const isDeleted = Boolean(comment.deletedAt);
-  const canDelete = !readOnly && canDeleteComment(currentUserId, currentUserRole, comment, tenantAdmin);
+  const canDelete = !readOnly && canDeleteComment(currentUserId, currentUserRole, comment, organisationAdmin);
 
   const handleDelete = async () => {
     const own = comment.authorId === currentUserId;
@@ -278,7 +278,7 @@ function CommentItem({
             <UserNameWithBadges
               name={comment.author.name}
               role={comment.author.role}
-              organizationRole={organizationRoles[comment.authorId]}
+              organisationRole={organisationRoles[comment.authorId]}
               userId={comment.authorId}
               showAuthor={comment.authorId === reporterId}
               agentName={comment.agent?.name}
@@ -369,9 +369,9 @@ function CommentItem({
                     users={users}
                     currentUserId={currentUserId}
                     currentUserRole={currentUserRole}
-                    tenantAdmin={tenantAdmin}
+                    organisationAdmin={organisationAdmin}
                     attachmentsByComment={attachmentsByComment}
-                    organizationRoles={organizationRoles}
+                    organisationRoles={organisationRoles}
                     readOnly={readOnly}
                     replyBugId={replyBugId}
                     markedImportantBy={markedImportantBy}
@@ -398,7 +398,7 @@ type ThreadProps = {
   users: UserOption[];
   /** Files attached to each comment, by comment id (#215). */
   attachmentsByComment?: AttachmentsByComment;
-  organizationRoles?: OrganizationRoles;
+  organisationRoles?: OrganisationRoles;
 } & ViewerProps;
 
 /**

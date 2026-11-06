@@ -1,8 +1,8 @@
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { getActiveIssueTypesCached } from "@/lib/lookups";
-import { tenantMemberWhere } from "@/lib/tenant-mentions";
+import { organisationMemberWhere } from "@/lib/organisation-mentions";
 import { requireProject } from "@/lib/project-route";
 
 /**
@@ -21,10 +21,10 @@ async function loadOrEmpty<T>(label: string, load: () => Promise<T>, empty: T): 
   }
 }
 
-async function loadMentionUsers(tenantId: string | null): Promise<MentionUser[]> {
-  // #502: only members of the tenant the issue goes into can be mentioned.
-  if (!tenantId) return [];
-  const where = tenantMemberWhere(tenantId);
+async function loadMentionUsers(organisationId: string | null): Promise<MentionUser[]> {
+  // #502: only members of the organisation the issue goes into can be mentioned.
+  if (!organisationId) return [];
+  const where = organisationMemberWhere(organisationId);
   try {
     return await prisma.user.findMany({
       where,
@@ -47,11 +47,11 @@ async function loadMentionUsers(tenantId: string | null): Promise<MentionUser[]>
   }
 }
 
-async function loadAssigneeUsers(tenantId: string | null): Promise<MentionUser[]> {
-  if (!tenantId) return [];
+async function loadAssigneeUsers(organisationId: string | null): Promise<MentionUser[]> {
+  if (!organisationId) return [];
   return loadOrEmpty("assignees", () =>
     prisma.user.findMany({
-      where: { memberships: { some: { tenantId } } },
+      where: { memberships: { some: { organisationId } } },
       select: { id: true, name: true, role: true, image: true },
       orderBy: { name: "asc" },
     }),
@@ -60,12 +60,12 @@ async function loadAssigneeUsers(tenantId: string | null): Promise<MentionUser[]
 
 /** The report form's data for the project in the URL (#project-urls): the slug picks it and checks access. */
 export async function loadReportFormData(org: string, slug: string) {
-  const { user, tenantId, project } = await requireProject(org, slug);
-  const admin = (await currentTenantAccess(user.id, user.role)).admin;
+  const { user, organisationId, project } = await requireProject(org, slug);
+  const admin = (await currentOrganisationAccess(user.id, user.role)).admin;
   const [users, assigneeUsers, types] = await Promise.all([
-    loadMentionUsers(tenantId),
-    loadAssigneeUsers(tenantId),
-    loadOrEmpty("issue types", () => getActiveIssueTypesCached(tenantId), []),
+    loadMentionUsers(organisationId),
+    loadAssigneeUsers(organisationId),
+    loadOrEmpty("issue types", () => getActiveIssueTypesCached(organisationId), []),
   ]);
   return { user, admin, users, assigneeUsers, types, projectId: project.id, projectSlug: project.ref };
 }

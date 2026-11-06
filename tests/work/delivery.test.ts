@@ -1,3 +1,5 @@
+import { marketingDeliveryBodySchema } from "@/lib/validations/marketing";
+import { trackRules } from "@/lib/marketing/track";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "@/lib/agents/require-agent";
 
@@ -10,6 +12,7 @@ const db = vi.hoisted(() => {
     bug: { update: vi.fn() },
     testVerdict: { updateMany: vi.fn() },
     bugActivity: { create: vi.fn() },
+    attachment: { updateMany: vi.fn() },
   };
   return {
     tx,
@@ -20,6 +23,7 @@ const db = vi.hoisted(() => {
       agentAuditEvent: { findFirst: vi.fn() },
       pullRequestReport: { findFirst: vi.fn() },
       delivery: { findMany: vi.fn() },
+      attachment: { count: vi.fn() },
       $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
     },
   };
@@ -45,7 +49,7 @@ const agent = (level: AgentContext["level"], ownerId = "dana"): AgentContext => 
   agentId: `agent-${ownerId}`,
   name: `${ownerId}'s agent`,
   ownerId,
-  tenantId: "t1",
+  organisationId: "t1",
   level,
   burst: false,
   keyId: "k1",
@@ -222,5 +226,203 @@ describe("deliverWork: the latest pull request report decides whether it can be 
 
   it("refuses a head commit that isn't a hexadecimal SHA", async () => {
     expect(await deliverWork(agent("working", "ada"), "bug1", { ...body(), headSha: "not-a-sha" })).toMatchObject({ status: 400, field: "headSha" });
+  });
+});
+
+describe("a marketing delivery", () => {
+  const body = { summary: "Wrote the launch post.", description: "Published it and checked its links.", deliverableUrls: ["https://example.com/post"] };
+
+  it("needs no pull request, and product work still does", () => {
+    expect(trackRules("marketing").needsPullRequest).toBe(false);
+    expect(trackRules("product").needsPullRequest).toBe(true);
+    expect(marketingDeliveryBodySchema.safeParse(body).success).toBe(true);
+  });
+
+  it("takes files alongside links, and needs at least one of them", () => {
+    expect(marketingDeliveryBodySchema.safeParse({ summary: body.summary, description: body.description, attachmentIds: ["att_1"] }).success).toBe(true);
+    expect(marketingDeliveryBodySchema.safeParse({ summary: body.summary, description: body.description }).success).toBe(false);
+  });
+
+  it("takes the work itself as Markdown, without a link or file, up to the limit", () => {
+    const written = { summary: body.summary, description: body.description, deliverableText: "# The post\n\nIt went out." };
+    expect(marketingDeliveryBodySchema.safeParse(written).success).toBe(true);
+    expect(marketingDeliveryBodySchema.safeParse({ ...written, deliverableText: "   " }).success).toBe(false);
+    expect(marketingDeliveryBodySchema.safeParse({ ...written, deliverableText: "x".repeat(50_001) }).success).toBe(false);
+  });
+
+  it("refuses no link, a link that isn't http or https, and a pull request", () => {
+    expect(marketingDeliveryBodySchema.safeParse({ ...body, deliverableUrls: [] }).success).toBe(false);
+    expect(marketingDeliveryBodySchema.safeParse({ ...body, deliverableUrls: ["javascript:alert(1)"] }).success).toBe(false);
+    expect(marketingDeliveryBodySchema.safeParse({ ...body, pullRequestUrl: PR }).success).toBe(false);
+  });
+});
+
+describe("deliverWork: marketing work delivers links and files, not a pull request (M-API-3)", () => {
+  const marketingBody = {
+    summary: "Wrote the launch post.",
+    description: "Published it and checked its links.",
+    deliverableUrls: ["https://example.com/post"],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    db.prisma.bug.findFirst.mockResolvedValue({
+      id: "bug1",
+      projectId: "p1",
+      track: "marketing",
+      status: "in_progress",
+      substatus: "in_progress",
+      pullRequestUrl: null,
+      project: { repoUrl: "https://github.com/emerjent/ziki" },
+    });
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(null);
+    db.prisma.attachment.count.mockResolvedValue(0);
+    db.prisma.delivery.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        agentId: "agent-ada",
+        beneficiaryUserId: "ada",
+        summary: marketingBody.summary,
+        description: marketingBody.description,
+        pullRequestUrl: null,
+        deliverableUrls: marketingBody.deliverableUrls,
+        headSha: null,
+        screenshots: [],
+        testResults: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        agent: { name: "ada's agent" },
+        beneficiary: { name: "Ada" },
+        replies: [],
+      },
+    ]);
+    db.tx.delivery.findUnique.mockResolvedValue(null);
+    db.tx.delivery.create.mockResolvedValue({ id: "d1" });
+    db.tx.attachment.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("delivers links, records no pull request, and never reads a pull request report", async () => {
+    const result = await deliverWork(agent("working", "ada"), "bug1", marketingBody);
+    expect(result).toMatchObject({ status: 201, replaced: false });
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ pullRequestUrl: null, deliverableUrls: marketingBody.deliverableUrls, headSha: null, testResults: null }),
+      }),
+    );
+    expect(db.tx.bug.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review" }) }),
+    );
+    expect(db.tx.bug.update.mock.calls[0][0].data).not.toHaveProperty("pullRequestUrl");
+    expect(db.prisma.pullRequestReport.findFirst).not.toHaveBeenCalled();
+    expect(db.tx.testVerdict.updateMany).not.toHaveBeenCalled();
+    expect(mocks.createReviewOffers).not.toHaveBeenCalled();
+    expect(mocks.publish).toHaveBeenCalledWith(
+      db.tx,
+      expect.objectContaining({ payload: expect.objectContaining({ deliverableUrls: marketingBody.deliverableUrls }) }),
+    );
+    expect(mocks.publish.mock.calls[0][1].payload).not.toHaveProperty("pullRequestUrl");
+  });
+
+  it("delivers files by attaching the deliverer's own uploads to the issue", async () => {
+    db.prisma.attachment.count.mockResolvedValue(1);
+    const result = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: marketingBody.summary,
+      description: marketingBody.description,
+      attachmentIds: ["att_1"],
+    });
+    expect(result).toMatchObject({ status: 201 });
+    expect(db.prisma.attachment.count).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ["att_1"] }, uploaderId: "ada" }) }),
+    );
+    expect(db.tx.attachment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { in: ["att_1"] }, uploaderId: "ada" }),
+        data: { bugId: "bug1", commentId: null, confirmationId: null },
+      }),
+    );
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deliverableUrls: [], pullRequestUrl: null }) }),
+    );
+  });
+
+  it("refuses a pull request, head commit or test results, naming the field", async () => {
+    for (const [field, value] of [
+      ["pullRequestUrl", PR],
+      ["headSha", "abc1234"],
+      ["testResults", "42 passed"],
+    ] as const) {
+      const result = await deliverWork(agent("working", "ada"), "bug1", { ...marketingBody, [field]: value });
+      expect(result).toMatchObject({ status: 400, error: "invalid_request", field });
+    }
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("stores the work delivered as Markdown on the delivery, not in its event", async () => {
+    const text = "# The post\n\nIt went out.";
+    const result = await deliverWork(agent("working", "ada"), "bug1", { summary: marketingBody.summary, description: marketingBody.description, deliverableText: text });
+    expect(result).toMatchObject({ status: 201 });
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deliverableText: text, deliverableUrls: [], pullRequestUrl: null }) }),
+    );
+    expect(JSON.stringify(db.tx.bugActivity.create.mock.calls)).not.toContain(text);
+  });
+
+  it("refuses a delivery with neither a link nor a file", async () => {
+    const result = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: marketingBody.summary,
+      description: marketingBody.description,
+    });
+    expect(result).toMatchObject({ status: 400, error: "invalid_request", field: "deliverableUrls" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a file that isn't the deliverer's own unclaimed upload", async () => {
+    db.prisma.attachment.count.mockResolvedValue(0);
+    const result = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: marketingBody.summary,
+      description: marketingBody.description,
+      attachmentIds: ["att_someone_else"],
+    });
+    expect(result).toMatchObject({ status: 422, error: "invalid_attachments", field: "attachmentIds" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("deliverWork: product work still needs a pull request and its evidence", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    issue();
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(null);
+  });
+
+  it("refuses marketing deliverable links and files, naming the field", async () => {
+    const links = await deliverWork(agent("working", "ada"), "bug1", { ...body(), deliverableUrls: ["https://example.com/post"] });
+    expect(links).toMatchObject({ status: 400, error: "invalid_request", field: "deliverableUrls" });
+    const files = await deliverWork(agent("working", "ada"), "bug1", { ...body(), attachmentIds: ["att_1"] });
+    expect(files).toMatchObject({ status: 400, error: "invalid_request", field: "attachmentIds" });
+    const written = await deliverWork(agent("working", "ada"), "bug1", { ...body(), deliverableText: "# The post" });
+    expect(written).toMatchObject({ status: 400, error: "invalid_request", field: "deliverableText" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a delivery with no pull request, and one with no evidence", async () => {
+    const noPullRequest = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: "Did the work.",
+      description: "It is done.",
+      testResults: "42 passed",
+    });
+    expect(noPullRequest).toMatchObject({ status: 400, error: "invalid_request", field: "pullRequestUrl" });
+
+    const noEvidence = await deliverWork(agent("working", "ada"), "bug1", {
+      pullRequestUrl: PR,
+      summary: "Did the work.",
+      description: "It is done.",
+    });
+    expect(noEvidence).toMatchObject({ status: 400, error: "invalid_request", field: "testResults" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
   });
 });

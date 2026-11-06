@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CLI_TOOLS } from "@/cli/catalog";
 import { apiNotFound, createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
 import { mergeReviewBodySchema } from "@/lib/agent-api/merge";
 import { z } from "zod";
@@ -29,6 +30,7 @@ import { pullRequestReportSchema } from "@/lib/validations/pull-request-report";
 import { deploymentSchema } from "@/lib/agent-api/deployment";
 import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
 import { rejectIdeaSchema } from "@/lib/idea-rejection";
+import { createMarketingTaskTypeSchema, updateMarketingTaskTypeSchema } from "@/lib/marketing/task-types";
 import { agentProfileUpdateSchema, agentSkillsReplaceSchema, agentSkillUpsertSchema } from "@/lib/validations/agent-profile";
 
 /** The HTTP contract agents rely on: unknown routes and methods answer JSON errors with the allowed methods, and every MCP/CLI tool sends exactly the fields its route accepts. */
@@ -113,6 +115,8 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_archive_idea: archiveIdeaSchema,
   ziki_withdraw_idea: withdrawIdeaSchema,
   ziki_reject_idea: rejectIdeaSchema,
+  ziki_create_marketing_task_type: createMarketingTaskTypeSchema,
+  ziki_update_marketing_task_type: updateMarketingTaskTypeSchema,
 };
 
 // The agent comment route extends the shared comment schema with attachmentIds; idea
@@ -143,6 +147,20 @@ const shapeOf = (schema: z.ZodType) => {
 const isRequired = (field: z.ZodType) => !field.safeParse(undefined).success;
 
 describe("MCP tools match the route body schemas", () => {
+  it("exposes issue-list search and track filters in MCP and CLI", () => {
+    const describedAs = (field: unknown) => (field as z.ZodType | undefined)?.description;
+    for (const tools of [TOOLS, CLI_TOOLS]) {
+      const list = tools.find((tool) => tool.name === "ziki_list_issues")!;
+      expect(list.query).toEqual(expect.arrayContaining(["track", "q"]));
+      expect(describedAs(list.input.track)).toBeTruthy();
+      expect(describedAs(list.input.q)).toBeTruthy();
+
+      const counts = tools.find((tool) => tool.name === "ziki_count_issues")!;
+      expect(counts.query).toContain("track");
+      expect(describedAs(counts.input.track)).toBeTruthy();
+    }
+  });
+
   for (const [name, schema] of Object.entries(ROUTE_SCHEMAS)) {
     const tool = TOOLS.find((candidate) => candidate.name === name)!;
 

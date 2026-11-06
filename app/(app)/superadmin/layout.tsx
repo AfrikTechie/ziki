@@ -3,7 +3,7 @@ import { SuperadminSidebar } from "@/components/superadmin-sidebar";
 
 /**
  * /superadmin is for site staff only: site roles, every organisation on the
- * site, and platform points. Everything an organization's owners and admins
+ * site, and platform points. Everything an organisation's owners and admins
  * manage lives in /org.
  *
  * Admin pages have loading skeletons (#291), which make them stream, and a

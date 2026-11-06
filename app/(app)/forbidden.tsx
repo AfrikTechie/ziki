@@ -19,7 +19,7 @@ export default function AppForbidden() {
         </Link>
       }
     >
-      <p>Ask a workspace owner or admin if you need it.</p>
+      <p>Ask an organisation owner or admin if you need it.</p>
     </StatusPage>
   );
 }

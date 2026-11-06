@@ -1,3 +1,6 @@
+import { prisma } from "@/lib/prisma";
+import { localDatabaseUrl } from "../env";
+import { sandbox } from "../setup";
 import { beforeAll, describe, expect, it } from "vitest";
 import { confirm, feedItem, FILES, fileIdea, offeredTo, ok, refused, ziki, type Agent } from "./helpers";
 
@@ -185,6 +188,50 @@ describe("a report from idea to merge", () => {
     const extended = await ok(solver, "extend-deadline", { id, reason: "Waiting on a dependency upgrade." });
     expect(JSON.stringify(extended)).toMatch(/extendedAt/);
     await refused(solver, "extend-deadline", { id, reason: "Again, please." }, 409);
+  });
+
+
+  it("delivers owner steering until acknowledgement through the CLI, and keeps private holder fields out", async () => {
+    localDatabaseUrl();
+    const me = await ok(solver, "whoami");
+    // Only create the owner-authored fixture inside this worker's local sandbox.
+    const target = await prisma.agent.findFirst({ where: { id: me.id, organisation: { slug: sandbox().organisationSlug } }, select: { id: true } });
+    expect(target).toBeTruthy();
+    if (!target) throw new Error("Steering fixture must belong to this test sandbox.");
+    const note = await prisma.agentInboxItem.create({ data: {
+      agentId: target.id, bugId: id, kind: "message", eventType: "agent.steer",
+      payload: { type: "steer", body: "Keep the fix scoped to Save." },
+    } });
+    const other = solver === "cara" ? "bob" : "cara";
+    const first = await ok(solver, "heartbeat", { id });
+    expect(first.steering).toEqual(expect.arrayContaining([expect.objectContaining({ id: note.id, acknowledge_url: expect.any(String) })]));
+    const retry = await ok(solver, "heartbeat", { id });
+    expect(retry.steering.map((item: { id: string }) => item.id)).toContain(note.id);
+    // Reading the inbox is not acknowledgement of a steer.
+    await ok(solver, "mark-inbox-read", { ids: [note.id] });
+    expect((await prisma.agentInboxItem.findUniqueOrThrow({ where: { id: note.id } })).readAt).toBeNull();
+    await refused(other, "acknowledge-steer", { id, steerId: note.id, plan: "Not my note." }, 404);
+    const plan = "I will scope the fix to Save and cover the double click.";
+    expect(await ok(solver, "acknowledge-steer", { id, steerId: note.id, plan })).toMatchObject({ acknowledged: true });
+    expect(await ok(solver, "acknowledge-steer", { id, steerId: note.id, plan: "A retried response." })).toMatchObject({ acknowledged: true });
+    const saved = await prisma.agentInboxItem.findUniqueOrThrow({ where: { id: note.id } });
+    expect(saved.readAt).not.toBeNull();
+    expect(saved.payload).toMatchObject({ plan, acknowledgedAt: expect.any(String) });
+    expect((await ok(solver, "heartbeat", { id })).steering.map((item: { id: string }) => item.id)).not.toContain(note.id);
+    const holder = (await ok(other, "get-issue", { id })).issue.holder;
+    expect(holder).not.toHaveProperty("ownerUserId");
+    expect(holder).not.toHaveProperty("pausedAt");
+
+    await prisma.agent.update({ where: { id: target.id }, data: { pausedAt: new Date() } });
+    try {
+      await refused(solver, "work", {}, 423);
+      const before = await prisma.issueClaim.findFirstOrThrow({ where: { agentId: target.id, bugId: id, status: "active", releasedAt: null } });
+      await ok(solver, "heartbeat", { id });
+      const after = await prisma.issueClaim.findUniqueOrThrow({ where: { id: before.id } });
+      expect(after.lastHeartbeatAt).toEqual(before.lastHeartbeatAt);
+    } finally {
+      await prisma.agent.update({ where: { id: target.id }, data: { pausedAt: null } });
+    }
   });
 
   const delivery = {

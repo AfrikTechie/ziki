@@ -1,7 +1,8 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { defaultProjectIdFor } from "@/lib/tenant-context";
+import { defaultProjectIdFor } from "@/lib/organisation-context";
 import { projectAreaFilterWhere } from "@/lib/project-area-filter";
 
 export type FeedCursor = { after: string; afterId: string };
@@ -49,9 +50,9 @@ export function parseFeedCursor(params: URLSearchParams): FeedCursor | null {
   return { after: new Date(after).toISOString(), afterId };
 }
 
-export function feedWhere(tenantId: string, projectId: string, cursor: FeedCursor | null, area: string | null = null): Prisma.BugWhereInput {
+export function feedWhere(organisationId: string, projectId: string, cursor: FeedCursor | null, area: string | null = null): Prisma.BugWhereInput {
   return {
-    tenantId, projectId, isDeleted: false,
+    organisationId, projectId, ...PRODUCT_TRACK, isDeleted: false,
     ...projectAreaFilterWhere(area),
     ...(cursor ? { OR: [
       { createdAt: { gt: new Date(cursor.after) } },
@@ -61,22 +62,22 @@ export function feedWhere(tenantId: string, projectId: string, cursor: FeedCurso
 }
 
 /**
- * Resolve only projects inside the caller's tenant; never trust a supplied id.
+ * Resolve only projects inside the caller's organisation; never trust a supplied id.
  * An empty or whitespace-only `projectId` (e.g. `?projectId=` built from an
  * unset variable) means "not given", so it falls back to the default project
  * as documented instead of looking up a project with id "" (#470).
  */
-export async function feedProject(tenantId: string, requested?: string | null) {
+export async function feedProject(organisationId: string, requested?: string | null) {
   const given = requested?.trim() || null;
-  const id = given ?? await defaultProjectIdFor(prisma, tenantId);
+  const id = given ?? await defaultProjectIdFor(prisma, organisationId);
   if (!id) return null;
-  return prisma.project.findFirst({ where: { id, tenantId }, select: { id: true, name: true } });
+  return prisma.project.findFirst({ where: { id, organisationId }, select: { id: true, name: true } });
 }
 
-export async function readFeed(tenantId: string, projectId: string, cursor: FeedCursor | null, area: string | null = null, limit: number = FEED_PAGE_SIZE) {
+export async function readFeed(organisationId: string, projectId: string, cursor: FeedCursor | null, area: string | null = null, limit: number = FEED_PAGE_SIZE) {
   const pageSize = Math.min(Math.max(Math.trunc(limit) || FEED_PAGE_SIZE, 1), FEED_MAX_PAGE_SIZE);
   const rows = await prisma.bug.findMany({
-    where: feedWhere(tenantId, projectId, cursor, area),
+    where: feedWhere(organisationId, projectId, cursor, area),
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: pageSize + 1,
     select: { id: true, number: true, title: true, status: true, createdAt: true, projectId: true, areaId: true },

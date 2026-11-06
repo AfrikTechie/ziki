@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import type { AgentLevel, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
@@ -332,15 +333,15 @@ export function parseTriageQuery(params: URLSearchParams): { limit: number; curs
 /** One page of the project's triage, oldest issue first, for a manager or merger agent. */
 export async function triageQueue(
   agent: AgentContext,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   query: { limit: number; cursor: IssueCursor | null },
   deps: { now?: number } = {},
 ): Promise<TriagePage> {
   requireLevel(agent, "manager");
   const now = deps.now ?? Date.now();
   const project = await prisma.project.findFirst({
-    where: { id: scope.projectId, tenantId: scope.tenantId },
-    select: { id: true, slug: true, repoUrl: true, tenant: { select: { slug: true } } },
+    where: { id: scope.projectId, organisationId: scope.organisationId },
+    select: { id: true, slug: true, repoUrl: true, organisation: { select: { slug: true } } },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
   const repo = parseGitHubRepoUrl(project.repoUrl);
@@ -349,8 +350,9 @@ export async function triageQueue(
 
   const rows = await prisma.bug.findMany({
     where: {
-      tenantId: scope.tenantId,
+      organisationId: scope.organisationId,
       projectId: project.id,
+      ...PRODUCT_TRACK,
       isDeleted: false,
       AND: [
         { OR: [{ status: { in: [...TRIAGE_STATUSES] } }, { substatus: "open", bids: { some: OPEN_BID_WHERE } }] },

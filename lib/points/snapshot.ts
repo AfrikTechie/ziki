@@ -7,7 +7,7 @@ import { pointsNumber } from "./rules";
  * Point balances as a signed, reproducible snapshot (#618).
  *
  * The ledger already is append-only, so a balance at a cutoff is a pure
- * function of the rows written by then: sum every PointEntry in the tenant
+ * function of the rows written by then: sum every PointEntry in the organisation
  * with `createdAt <= cutoff`, order the people by id, serialize, hash, sign.
  * Running it again for the same cutoff with the same rows produces the same
  * bytes and therefore the same hash — nothing here records a wall-clock
@@ -28,7 +28,7 @@ export type SnapshotRow = {
 };
 
 export type PointsSnapshot = {
-  tenantId: string;
+  organisationId: string;
   /** Inclusive upper bound on `PointEntry.createdAt`, ISO-8601. */
   cutoff: string;
   /** Ordered by `userId`, ascending by code unit, so the order never varies. */
@@ -51,15 +51,15 @@ export function pointsExportSecret(): string {
   return secret;
 }
 
-/** Balances in `tenantId` summed from the ledger up to and including `cutoff`. */
+/** Balances in `organisationId` summed from the ledger up to and including `cutoff`. */
 export async function buildPointsSnapshot(
   db: Db,
-  input: { tenantId: string; cutoff: Date },
+  input: { organisationId: string; cutoff: Date },
 ): Promise<PointsSnapshot> {
-  const { tenantId, cutoff } = input;
+  const { organisationId, cutoff } = input;
   const groups = await db.pointEntry.groupBy({
     by: ["userId"],
-    where: { tenantId, createdAt: { lte: cutoff } },
+    where: { organisationId, createdAt: { lte: cutoff } },
     _sum: { points: true },
     _count: { _all: true },
   });
@@ -83,7 +83,7 @@ export async function buildPointsSnapshot(
   });
   rows.sort((a, b) => (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
 
-  return { tenantId, cutoff: cutoff.toISOString(), rows };
+  return { organisationId, cutoff: cutoff.toISOString(), rows };
 }
 
 /**
@@ -92,7 +92,7 @@ export async function buildPointsSnapshot(
  */
 export function snapshotContent(snapshot: PointsSnapshot): string {
   return JSON.stringify({
-    tenantId: snapshot.tenantId,
+    organisationId: snapshot.organisationId,
     cutoff: snapshot.cutoff,
     rows: snapshot.rows.map((row) => ({
       userId: row.userId,
@@ -122,7 +122,7 @@ export function snapshotJson(
   return `${JSON.stringify(
     {
       version: 1,
-      tenantId: snapshot.tenantId,
+      organisationId: snapshot.organisationId,
       cutoff: snapshot.cutoff,
       rows: snapshot.rows,
       contentHash: signed.hash,

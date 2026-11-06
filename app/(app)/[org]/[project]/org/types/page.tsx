@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import { ensureDefaultIssueTypes, issueTypeScopeFor } from "@/lib/issue-types";
 import { AdminIssueTypesManager } from "@/components/admin-issue-types-manager";
@@ -7,7 +8,7 @@ import { OrgPageHeader, ReadOnlyNameList, ReadOnlyNote } from "../org-ui";
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Issue types" };
 
-/** The organization's issue types. Owners and admins manage them; members read them. */
+/** The organisation's issue types. Owners and admins manage them; members read them. */
 export default async function OrgTypesPage() {
   const { user, org } = await loadOrg();
   if (!org) return null;
@@ -15,7 +16,7 @@ export default async function OrgTypesPage() {
   const scope = await issueTypeScopeFor(user);
   if (!scope.ok) {
     const types = await prisma.issueType.findMany({
-      where: { tenantId: org.id },
+      where: { organisationId: org.id, ...PRODUCT_TRACK },
       orderBy: { name: "asc" },
       select: { id: true, name: true, description: true, isActive: true },
     });
@@ -27,7 +28,7 @@ export default async function OrgTypesPage() {
         <ReadOnlyNote>Only owners and admins can add, rename or retire issue types.</ReadOnlyNote>
         <ReadOnlyNameList
           label="Issue types"
-          empty="This organization has no issue types yet."
+          empty="This organisation has no issue types yet."
           items={types.map((type) => ({
             id: type.id,
             name: type.name,
@@ -39,11 +40,11 @@ export default async function OrgTypesPage() {
     );
   }
 
-  await ensureDefaultIssueTypes(scope.tenantId);
+  await ensureDefaultIssueTypes(scope.organisationId);
 
   const [types, deletedRows] = await Promise.all([
     prisma.issueType.findMany({
-      where: { tenantId: scope.tenantId },
+      where: { organisationId: scope.organisationId, ...PRODUCT_TRACK },
       orderBy: { name: "asc" },
       include: {
         _count: {
@@ -54,7 +55,7 @@ export default async function OrgTypesPage() {
     // Deleted issues block deletion but the list hides them.
     prisma.bug.groupBy({
       by: ["typeId"],
-      where: { tenantId: scope.tenantId, isDeleted: true, typeId: { not: null } },
+      where: { organisationId: scope.organisationId, isDeleted: true, typeId: { not: null } },
       _count: { _all: true },
     }),
   ]);

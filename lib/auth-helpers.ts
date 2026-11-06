@@ -12,7 +12,7 @@ import { isPasswordAuthEnabled } from "@/lib/auth-mode";
 import { upsertGoogleUser } from "@/lib/google-user";
 import { resolveSessionUserId } from "@/lib/session-user";
 import { isSuperAdminEmail } from "@/lib/super-admin";
-import { ensureZeduOwnerMembership } from "@/lib/tenants";
+import { ensureZeduOwnerMembership } from "@/lib/organisations";
 import { logger } from "@/lib/logger";
 
 /** Route handler that clears an invalid session (see app/session-expired/route.ts). */

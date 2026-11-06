@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { AGENT_MESSAGE_MAX, listAgentThread } from "@/lib/agent-messages";
 import { agentPicturePath } from "@/lib/agents/profile";
 import { issueHref } from "@/lib/issue-ref";
@@ -20,10 +20,10 @@ const muted = "text-sm text-zk-muted";
  */
 export async function MessagesView({ agent: selected }: { agent?: string }) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  const agents = tenantId
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const agents = organisationId
     ? await prisma.agent.findMany({
-        where: { tenantId, ownerUserId: user.id, revokedAt: null },
+        where: { organisationId, ownerUserId: user.id, revokedAt: null },
         orderBy: { createdAt: "asc" },
         select: { id: true, name: true, username: true, avatar: true, picture: { select: { updatedAt: true } } },
       })

@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
  * takes on an agent, writes one row. Rows are never deleted; an undo marks
  * them (#450). Readers join `agentId` to the agent's name and owner.
  */
-export type AuditAgent = { agentId: string; tenantId: string };
+export type AuditAgent = { agentId: string; organisationId: string };
 
 export type AuditOptions = {
   /** The issue, when the action is about one (#447 filters by it). */
@@ -27,7 +27,7 @@ export async function audit(
   const db = options.db ?? prisma;
   await db.agentAuditEvent.create({
     data: {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       agentId: agent.agentId,
       action,
       target,

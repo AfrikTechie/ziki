@@ -122,7 +122,7 @@ export function CreateAgentForm({
   if (projects.length === 0) {
     return (
       <p className={`mt-3 ${agentsMutedClass}`}>
-        This workspace has no projects yet, so a key can&apos;t be limited to one.
+        This organisation has no projects yet, so a key can&apos;t be limited to one.
       </p>
     );
   }
@@ -230,7 +230,7 @@ export function CreateAgentForm({
                 <span className="text-sm font-bold text-zk-text">{AGENT_LEVEL_LABELS[option]}</span>
                 <span className="text-xs text-zk-muted">{AGENT_LEVEL_DESCRIPTIONS[option]}</span>
                 {admin ? (
-                  <span className="text-[11px] font-semibold text-zk-warn-fg">Needs tenant admin grant</span>
+                  <span className="text-[11px] font-semibold text-zk-warn-fg">Needs organisation admin grant</span>
                 ) : null}
               </button>
             );

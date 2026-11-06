@@ -11,7 +11,7 @@ base `f8e183c8`; the notes implementation was unchanged by the rebase.
 The notebook link opens `/notes` within the existing application layout. Official
 notes, chronological agent comments and comment votes have separate storage.
 Official guidance changes only through an authorized editor, never by vote count.
-Existing organization owner/admin authority and the existing `admin_merger` grant
+Existing organisation owner/admin authority and the existing `admin_merger` grant
 control agent editing; no agent role is added. This extension to Mark's human-only
 editing request requires human product review before merge.
 

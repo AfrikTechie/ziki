@@ -2,26 +2,64 @@
 "use client";
 
 import axe from "axe-core";
+import { NewMarketingTaskForm } from "@/components/marketing/tasks/new-marketing-task-form";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { labelInNameMismatches } from "@/lib/a11y/label-in-name";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { MarketingSettings } from "@/components/marketing/settings/settings";
 import { EntryReplyForm } from "@/components/entry-reply-form";
 import { CreateBugForm } from "@/components/create-issue-form";
 import { UserSearch } from "@/components/user-search";
 import { VoteButton } from "@/components/vote-button";
 import { WebhookManagement } from "@/components/webhook-management";
+import { Library } from "@/components/marketing/library/library";
+import { deliveryFiles } from "@/components/marketing/library/model";
+import { TasksBoard } from "@/components/marketing/tasks/tasks-board";
+import { TASK_TABS } from "@/components/marketing/tasks/model";
+import { RejectedIdeas } from "@/components/marketing/rejected-ideas/rejected-ideas";
+import type { RejectedIdea } from "@/components/marketing/rejected-ideas/model";
+import { MarketingDeliverablesPanel } from "@/components/marketing/marketing-deliverables-panel";
+import { MarketingReviewsPanel } from "@/components/marketing/marketing-reviews-panel";
 import { createWebhookAction, listWebhooksAction } from "@/app/actions/webhooks";
 import { OnScreenGuide } from "@/components/support-guide/on-screen-guide";
 import { getPageGuidance, searchSupportAnswers } from "@/components/support-guide/support-guide-data";
 import { projectRef } from "@/lib/project-paths";
 
+vi.mock("@/app/(app)/[org]/[project]/marketing/settings/actions", () => ({
+  createMarketingIssueTypeAction: vi.fn(),
+  deleteMarketingIssueTypeAction: vi.fn(),
+  toggleMarketingIssueTypeActiveAction: vi.fn(),
+  updateMarketingIssueTypeAction: vi.fn(),
+  updateMarketingRevisionLimitAction: vi.fn(),
+  updateMarketingBriefAction: vi.fn(),
+}));
 vi.mock("@/app/actions/issues", () => ({
   addCommentAction: vi.fn(),
   createBugAction: vi.fn(),
   toggleVoteAction: vi.fn(),
 }));
+vi.mock("@/app/(app)/[org]/[project]/marketing/output-box/actions", () => ({ refreshLibrary: vi.fn() }));
+vi.mock("@/lib/project-route", () => ({
+  requireProject: vi.fn(async () => ({
+    organisationId: "organisation-1",
+    project: { id: "project-1", slug: "acme", name: "Acme" },
+    user: { id: "user-1" },
+  })),
+}));
+vi.mock("@/lib/prisma", () => ({
+  prisma: { pointEntry: { aggregate: vi.fn(async () => ({ _sum: { points: 120 } })) } },
+}));
+vi.mock("@/app/actions/idea-verdicts", () => ({
+  giveIdeaVerdictAction: vi.fn(),
+  quickIdeaVerdictAction: vi.fn(),
+  withdrawIdeaFromPage: vi.fn(),
+  withdrawIdeaAction: vi.fn(),
+  approveIdeaAction: vi.fn(),
+  rejectIdeaAction: vi.fn(),
+}));
+vi.mock("@/app/(app)/[org]/[project]/notes/actions", () => ({ voteNoteCommentAction: vi.fn() }));
 
 vi.mock("@/app/(app)/points/disputes/actions", () => ({
   openDisputeAction: vi.fn(),
@@ -41,8 +79,8 @@ vi.mock("@/app/actions/webhooks", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
-  useParams: () => ({ project: "acme" }),
-  usePathname: () => "/",
+  usePathname: () => "/acme/acme/marketing",
+  useParams: () => ({ org: "acme", project: "acme" }),
 }));
 
 beforeAll(() => {
@@ -56,7 +94,10 @@ beforeAll(() => {
     })) as unknown as typeof window.HTMLCanvasElement.prototype.getContext;
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 /** Accessibility of the primary flows (axe): reporting an issue, voting, replying to an entry and finding a person have no violations. */
 /**
@@ -92,6 +133,97 @@ async function expectNoA11yViolations(node: HTMLElement) {
 const users = [{ id: "u1", name: "Alice", role: "user" as const }];
 
 describe("component accessibility (axe)", () => {
+  it("keeps the new marketing task form accessible, with and without task types", async () => {
+    const withTypes = render(<NewMarketingTaskForm projectId="project-1" types={[{ id: "blog", name: "Blog post" }]} />);
+    await expectNoA11yViolations(withTypes.container);
+    withTypes.unmount();
+    const withoutTypes = render(<NewMarketingTaskForm projectId="project-1" types={[]} />);
+    await expectNoA11yViolations(withoutTypes.container);
+  });
+  it("keeps approved-work selection and attachment actions accessible", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+    const { container } = render(<Library slug={projectRef("acme", "acme")} projectName="Acme" initial={{ ok: true, items: [{
+      id: "published", number: 42, title: "Welcome email", agent: "Content agent", summary: "An approved email sequence.", publishedAt: "2026-11-04T12:00:00Z",
+      files: deliveryFiles(["https://example.com/welcome.docx"]),
+    }] }} />);
+    await expectNoA11yViolations(container);
+  });
+  it("keeps marketing settings accessible, for an admin and read-only for a member", async () => {
+    const data = {
+      revisionLimit: 2,
+      canManage: true,
+      types: [{ id: "blog", name: "Blog post", description: null, isActive: true, usage: 1 }],
+      brief: { product: "Acme", audience: "", currentFocus: "", outOfScope: "" },
+    };
+    const admin = render(<MarketingSettings slug={projectRef("acme", "acme")} projectName="Acme" data={data} />);
+    await expectNoA11yViolations(admin.container);
+    admin.unmount();
+    const member = render(<MarketingSettings slug={projectRef("acme", "acme")} projectName="Acme" data={{ ...data, canManage: false }} />);
+    await expectNoA11yViolations(member.container);
+  });
+
+  it("keeps the marketing tasks board's stages, steps and rows accessible", async () => {
+    const { container } = render(<TasksBoard slug={projectRef("acme", "acme")} board={{
+      tab: TASK_TABS[1],
+      counts: { ideas: 2, open: 1, "in-progress": 0, closed: 0, done: 3, live: 0 },
+      sortParam: null,
+      list: { kind: "tasks", sort: "importance", rows: [{
+        id: "task-1", number: 41, title: "Write the launch post", href: "/acme/41", status: "open", substatus: "open", closeReason: null,
+        importance: 0, reward: 4, rewardEstimates: 2, rewardFixed: false, typeName: "Blog post", agentName: null, work: null, offeredTo: null,
+        revision: null, bids: 2, comments: 1, updatedAt: new Date("2026-11-01T10:00:00Z"),
+      }] },
+      pagination: { page: 1, totalPages: 1, totalCount: 1, from: 1, to: 1 },
+    }} />);
+    await expectNoA11yViolations(container);
+  });
+  it("keeps rejected marketing ideas and their verdicts accessible", async () => {
+    const item: RejectedIdea = {
+      id: "idea1", number: 7, title: "Write a launch post", summary: "A post about the launch.",
+      rationale: "People keep asking what changed.",
+      typeName: "Blog post", reporterName: "Ada", createdAt: new Date("2026-11-04"),
+      score: 1, threshold: 3, votes: { good: 1, bad: 0, neutral: 0 },
+      verdicts: [{
+        id: "v1", opinion: "good", votes: 1, summary: "Worth doing.",
+        description: "It serves the current focus.", by: "Bola", agentName: "Bola's agent",
+        updatedAt: new Date("2026-11-04"),
+      }],
+      status: "rejected", rejectedAt: new Date("2026-11-05"), rejectedBy: "a manager agent", archivedAt: null, archivedBy: null,
+      archiveReason: null,
+    };
+    const { container } = render(<RejectedIdeas slug={projectRef("acme", "acme")} projectName="Acme" initial={{ ok: true, items: [item], total: 1, page: 1, totalPages: 1, from: 1, to: 1 }} />);
+    await expectNoA11yViolations(container);
+  });
+  it("keeps a marketing task's deliverables and reviews accessible, full and empty", async () => {
+    const at = new Date("2026-11-04");
+    const panels = (full: boolean) => (
+      <>
+        <MarketingDeliverablesPanel
+          bugId="task-1"
+          canReply={false}
+          deliveries={full ? [{
+            id: "d1", agentName: "Ada's agent", by: "Ada", summary: "The post is live.", description: "Published on the blog.",
+            deliverableUrls: ["https://example.com/post"], current: true, updatedAt: at, replies: [],
+          }] : []}
+        />
+        <MarketingReviewsPanel
+          bugId="task-1"
+          canReply={false}
+          revisionCount={1}
+          maxRevisions={2}
+          reviews={full ? [{
+            id: "r1", agentName: "Bola's agent", by: "Bola", summary: "Reads well.", description: "Checked the links.",
+            goodToMerge: true, updatedAt: at, replies: [],
+          }] : []}
+        />
+      </>
+    );
+    const full = render(panels(true));
+    await expectNoA11yViolations(full.container);
+    full.unmount();
+    const empty = render(panels(false));
+    await expectNoA11yViolations(empty.container);
+  });
+
   it("VoteButton has no violations", async () => {
     const { container } = render(<VoteButton bugId="b1" voteCount={3} />);
     await expectNoA11yViolations(container);
@@ -256,7 +388,7 @@ describe("component accessibility (axe)", () => {
       const guide = screen.getByRole("complementary", { name: "Customer Support Guide" });
       expect(guide).toBeInTheDocument();
 
-      const toggleBtn = screen.getByRole("button", { name: "Toggle Ziki Customer Support Guide" });
+      const toggleBtn = screen.getByRole("button", { name: /Ask support/ });
       expect(toggleBtn).toBeInTheDocument();
 
       fireEvent.click(toggleBtn);

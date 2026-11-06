@@ -4,6 +4,7 @@ import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verd
 import { publish } from "@/lib/agent-api/events";
 import { workflowFor } from "@/lib/workflow";
 import { moveTo } from "@/lib/issue-substatus";
+import { afterSendBack, judgementCounts } from "@/lib/marketing/track";
 
 /**
  * The Delivered step's rule (#delivered-step). Once the agent holding the
@@ -26,10 +27,12 @@ type Db = PrismaClient | Prisma.TransactionClient;
 /** What the Delivered step's count reads about an issue. */
 export const judgedBugSelect = {
   id: true,
-  tenantId: true,
+  organisationId: true,
   projectId: true,
   status: true,
   substatus: true,
+  track: true,
+  revisionCount: true,
   pullRequestUrl: true,
   assigneeId: true,
   beneficiaryUserId: true,
@@ -91,18 +94,49 @@ export async function countedJudgements(
   bugId: string,
 ): Promise<{ good: number; notGood: number; needed: number } | null> {
   const bug = await db.bug.findUnique({ where: { id: bugId }, select: judgedBugSelect });
-  if (!bug?.pullRequestUrl) return null;
-  const verdicts = await db.testVerdict.findMany({
-    where: { bugId, pullRequestUrl: bug.pullRequestUrl },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: judgementSelect,
-  });
-  // With no claim, whoever the deliveries on this pull request credit can't judge it.
-  const credited = deliveredClaim(bug)
-    ? []
-    : (await db.delivery.findMany({ where: { bugId, pullRequestUrl: bug.pullRequestUrl }, select: { beneficiaryUserId: true } })).map(
-        (delivery) => delivery.beneficiaryUserId,
-      );
+  if (!bug) return null;
+  if (bug.track !== "marketing" && !bug.pullRequestUrl) return null;
+
+  let verdicts: Judgement[] = [];
+  let credited: string[] = [];
+
+  if (bug.track === "marketing") {
+    const delivery = await db.delivery.findFirst({
+      where: { bugId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: { updatedAt: true, pullRequestUrl: true },
+    });
+    if (!delivery) return null;
+
+    const allVerdicts = await db.testVerdict.findMany({
+      where: { bugId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: {
+        ...judgementSelect,
+        updatedAt: true,
+        pullRequestUrl: true,
+      },
+    });
+    verdicts = allVerdicts.filter((v) => judgementCounts(bug.track, v, delivery));
+    credited = deliveredClaim(bug)
+      ? []
+      : (await db.delivery.findMany({ where: { bugId }, select: { beneficiaryUserId: true } })).map(
+          (d) => d.beneficiaryUserId,
+        );
+  } else {
+    verdicts = await db.testVerdict.findMany({
+      where: { bugId, pullRequestUrl: bug.pullRequestUrl },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: judgementSelect,
+    });
+    // With no claim, whoever the deliveries on this pull request credit can't judge it.
+    credited = deliveredClaim(bug)
+      ? []
+      : (await db.delivery.findMany({ where: { bugId, pullRequestUrl: bug.pullRequestUrl }, select: { beneficiaryUserId: true } })).map(
+          (delivery) => delivery.beneficiaryUserId,
+        );
+  }
+
   const { good, notGood } = countJudgements(verdicts, bug, credited);
   const { verdictsNeeded } = await workflowFor(bug.projectId, db);
   return { good, notGood, needed: verdictsNeeded };
@@ -117,9 +151,10 @@ export async function refreshJudgedStatus(
   db: Db,
   bugId: string,
   actorUserId: string,
-): Promise<"requires_review" | "accepted" | "open" | null> {
+): Promise<"requires_review" | "accepted" | "open" | "in_progress" | null> {
   const bug = await db.bug.findUnique({ where: { id: bugId }, select: judgedBugSelect });
-  if (!bug?.pullRequestUrl) return null;
+  if (!bug) return null;
+  if (bug.track !== "marketing" && !bug.pullRequestUrl) return null;
   if (bug.status !== "done") return null;
 
   const count = await countedJudgements(db, bugId);
@@ -128,13 +163,71 @@ export async function refreshJudgedStatus(
   if (next === bug.substatus) return null;
 
   if (next === "open") {
+    if (bug.track === "marketing") {
+      const workflow = await workflowFor(bug.projectId, db);
+      const sendBack = afterSendBack(bug, workflow.revisionLimit, "judgement");
+      if (sendBack.keepsClaim) {
+        await db.bug.update({
+          where: { id: bugId },
+          data: { ...moveTo(sendBack.substatus), revisionCount: sendBack.revisionCount },
+        });
+        await db.bugActivity.create({
+          data: {
+            bugId,
+            actorId: actorUserId,
+            type: "status_changed",
+            summary: `Judgements weighing ${count.notGood} say the delivered work is not good: back to In progress (revision round ${sendBack.revisionCount} of ${workflow.revisionLimit})`,
+            metadata: {
+              field: "status",
+              from: bug.substatus,
+              to: sendBack.substatus,
+              good: count.good,
+              notGood: count.notGood,
+              needed: count.needed,
+              revisionCount: sendBack.revisionCount,
+              revisionLimit: workflow.revisionLimit,
+            },
+          },
+        });
+        return sendBack.substatus as "in_progress";
+      }
+
+      // Past revision limit: release claim and reopen for bids
+      const now = new Date();
+      const held = bug.claims.filter((claim) => !claim.releasedAt && (claim.status === "active" || claim.status === "offered"));
+      for (const claim of held) {
+        await db.issueClaim.update({ where: { id: claim.id }, data: { status: "released", releasedAt: now, releaseReason: "judged_not_good" } });
+        await publish(db, {
+          organisationId: bug.organisationId,
+          type: "claim.released",
+          actorAgentId: null,
+          bugId,
+          payload: { claimId: claim.id, issueId: bugId, beneficiaryUserId: claim.beneficiaryUserId, reason: "judged_not_good" },
+        });
+      }
+      await db.bug.update({
+        where: { id: bugId },
+        data: { ...moveTo("open"), assigneeId: null, revisionCount: 0 },
+      });
+      await db.bugActivity.create({
+        data: {
+          bugId,
+          actorId: actorUserId,
+          type: "status_changed",
+          summary: `Judgements weighing ${count.notGood} say the delivered work is not good and revision limit reached (${workflow.revisionLimit}): reopened for bids`,
+          metadata: { field: "status", from: bug.substatus, to: "open", good: count.good, notGood: count.notGood, needed: count.needed, revisionCount: 0, revisionLimit: workflow.revisionLimit },
+        },
+      });
+      return "open";
+    }
+
     // Judged not good to merge: back to Open, for someone to take again.
     const now = new Date();
     const held = bug.claims.filter((claim) => !claim.releasedAt && (claim.status === "active" || claim.status === "offered"));
     for (const claim of held) {
       await db.issueClaim.update({ where: { id: claim.id }, data: { status: "released", releasedAt: now, releaseReason: "judged_not_good" } });
       await publish(db, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         type: "claim.released",
         actorAgentId: null,
         bugId,

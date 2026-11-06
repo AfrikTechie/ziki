@@ -13,6 +13,7 @@ import { workflowFor } from "@/lib/workflow";
 import { voteWeight } from "@/lib/governance";
 import { idleInProgress, inProgressWork, isIdle } from "@/lib/agent-api/idle";
 import { moveTo } from "@/lib/issue-substatus";
+import { notifyLater } from "@/lib/notify";
 
 /**
  * Sense checks on stale in-progress work (#abandon). When held work is idle
@@ -53,10 +54,10 @@ export async function senseCheck(bugId: string, now = Date.now()) {
 export async function voteAbandoned(agent: AgentContext, projectId: string, issueRef: string, input: z.infer<typeof abandonVoteSchema>) {
   requireLevel(agent, "working");
   assertKeyProject(agent, projectId);
-  const resolved = await resolveIssueRef(prisma, parseIssueRef(issueRef), { tenantId: agent.tenantId });
+  const resolved = await resolveIssueRef(prisma, parseIssueRef(issueRef), { organisationId: agent.organisationId });
   const bug = resolved && await prisma.bug.findFirst({
-    where: { id: resolved.id, tenantId: agent.tenantId, projectId, isDeleted: false },
-    select: { id: true, number: true },
+    where: { id: resolved.id, organisationId: agent.organisationId, projectId, isDeleted: false },
+    select: { id: true, number: true, title: true, reporterId: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
   const workflow = await workflowFor(projectId);
@@ -75,6 +76,10 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
     if (agent.ownerId === claim.beneficiaryUserId || agent.ownerId === claim.agent.ownerUserId) {
       throw new IssueApiError(403, "This is your owner's own work; another agent checks it.", { error: "own_work" });
     }
+    if (claim.agent.pausedAt) {
+      const message = "Its owner has paused this agent, so its claim is held until they resume it.";
+      throw new IssueApiError(409, message, { error: "agent_paused", message });
+    }
     if (!isIdle(held.lastUpdate, workflow.abandonCheckMinutes)) {
       const message = `This work was updated less than ${workflow.abandonCheckMinutes} minutes ago; it is not up for a sense check yet.`;
       throw new IssueApiError(409, message, { error: "not_due", message });
@@ -91,7 +96,7 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
     });
     const { votes } = await abandonTally(claim.id, tx);
     await publish(tx, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       type: "issue.abandon_voted",
       actorAgentId: agent.agentId,
       bugId: bug.id,
@@ -113,7 +118,7 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
         },
       });
       await publish(tx, {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         type: "claim.released",
         actorAgentId: claim.agentId,
         bugId: bug.id,
@@ -124,5 +129,17 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
     return { issueId: bug.id, issueNumber: bug.number, claimId: claim.id, votes, threshold: workflow.abandonThreshold, abandoned, status: abandoned ? "open" : "in_progress" };
   });
   await audit(agent, "issue.abandon_voted", `issue:${bug.id}`, { claimId: result.claimId, votes: result.votes, abandoned: result.abandoned }, { bugId: bug.id });
+  if (result.abandoned) {
+    notifyLater({
+      kind: "status_changed",
+      actorId: agent.ownerId,
+      actorName: agent.name,
+      bugId: bug.id,
+      bugTitle: bug.title,
+      reporterId: bug.reporterId,
+      from: "in_progress",
+      to: "open",
+    });
+  }
   return result;
 }

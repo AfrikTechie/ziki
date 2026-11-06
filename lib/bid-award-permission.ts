@@ -9,11 +9,11 @@ import { AGENT_LEVELS } from "@/lib/agents/levels";
  * the award is the agent's (lib/agent-api/bid.ts awardBid), so its rules hold:
  * the threshold, and an offer the bidder accepts.
  */
-export async function awardingAgentOf(userId: string, tenantId: string) {
+export async function awardingAgentOf(userId: string, organisationId: string) {
   const agents = await prisma.agent.findMany({
-    where: { ownerUserId: userId, tenantId, revokedAt: null },
+    where: { ownerUserId: userId, organisationId, revokedAt: null },
     orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, ownerUserId: true, tenantId: true, level: true },
+    select: { id: true, name: true, ownerUserId: true, organisationId: true, level: true },
   });
   const rank = (level: (typeof agents)[number]["level"]) => AGENT_LEVELS.indexOf(level);
   // Highest level first; among equals, the oldest (the query's order).

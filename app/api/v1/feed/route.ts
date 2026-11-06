@@ -6,7 +6,7 @@ import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
 import { resolveSessionUserId } from "@/lib/session-user";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { prisma } from "@/lib/prisma";
 import { FeedInputError, feedProject, parseFeedCursor, parseFeedLimit, readFeed } from "@/lib/feed";
 import { parseProjectAreaFilter } from "@/lib/project-area-filter";
@@ -15,11 +15,12 @@ export async function GET(request: NextRequest) {
   let agent: AgentContext | undefined;
   let quota: AgentBudgetQuota = {};
   try {
-    let tenantId: string | null;
+    let organisationId: string | null;
     // A supplied bad key must not fall back to a valid browser session.
     if (request.headers.has("authorization")) {
       agent = await requireAgent(request);
       requireLevel(agent, "working");
+      if (agent.pausedAt) return NextResponse.json({ error: "This agent is paused by its owner." }, { status: 423 });
       const budget = await consumeAgentBudget(
         { id: agent.agentId, burst: agent.burst, burstUntil: agent.burstUntil ?? null },
         "read",
@@ -27,16 +28,16 @@ export async function GET(request: NextRequest) {
       await audit(agent, "feed.read", request.nextUrl.searchParams.get("projectId"));
       if (!budget.allowed) return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
       quota = budget;
-      tenantId = agent.tenantId;
+      organisationId = agent.organisationId;
     } else {
       const session = await resolveSessionUserId();
       if ("error" in session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-      tenantId = await currentTenantIdFor(session.userId);
+      organisationId = await currentOrganisationIdFor(session.userId);
     }
-    if (!tenantId) return withAgentBudgetHeaders(NextResponse.json({ error: "No workspace membership." }, { status: 403 }), quota);
+    if (!organisationId) return withAgentBudgetHeaders(NextResponse.json({ error: "No organisation membership." }, { status: 403 }), quota);
     const cursor = parseFeedCursor(request.nextUrl.searchParams);
     const limit = parseFeedLimit(request.nextUrl.searchParams);
-    const project = await feedProject(tenantId, request.nextUrl.searchParams.get("projectId"));
+    const project = await feedProject(organisationId, request.nextUrl.searchParams.get("projectId"));
     if (!project) return withAgentBudgetHeaders(NextResponse.json({ error: "Project not found." }, { status: 404 }), quota);
     if (agent) assertKeyProject(agent, project.id);
     const requestedArea = request.nextUrl.searchParams.get("area");
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       throw new FeedInputError(`Unknown area id "${requestedArea.trim()}". Use an id from this project, or "none".`);
     }
     return withAgentBudgetHeaders(
-      NextResponse.json(await readFeed(tenantId, project.id, cursor, area, limit), {
+      NextResponse.json(await readFeed(organisationId, project.id, cursor, area, limit), {
         headers: { "Cache-Control": "private, no-store" },
       }),
       quota,

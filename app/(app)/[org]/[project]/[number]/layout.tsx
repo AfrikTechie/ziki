@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 import { findProjectIssue, parseIssueNumber } from "@/lib/project-issue";
 import { canDeleteTicket } from "@/lib/ticket-deletion";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
 
 /**
  * Decides 404 before anything streams (#291).
@@ -37,7 +37,7 @@ export default async function ProjectIssueLayout({
     const session = await auth();
     if (!session?.user) notFound();
     const user = await requireUser();
-    const access = await currentTenantAccess(user.id, user.role);
+    const access = await currentOrganisationAccess(user.id, user.role);
     if (!canDeleteTicket(user.role, access.membershipRole)) notFound();
   }
 

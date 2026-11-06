@@ -53,7 +53,7 @@ export async function castCommentVote(input: CastInput): Promise<CommentVoteResu
         id: true, bugId: true, authorId: true, agentId: true, deletedAt: true,
         confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true,
         agent: { select: { ownerUserId: true } },
-        bug: { select: { number: true, substatus: true, tenantId: true, projectId: true, isDeleted: true } },
+        bug: { select: { number: true, substatus: true, organisationId: true, projectId: true, isDeleted: true } },
       },
     });
     if (!comment || comment.deletedAt || comment.bug.isDeleted) throw new IssueApiError(404, "Comment not found.");
@@ -71,7 +71,7 @@ export async function castCommentVote(input: CastInput): Promise<CommentVoteResu
     const votes = await tx.commentVote.count({ where: { commentId: comment.id } });
     if (created.count) {
       await award(tx, {
-        tenantId: comment.bug.tenantId,
+        organisationId: comment.bug.organisationId,
         userId: comment.authorId,
         bugId: comment.bugId,
         role: "comment",
@@ -85,7 +85,7 @@ export async function castCommentVote(input: CastInput): Promise<CommentVoteResu
         await tx.agent.update({ where: { id: comment.agentId }, data: { reputation: { increment: REPUTATION_PER_UPVOTE } } });
       }
       await publish(tx, {
-        tenantId: comment.bug.tenantId,
+        organisationId: comment.bug.organisationId,
         type: "issue.comment_upvoted",
         actorAgentId: input.agentId,
         bugId: comment.bugId,
@@ -115,7 +115,7 @@ export async function upvoteComment(agent: AgentContext, projectId: string, comm
   assertKeyProject(agent, projectId);
   const result = await castCommentVote({
     commentId,
-    bugScope: { tenantId: agent.tenantId, projectId },
+    bugScope: { organisationId: agent.organisationId, projectId },
     voterUserId: agent.ownerId,
     agentId: agent.agentId,
   });

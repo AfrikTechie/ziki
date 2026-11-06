@@ -19,7 +19,7 @@ import { logger } from "@/lib/logger";
  * workflow or Vercel cron. Needs only ANTHROPIC_API_KEY as an env var on
  * whatever actually runs the app (Coolify) -- no agent API key, since this
  * writes to the database directly, like the other platform sweeps. A real
- * agent row ("Structuring Bot") is still looked up per tenant, but only for
+ * agent row ("Structuring Bot") is still looked up per organisation, but only for
  * its id, to attribute the audit log entry -- not for a credential.
  *
  * Bounded: processes at most `limit` ideas per run, so one run can't run
@@ -83,7 +83,7 @@ export async function sweepUndraftedIdeas(options?: {
   // further below (it needs the description text, not just a DB filter).
   const candidates = await prisma.idea.findMany({
     where: { status: "open", isDeleted: false, createdByAgentId: null },
-    select: { id: true, number: true, title: true, description: true, status: true, createdByAgentId: true, tenantId: true },
+    select: { id: true, number: true, title: true, description: true, status: true, createdByAgentId: true, organisationId: true },
     orderBy: { createdAt: "asc" },
     take: limit * 2, // isUnstructuredDraft() will drop some; over-fetch a bit
   });
@@ -92,15 +92,15 @@ export async function sweepUndraftedIdeas(options?: {
   if (drafts.length === 0) return result;
 
   // The agent every structured idea gets attributed to. Resolved once per
-  // run, scoped per-tenant below (an idea's tenant may differ).
-  const agentCache = new Map<string, { id: string; tenantId: string } | null>();
-  async function structuringAgentFor(tenantId: string) {
-    if (agentCache.has(tenantId)) return agentCache.get(tenantId) ?? null;
+  // run, scoped per-organisation below (an idea's organisation may differ).
+  const agentCache = new Map<string, { id: string; organisationId: string } | null>();
+  async function structuringAgentFor(organisationId: string) {
+    if (agentCache.has(organisationId)) return agentCache.get(organisationId) ?? null;
     const agent = await prisma.agent.findFirst({
-      where: { tenantId, name: "Structuring Bot", revokedAt: null },
-      select: { id: true, tenantId: true },
+      where: { organisationId, name: "Structuring Bot", revokedAt: null },
+      select: { id: true, organisationId: true },
     });
-    agentCache.set(tenantId, agent);
+    agentCache.set(organisationId, agent);
     return agent;
   }
 
@@ -111,11 +111,11 @@ export async function sweepUndraftedIdeas(options?: {
         continue;
       }
 
-      const agent = await structuringAgentFor(idea.tenantId);
+      const agent = await structuringAgentFor(idea.organisationId);
       if (!agent) {
-        logger.error(`[cron] sweepUndraftedIdeas: no "Structuring Bot" agent found for tenant ${idea.tenantId}, skipping idea ${idea.id}.`);
+        logger.error(`[cron] sweepUndraftedIdeas: no "Structuring Bot" agent found for organisation ${idea.organisationId}, skipping idea ${idea.id}.`);
         result.failed++;
-        result.errors.push({ ideaId: idea.id, error: "No Structuring Bot agent configured for this tenant." });
+        result.errors.push({ ideaId: idea.id, error: "No Structuring Bot agent configured for this organisation." });
         continue;
       }
 
@@ -140,7 +140,7 @@ export async function sweepUndraftedIdeas(options?: {
           data: { description: nextDescription },
         });
         await audit(
-          { agentId: agent.id, tenantId: agent.tenantId },
+          { agentId: agent.id, organisationId: agent.organisationId },
           "idea.structured",
           `idea:${idea.id}`,
           { beforeTitle: fresh.title, afterTitle: fresh.title, beforeDescription: fresh.description },

@@ -175,7 +175,7 @@ export function PairForm({
         </div>
         {projects.length === 0 ? (
           <p className="text-sm font-medium text-zk-bad-fg" role="alert">
-            This workspace has no projects yet, so the agent can&apos;t be given a key.
+            This organisation has no projects yet, so the agent can&apos;t be given a key.
           </p>
         ) : (
           <div className="space-y-1.5 sm:max-w-xs">

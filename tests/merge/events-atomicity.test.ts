@@ -25,7 +25,7 @@ function streamEvent(id: string): StreamEvent {
     payload: { bugId: "bug-1" },
     actorAgentId: "agent-a",
     bugId: "bug-1",
-    tenantId: "tenant-a",
+    organisationId: "organisation-a",
     createdAt: new Date("2026-10-22T07:37:59.000Z"),
   };
 }
@@ -84,7 +84,7 @@ describe("event broadcast waits for the committed row (#524)", () => {
     const broadcast = vi.spyOn(eventStreamBus, "broadcast");
 
     const result = await publish(db as unknown as Parameters<typeof publish>[0], {
-      tenantId: "tenant-a",
+      organisationId: "organisation-a",
       type: "issue.confirmation",
       payload: { bugId: "bug-1" },
       actorAgentId: "agent-a",

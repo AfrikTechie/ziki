@@ -3,22 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { currentOrganisationIdFor, NO_ORGANISATION_MESSAGE } from "@/lib/organisation-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { isAdmin } from "@/lib/roles";
 import {
   correctEntry,
   creditMissingAwards,
   disputeInputSchema,
   grantMissingAward,
-  NOT_IN_WORKSPACE,
+  NOT_IN_ORGANISATION,
   NO_ENTRY_ON_THIS_DISPUTE,
   openDispute,
   parseIssueNumbers,
   rejectDispute,
 } from "@/lib/points/disputes";
 
-/** Open a dispute, or resolve one as a workspace admin (#436). */
+/** Open a dispute, or resolve one as an organisation admin (#436). */
 
 export type DisputeActionResult =
   | { ok: true; message: string }
@@ -29,8 +29,8 @@ export async function openDisputeAction(
   formData: FormData,
 ): Promise<DisputeActionResult> {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { ok: false, error: NO_TENANT_MESSAGE };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { ok: false, error: NO_ORGANISATION_MESSAGE };
 
   const parsed = disputeInputSchema.safeParse({
     bugNumber: formData.get("bugNumber"),
@@ -49,18 +49,18 @@ export async function openDisputeAction(
   }
 
   const result = await openDispute(prisma, {
-    tenantId,
+    organisationId,
     userId: user.id,
     input: parsed.data,
   });
   if (!result.ok) return { ok: false, error: result.error };
   revalidatePath("/points/disputes");
-  return { ok: true, message: "Dispute opened. A workspace admin will review it." };
+  return { ok: true, message: "Dispute opened. An organisation admin will review it." };
 }
 
 /**
  * One form, three decisions: grant the missing award, correct an entry, or
- * reject. Only workspace admins may resolve, and only once (#436).
+ * reject. Only organisation admins may resolve, and only once (#436).
  */
 export async function resolveDisputeAction(
   _previous: DisputeActionResult | undefined,
@@ -77,7 +77,7 @@ export async function resolveDisputeAction(
     where: { id: disputeId },
     select: {
       id: true,
-      tenantId: true,
+      organisationId: true,
       userId: true,
       bugId: true,
       pointEntryId: true,
@@ -86,12 +86,12 @@ export async function resolveDisputeAction(
   });
   if (!dispute) return { ok: false, error: "That dispute no longer exists." };
 
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId || dispute.tenantId !== tenantId) {
-    return { ok: false, error: NOT_IN_WORKSPACE };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId || dispute.organisationId !== organisationId) {
+    return { ok: false, error: NOT_IN_ORGANISATION };
   }
-  if (!(await canManagePoints(user, dispute.tenantId))) {
-    return { ok: false, error: "Only a workspace admin can resolve disputes." };
+  if (!(await canManagePoints(user, dispute.organisationId))) {
+    return { ok: false, error: "Only an organisation admin can resolve disputes." };
   }
   if (dispute.userId === user.id) {
     return { ok: false, error: "You cannot resolve your own points dispute." };
@@ -111,14 +111,14 @@ export async function resolveDisputeAction(
       select: {
         id: true,
         number: true,
-        tenantId: true,
+        organisationId: true,
         reporterId: true,
         assigneeId: true,
         projectId: true,
       },
     });
-    if (!bug || bug.tenantId !== dispute.tenantId) {
-      return { ok: false, error: NOT_IN_WORKSPACE };
+    if (!bug || bug.organisationId !== dispute.organisationId) {
+      return { ok: false, error: NOT_IN_ORGANISATION };
     }
     const result = await grantMissingAward(prisma, {
       dispute,
@@ -140,10 +140,10 @@ export async function resolveDisputeAction(
     if (!dispute.pointEntryId) return { ok: false, error: NO_ENTRY_ON_THIS_DISPUTE };
     const entry = await prisma.pointEntry.findUnique({
       where: { id: dispute.pointEntryId },
-      select: { id: true, tenantId: true, userId: true, bugId: true, role: true, points: true, correctedAt: true },
+      select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true, correctedAt: true },
     });
-    if (!entry || entry.tenantId !== dispute.tenantId) {
-      return { ok: false, error: NOT_IN_WORKSPACE };
+    if (!entry || entry.organisationId !== dispute.organisationId) {
+      return { ok: false, error: NOT_IN_ORGANISATION };
     }
     const result = await correctEntry(prisma, {
       dispute,
@@ -170,14 +170,14 @@ export async function resolveDisputeAction(
 }
 
 /**
- * Site admins were backfilled as ordinary members, so a workspace-admin check
+ * Site admins were backfilled as ordinary members, so a organisation-admin check
  * alone leaves nobody but a super admin able to repair the ledger.
  */
 async function canManagePoints(
   user: { id: string; role?: "user" | "admin" | "super_admin" | null },
-  tenantId: string,
+  organisationId: string,
 ): Promise<boolean> {
-  return isAdmin(user.role) || isTenantAdmin(user, tenantId);
+  return isAdmin(user.role) || isAdminOfOrganisation(user, organisationId);
 }
 
 /** Credits solver or reporter awards for the issue numbers an admin names. */
@@ -186,10 +186,10 @@ export async function creditAwardsAction(
   formData: FormData,
 ): Promise<DisputeActionResult> {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { ok: false, error: NO_TENANT_MESSAGE };
-  if (!(await canManagePoints(user, tenantId))) {
-    return { ok: false, error: "Only a workspace admin can credit awards." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { ok: false, error: NO_ORGANISATION_MESSAGE };
+  if (!(await canManagePoints(user, organisationId))) {
+    return { ok: false, error: "Only an organisation admin can credit awards." };
   }
 
   const role = formData.get("role");
@@ -201,7 +201,7 @@ export async function creditAwardsAction(
     return { ok: false, error: "Enter at least one issue number.", field: "numbers" };
   }
 
-  const result = await creditMissingAwards(prisma, { tenantId, numbers, role });
+  const result = await creditMissingAwards(prisma, { organisationId, numbers, role });
   revalidatePath("/points/disputes");
   revalidatePath("/points");
 

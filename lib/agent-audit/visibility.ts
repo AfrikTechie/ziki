@@ -3,30 +3,30 @@ import { Prisma } from "@prisma/client";
 /**
  * Who can read the agent audit log (#447).
  *
- * A tenant owner or admin (and the site's super admin) reads every row. An
+ * A organisation owner or admin (and the site's super admin) reads every row. An
  * agent owner reads their own agents' rows and nothing of another owner's.
  * Any other member gets 403, so nobody else ever sees raw payloads.
  */
 
 export type AuditViewer = {
-  /** Owner or admin of the current tenant, or the site's super admin. */
-  isTenantAdmin: boolean;
-  /** The current tenant, or null when the viewer belongs to none. */
-  tenantId: string | null;
-  /** Ids of the agents this viewer owns in that tenant. */
+  /** Owner or admin of the current organisation, or the site's super admin. */
+  isAdminOfOrganisation: boolean;
+  /** The current organisation, or null when the viewer belongs to none. */
+  organisationId: string | null;
+  /** Ids of the agents this viewer owns in that organisation. */
   ownedAgentIds: ReadonlyArray<string>;
 };
 
 export type AuditAccess =
-  | { kind: "all"; tenantId: string }
-  | { kind: "own-agents"; tenantId: string; agentIds: ReadonlyArray<string> }
+  | { kind: "all"; organisationId: string }
+  | { kind: "own-agents"; organisationId: string; agentIds: ReadonlyArray<string> }
   | { kind: "forbidden" };
 
 export function auditAccess(viewer: AuditViewer): AuditAccess {
-  if (!viewer.tenantId) return { kind: "forbidden" };
-  if (viewer.isTenantAdmin) return { kind: "all", tenantId: viewer.tenantId };
+  if (!viewer.organisationId) return { kind: "forbidden" };
+  if (viewer.isAdminOfOrganisation) return { kind: "all", organisationId: viewer.organisationId };
   if (viewer.ownedAgentIds.length > 0) {
-    return { kind: "own-agents", tenantId: viewer.tenantId, agentIds: [...viewer.ownedAgentIds] };
+    return { kind: "own-agents", organisationId: viewer.organisationId, agentIds: [...viewer.ownedAgentIds] };
   }
   return { kind: "forbidden" };
 }
@@ -49,7 +49,7 @@ export type AuditFilters = {
  */
 export function auditWhere(access: AuditAccess, filters: AuditFilters = {}): Prisma.AgentAuditEventWhereInput {
   if (access.kind === "forbidden") throw new Error("auditWhere called without access");
-  const where: Prisma.AgentAuditEventWhereInput = { tenantId: access.tenantId };
+  const where: Prisma.AgentAuditEventWhereInput = { organisationId: access.organisationId };
   const allowedAgents = access.kind === "own-agents" ? access.agentIds : null;
 
   if (filters.agentId) {

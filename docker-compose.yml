@@ -16,5 +16,20 @@ services:
       timeout: 5s
       retries: 10
 
+  typesense:
+    image: typesense/typesense:30.2
+    restart: unless-stopped
+    command: ["--data-dir", "/data", "--api-key", "${TYPESENSE_API_KEY:-dev-typesense-key-change-me}"]
+    ports:
+      - "127.0.0.1:8108:8108"
+    volumes:
+      - ziki_typesense:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8108/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   bugtracker_pg:
+  ziki_typesense:

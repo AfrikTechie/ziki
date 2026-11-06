@@ -21,7 +21,7 @@ const orphanedWhere = {
 export async function sweepOrphanedIssues(): Promise<{ reopened: number }> {
   const candidates = await prisma.bug.findMany({
     where: orphanedWhere,
-    select: { id: true, tenantId: true, projectId: true },
+    select: { id: true, organisationId: true, projectId: true },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: ORPHANED_ISSUE_BATCH,
   });
@@ -31,16 +31,16 @@ export async function sweepOrphanedIssues(): Promise<{ reopened: number }> {
       // Claim creation/acceptance takes this same lock. Recheck the complete
       // predicate in the write after locking: selection is only a shortlist.
       await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id}
-        AND "tenantId" = ${bug.tenantId} AND "projectId" = ${bug.projectId} FOR NO KEY UPDATE`;
+        AND "organisationId" = ${bug.organisationId} AND "projectId" = ${bug.projectId} FOR NO KEY UPDATE`;
       const updated = await tx.bug.updateMany({
-        where: { id: bug.id, tenantId: bug.tenantId, projectId: bug.projectId, ...orphanedWhere },
+        where: { id: bug.id, organisationId: bug.organisationId, projectId: bug.projectId, ...orphanedWhere },
         data: moveTo("open"),
       });
       if (!updated.count) return false;
       // A system event records why the status changed without attributing the
       // scheduled repair to the reporter or to an agent that did not perform it.
       await publish(tx, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         type: "issue.updated",
         bugId: bug.id,
         actorAgentId: null,

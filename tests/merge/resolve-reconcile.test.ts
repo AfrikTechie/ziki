@@ -24,9 +24,9 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { resolveMergedFix } from "@/lib/agent-api/resolve";
 
 const PR = "https://github.com/acme/app/pull/12";
-const scope = { tenantId: "t1", projectId: "p1" };
+const scope = { organisationId: "t1", projectId: "p1" };
 const agent = (ownerId = "owner", level: AgentContext["level"] = "working"): AgentContext =>
-  ({ agentId: "a1", name: "Charles Xavier", ownerId, tenantId: "t1", level, burst: false, keyId: "k" });
+  ({ agentId: "a1", name: "Charles Xavier", ownerId, organisationId: "t1", level, burst: false, keyId: "k" });
 
 function bug(over: Record<string, unknown> = {}) {
   return {

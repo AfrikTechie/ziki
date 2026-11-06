@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { INVITE_TTL_DAYS, canInvite, pendingInvites } from "@/lib/invites";
 import { prisma } from "@/lib/prisma";
 import { joinedSummary, listShareLinks, shareLinkStatusLabel } from "@/lib/share-invites";
-import { MEMBERSHIP_ROLE_LABELS, tenantMembersFrom } from "@/lib/tenants";
-import { revokeInviteAction, revokeShareLinkAction } from "@/app/(app)/tenants/actions";
+import { MEMBERSHIP_ROLE_LABELS, organisationMembersFrom } from "@/lib/organisations";
+import { revokeInviteAction, revokeShareLinkAction } from "@/app/(app)/organisations/actions";
 import { loadOrg } from "../org-context";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard, orgListHeading } from "../org-ui";
 import { InviteForm } from "./invite-form";
@@ -26,14 +26,14 @@ async function loadQuietly<T>(label: string, task: Promise<T>, empty: T): Promis
 
 /**
  * The owners and admins a member can ask for an invite. Users are loaded
- * apart from memberships, as tenantMembersFrom explains.
+ * apart from memberships, as organisationMembersFrom explains.
  */
-async function loadManagers(tenantId: string) {
+async function loadManagers(organisationId: string) {
   return loadQuietly(
     "managers",
     (async () => {
       const rows = await prisma.membership.findMany({
-        where: { tenantId, role: { in: ["owner", "admin"] } },
+        where: { organisationId, role: { in: ["owner", "admin"] } },
         orderBy: [{ role: "asc" }, { createdAt: "asc" }],
         take: 20,
         select: { role: true, createdAt: true, userId: true },
@@ -43,14 +43,14 @@ async function loadManagers(tenantId: string) {
         where: { id: { in: rows.map((row) => row.userId) } },
         select: { id: true, name: true, email: true },
       });
-      return tenantMembersFrom(rows, people);
+      return organisationMembersFrom(rows, people);
     })(),
     [],
   );
 }
 
 /**
- * The only two ways into an organization: an email invite for one person, or
+ * The only two ways into an organisation: an email invite for one person, or
  * a share link for several. Owners and admins send and revoke them here.
  */
 export default async function OrgInvitesPage() {
@@ -61,7 +61,7 @@ export default async function OrgInvitesPage() {
   const membership = await loadQuietly(
     "membership",
     prisma.membership.findUnique({
-      where: { tenantId_userId: { tenantId: org.id, userId: user.id } },
+      where: { organisationId_userId: { organisationId: org.id, userId: user.id } },
       select: { role: true },
     }),
     null,
@@ -118,7 +118,7 @@ export default async function OrgInvitesPage() {
           For one person. The link works once, only for the address you enter, and expires after{" "}
           {INVITE_TTL_DAYS} days.
         </p>
-        <InviteForm tenantId={org.id} />
+        <InviteForm organisationId={org.id} />
       </section>
 
       <section aria-labelledby="pending-invites" className={orgListCard}>
@@ -166,10 +166,10 @@ export default async function OrgInvitesPage() {
         <p className="mt-1 text-sm text-zk-text2">
           Share one link instead of typing each email. Anyone who opens it and signs in with Google
           joins as a member — a new Google account is created if they don&apos;t have one, and this
-          organization is added to it. Pick how long the link lasts and how many people can use it.
+          organisation is added to it. Pick how long the link lasts and how many people can use it.
           Once that limit is reached, or you revoke the link, it stops working.
         </p>
-        <ShareLinkForm tenantId={org.id} />
+        <ShareLinkForm organisationId={org.id} />
         <ul className="mt-4 divide-y divide-zk-border border-t border-zk-border">
           {shareLinks.length === 0 ? (
             <li className="pt-4 text-sm text-zk-text2">No invite links yet. Create one above to share it.</li>

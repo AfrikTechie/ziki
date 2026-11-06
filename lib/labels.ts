@@ -24,6 +24,7 @@ export const substatusLabel: Record<Substatus, string> = {
   on_dev: "On dev",
   on_staging: "On staging",
   on_prod: "On prod",
+  published: "Published",
   closed: "Closed",
 };
 
@@ -57,6 +58,7 @@ export const substatusClass: Record<Substatus, string> = {
   on_dev: statusClass.resolved,
   on_staging: statusClass.resolved,
   on_prod: statusClass.resolved,
+  published: statusClass.resolved,
   closed: statusClass.closed,
 };
 

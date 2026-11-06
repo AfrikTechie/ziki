@@ -123,11 +123,11 @@ describe("pairing an agent (#431)", () => {
 
   it("keeps the owner's edit after a failed approval, and resubmits it rather than the agent's proposal", async () => {
     pairAgentAction.mockReset();
-    pairAgentAction.mockResolvedValue({ ok: false, error: "Choose a project in this workspace." });
+    pairAgentAction.mockResolvedValue({ ok: false, error: "Choose a project in this organisation." });
     renderForm("Focus on desktop bugs.");
     fireEvent.change(screen.getByLabelText(/Standing instructions/), { target: { value: "Owner-edited brief." } });
     fireEvent.click(screen.getByRole("button", { name: "Approve agent" }));
-    await screen.findByText("Choose a project in this workspace.");
+    await screen.findByText("Choose a project in this organisation.");
     fireEvent.click(screen.getByRole("button", { name: "Approve agent" }));
     await waitFor(() => expect(pairAgentAction).toHaveBeenCalledTimes(2));
     expect((pairAgentAction.mock.calls[1][1] as FormData).get("instructions")).toBe("Owner-edited brief.");

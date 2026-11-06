@@ -42,14 +42,23 @@ export async function startAgentConnectAction(input: {
   };
 }
 
-/** Connect agent, step two: has this agent used its key yet? Only its owner can ask. */
-export async function checkAgentConnectedAction(agentId: string): Promise<{ connected: boolean }> {
+/** A key's last use is saved at most once a minute (lib/agents/require-agent.ts): a call that recent may not show. */
+const LAST_USED_SLACK_MS = 60_000;
+
+/**
+ * Connect agent, step two: has this agent used its key yet? Only its owner can
+ * ask. With `since` (when the person opened Connect), only a call from then on
+ * counts, less the minute a last use can lag, so an agent connected long ago
+ * doesn't look freshly connected.
+ */
+export async function checkAgentConnectedAction(agentId: string, since?: string): Promise<{ connected: boolean }> {
   const user = await requireUser();
+  const from = since ? new Date(Date.parse(since) - LAST_USED_SLACK_MS) : null;
   const key = await prisma.agentApiKey.findFirst({
     where: {
       agent: { id: agentId, ownerUserId: user.id, revokedAt: null },
       revokedAt: null,
-      lastUsedAt: { not: null },
+      lastUsedAt: from && !Number.isNaN(from.getTime()) ? { gt: from } : { not: null },
     },
     select: { id: true },
   });

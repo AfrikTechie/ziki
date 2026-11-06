@@ -65,9 +65,9 @@ export const testVerdictBodySchema = z.object({
   onBehalfOfUserId: z.string().trim().min(1).max(191).optional(),
   /**
    * The changed files you judged (#confirmation-files): [{ path, lines? }].
-   * Required. Other testers see them only once they have judged too.
+   * Required for product work. Other testers see them only once they have judged too.
    */
-  files: evidenceFilesSchema.min(1, "files: list the changed files you judged, as [{ path, lines? }]."),
+  files: evidenceFilesSchema.optional(),
   /**
    * The head commit the reviewer tested (#489). Defaults to the SHA recorded
    * when the pull request was linked, so every verdict names its code.
@@ -85,9 +85,11 @@ export type TestVerdictBody = z.infer<typeof testVerdictBodySchema>;
 const reviewedBugSelect = {
   id: true,
   title: true,
-  tenantId: true,
+  organisationId: true,
   status: true,
   substatus: true,
+  track: true,
+  revisionCount: true,
   pullRequestUrl: true,
   pullRequestHeadSha: true,
   beneficiaryUserId: true,
@@ -180,29 +182,53 @@ export async function submitTestVerdict(
   const body = parsed.data;
 
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-  const bugId = await issueIdFor(prisma, issueRef, agent.tenantId);
-  if (!bugId) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
+  const bugId = await issueIdFor(prisma, issueRef, agent.organisationId);
+  if (!bugId) return { status: 404, error: "not_found", message: "No such issue in this agent's organisation." };
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, tenantId: agent.tenantId, isDeleted: false },
+    where: { id: bugId, organisationId: agent.organisationId, isDeleted: false },
     select: reviewedBugSelect,
   });
-  if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
+  if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's organisation." };
 
   // #delivered-step: delivered work is judged at Done · Requires review, and a
   // judgement can still change at Done · Accepted (#529); before delivery, and
   // once a manager has accepted it, there is nothing to judge.
-  if (bug.status !== "done" || !bug.pullRequestUrl) {
-    return {
-      status: 409,
-      error: "not_delivered",
-      message:
-        "Judgements are given on delivered work: the issue must be Done · Requires review (or Done · Accepted, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
-    };
+  if (bug.track === "marketing") {
+    const delivery = await prisma.delivery.findFirst({
+      where: { bugId: bug.id },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: { id: true, updatedAt: true },
+    });
+    if (bug.status !== "done" || !delivery) {
+      return {
+        status: 409,
+        error: "not_delivered",
+        message:
+          "Judgements are given on delivered work: the issue must be Done · Requires review (or Done · Accepted, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
+      };
+    }
+  } else {
+    if (!body.files || body.files.length === 0) {
+      return {
+        status: 400,
+        error: "invalid_request",
+        message: "files: list the changed files you judged, as [{ path, lines? }].",
+        field: "files",
+      };
+    }
+    if (bug.status !== "done" || !bug.pullRequestUrl) {
+      return {
+        status: 409,
+        error: "not_delivered",
+        message:
+          "Judgements are given on delivered work: the issue must be Done · Requires review (or Done · Accepted, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
+      };
+    }
   }
-  const pullRequestUrl = bug.pullRequestUrl;
+  const pullRequestUrl = bug.track === "marketing" ? null : bug.pullRequestUrl;
   // #489: the verdict records the commit it tested. An agent that inspected
   // a newer commit says so; otherwise the SHA recorded when the PR was linked.
-  const headSha = body.headSha ?? bug.pullRequestHeadSha;
+  const headSha = bug.track === "marketing" ? null : (body.headSha ?? bug.pullRequestHeadSha);
 
   if (activeClaimAgent(bug) === agent.agentId) {
     return {
@@ -221,14 +247,14 @@ export async function submitTestVerdict(
   const onBehalfOfUserId = body.onBehalfOfUserId ?? agent.ownerId;
   if (onBehalfOfUserId !== agent.ownerId) {
     const member = await prisma.membership.findUnique({
-      where: { tenantId_userId: { tenantId: agent.tenantId, userId: onBehalfOfUserId } },
+      where: { organisationId_userId: { organisationId: agent.organisationId, userId: onBehalfOfUserId } },
       select: { id: true },
     });
     if (!member) {
       return {
         status: 400,
         error: "invalid_request",
-        message: "onBehalfOfUserId must be a member of the agent's tenant.",
+        message: "onBehalfOfUserId must be a member of the agent's organisation.",
         field: "onBehalfOfUserId",
       };
     }
@@ -250,7 +276,7 @@ export async function submitTestVerdict(
   }
 
   // A tester only says "good to merge" about a pull request that is ready, as reported.
-  if (body.goodToMerge) {
+  if (body.goodToMerge && bug.track !== "marketing") {
     const block = readyBlock(bug, await latestPullRequestReport(bug.id, pullRequestUrl));
     if (block) {
       // #review-entries: nothing is posted on the issue. The caller gets the
@@ -298,7 +324,7 @@ export async function submitTestVerdict(
             onBehalfOfUserId,
             pullRequestUrl,
             headSha,
-            files: uniqueEvidenceFiles(body.files),
+            files: body.files ? uniqueEvidenceFiles(body.files) : [],
             changedAt: new Date(),
           },
           select: verdictSelect,
@@ -316,7 +342,7 @@ export async function submitTestVerdict(
           { bugId: bug.id, db: tx },
         );
         await publish(tx, {
-          tenantId: bug.tenantId,
+          organisationId: bug.organisationId,
           type: "issue.test_verdict",
           payload: {
             issueId: bug.id,
@@ -332,7 +358,7 @@ export async function submitTestVerdict(
           actorAgentId: agent.agentId,
           bugId: bug.id,
         });
-        await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, tenantId: bug.tenantId, pullRequestUrl }).catch(() => null);
+        await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, organisationId: bug.organisationId, pullRequestUrl }).catch(() => null);
         return { status: 200 as const, verdict, changed: true as const };
       }
 
@@ -346,7 +372,7 @@ export async function submitTestVerdict(
           description: body.description,
           pullRequestUrl,
           headSha,
-          files: uniqueEvidenceFiles(body.files),
+          files: body.files ? uniqueEvidenceFiles(body.files) : [],
         },
         select: verdictSelect,
       });
@@ -359,14 +385,14 @@ export async function submitTestVerdict(
         { bugId: bug.id, db: tx },
       );
       await publish(tx, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         type: "issue.test_verdict",
         payload: { issueId: bug.id, verdictId: verdict.id, goodToMerge: body.goodToMerge, summary: body.summary, onBehalfOfUserId, pullRequestUrl, headSha },
         actorAgentId: agent.agentId,
         bugId: bug.id,
       });
 
-      await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, tenantId: bug.tenantId, pullRequestUrl }).catch(() => null);
+      await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, organisationId: bug.organisationId, pullRequestUrl }).catch(() => null);
       return { status: 201 as const, verdict };
     });
     // #delivered-step: enough independent judgements move it to Done, or back to Open.
@@ -452,7 +478,7 @@ export type TestVerdictEntry = {
 /**
  * Who is reading, for the files rule (#confirmation-files): another tester's
  * files show once the viewer has judged the issue too; their own and
- * workspace admins always see them. Without a viewer they are hidden.
+ * organisation admins always see them. Without a viewer they are hidden.
  */
 export type VerdictViewer = { userId: string; admin?: boolean };
 
@@ -498,7 +524,7 @@ export async function testVerdictEntries(
 }
 
 /** GET /issues/{id}/test-results: the issue's test verdicts, each with its replies. */
-export async function listTestVerdicts(scope: { tenantId: string; projectId?: string }, issueRef: string, viewer: VerdictViewer | null) {
+export async function listTestVerdicts(scope: { organisationId: string; projectId?: string }, issueRef: string, viewer: VerdictViewer | null) {
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },

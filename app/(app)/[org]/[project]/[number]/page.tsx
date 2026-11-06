@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { ideaPath, issuesPath, projectRef, refOf } from "@/lib/project-paths";
+import { MarketingAreaMarker } from "@/components/marketing/marketing-area";
+import { MarketingTaskDetail } from "@/components/marketing/marketing-task-detail";
+import { entryReplySelect, toEntryReplies } from "@/lib/agent-api/entry-fields";
 import Image from "next/image";
 import { Suspense } from "react";
 import type { Metadata } from "next";
@@ -7,7 +10,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { agentMentionId } from "@/lib/mentions";
 import { requireUser } from "@/lib/auth-helpers";
-import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
+import { bugInOrganisation, currentOrganisationIdFor } from "@/lib/organisation-context";
 import { issueHref, issuePath, queryString } from "@/lib/issue-ref";
 import { findProjectIssue, parseIssueNumber } from "@/lib/project-issue";
 import { resolveSessionUserId } from "@/lib/session-user";
@@ -40,6 +43,7 @@ import { type AgentDecision } from "@/components/issue-agent-activity";
 import { IssueProgressReport } from "@/components/issue-progress-report";
 import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueComments } from "@/components/comment-thread";
+import { AgentSteerPanel } from "@/components/agent-steer-panel";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
 import { AwardStep, IdeaStep, IssueTimeline, TimelineStep, type AwardStepView } from "@/components/issue-timeline";
@@ -69,8 +73,8 @@ import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations, takesConfirmations }
 import { DisputeAwardDialog, type DisputeRole } from "@/components/dispute-award-dialog";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
 import { ChooseRedesignButton } from "@/components/choose-redesign-button";
-import { isTenantAdminRole } from "@/lib/agents/membership";
-import type { OrganizationRole } from "@/lib/organization-role";
+import { isOrganisationAdminRole } from "@/lib/agents/membership";
+import type { OrganisationRole } from "@/lib/organisation-role";
 import { AgentChip, UserNameWithBadges } from "@/components/user-name-with-badges";
 import { fetchVoterSummary } from "@/lib/voter-summaries";
 import { createEmptyVoterSummary } from "@/lib/voters";
@@ -79,7 +83,7 @@ import {
   deletedSummary,
   deletionCounts,
 } from "@/lib/ticket-deletion";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { MilestoneDue } from "@/components/milestone-due";
 import { LoadError } from "@/components/load-error";
 import { logLoadFailure } from "@/lib/load-error";
@@ -99,6 +103,8 @@ import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
 import { LiveFlow } from "@/components/live-flow";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { DecisionCard } from "@/components/decision-card";
+import { decisionFor } from "@/lib/your-decision";
 import { agentInstructionsFor } from "@/lib/agent-instructions";
 import { countedJudgements } from "@/lib/agent-api/tested-status";
 import { DeliveredBanner, type DeliveredBannerProps } from "@/components/delivered-banner";
@@ -114,12 +120,15 @@ import { closedLabel, closeReasonLabel, ownsIssue } from "@/lib/close-reasons";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly } from "@/lib/governance";
 import { mergeReviewVotes } from "@/lib/agent-api/merge-review-tally";
-import { issueTenantHintFor } from "@/lib/issue-tenant-hint";
-import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
-import { tenantMemberWhere } from "@/lib/tenant-mentions";
+import { issueOrganisationHintFor } from "@/lib/issue-organisation-hint";
+import { IssueOrganisationSwitch } from "@/components/issue-organisation-hint";
+import { organisationMemberWhere } from "@/lib/organisation-mentions";
 import { readAgentResolution } from "@/lib/agent-resolution";
 import { AgentResolvedNotice } from "@/components/agent-resolved-notice";
 import { SubmissionEvidence } from "@/components/submission-evidence";
+import { GitHubStatusPanel, type GitHubStatusPanelProps } from "@/components/github-status-panel";
+import { storedGitHubStatus } from "@/lib/github/sync";
+import { githubStatusPowers } from "@/lib/github/status-access";
 import { voteDirection } from "@/lib/voting";
 import {
   issueChipBaseClass,
@@ -195,7 +204,7 @@ export async function generateMetadata({
       status: true,
       updatedAt: true,
       isDeleted: true,
-      project: { select: { slug: true, tenant: { select: { slug: true } } } },
+      project: { select: { slug: true, organisation: { select: { slug: true } } } },
     },
   }) : null;
 
@@ -299,20 +308,20 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   }
 
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await currentOrganisationAccess(user.id, user.role);
   const canTriage = access.admin;
   const canDelete = canDeleteTicket(user.role, access.membershipRole);
   if (!lookup) notFound();
   if (lookup.kind === "elsewhere") {
-    // A link into another of the viewer's tenants should not dead-end (#519):
-    // name the tenant and offer the switch. Non-members still get the 404.
-    const hint = await issueTenantHintFor(prisma, {
+    // A link into another of the viewer's organisations should not dead-end (#519):
+    // name the organisation and offer the switch. Non-members still get the 404.
+    const hint = await issueOrganisationHintFor(prisma, {
       userId,
-      activeTenantId: await currentTenantIdFor(userId),
+      activeOrganisationId: await currentOrganisationIdFor(userId),
       issueId: lookup.issueId,
     });
     if (!hint) notFound();
-    return <IssueTenantSwitch issueId={lookup.issueId} tenant={hint} />;
+    return <IssueOrganisationSwitch issueId={lookup.issueId} organisation={hint} />;
   }
   if (lookup.kind === "moved") {
     // #project-urls: the number lives in another project of this organisation.
@@ -330,22 +339,23 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   // missing used to reject this whole Promise and blank the page.
   let loadedBug = await prisma.bug
     .findUnique({
-      where: { id, ...bugInTenant(await currentTenantIdFor(userId)) },
+      where: { id, ...bugInOrganisation(await currentOrganisationIdFor(userId)) },
       include: {
         type: { select: { id: true, name: true, isActive: true } },
         reporter: { select: { name: true, email: true, role: true, image: true } },
         createdByAgent: { select: { id: true, name: true, ownerUserId: true } },
-        idea: { select: { id: true, number: true, convertedAt: true, _count: { select: { verdicts: true } } } },
+        linkedIssue: { select: { number: true, title: true, isDeleted: true } },
+        idea: { select: { id: true, number: true, rationale: true, convertedAt: true, _count: { select: { verdicts: true } } } },
         milestone: { select: { id: true, title: true, dueDate: true, isClosed: true } },
         assignee: { select: { id: true, name: true, role: true, image: true } },
         area: { select: { id: true, name: true } },
-        project: { select: { slug: true, tenant: { select: { slug: true } } } },
+        project: { select: { slug: true, name: true, goal: true, siteUrl: true, organisation: { select: { slug: true } } } },
         votes: { where: { userId }, select: { id: true, value: true }, take: 1 },
         // #285: both sides of a duplicate link.
-        duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+        duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
         duplicates: {
           where: { isDeleted: false },
-          select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+          select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
           orderBy: { number: "asc" },
           take: 20,
         },
@@ -365,20 +375,21 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   if ("detail" in loadedBug && /milestoneId|Milestone/i.test(loadedBug.detail)) {
     loadedBug = await prisma.bug
       .findUnique({
-        where: { id, ...bugInTenant(await currentTenantIdFor(userId)) },
+        where: { id, ...bugInOrganisation(await currentOrganisationIdFor(userId)) },
         include: {
           type: { select: { id: true, name: true, isActive: true } },
           reporter: { select: { name: true, email: true, role: true, image: true } },
           createdByAgent: { select: { id: true, name: true, ownerUserId: true } },
-          idea: { select: { id: true, number: true, convertedAt: true, _count: { select: { verdicts: true } } } },
+          linkedIssue: { select: { number: true, title: true, isDeleted: true } },
+          idea: { select: { id: true, number: true, rationale: true, convertedAt: true, _count: { select: { verdicts: true } } } },
           assignee: { select: { id: true, name: true, role: true, image: true } },
           area: { select: { id: true, name: true } },
-          project: { select: { slug: true, tenant: { select: { slug: true } } } },
+          project: { select: { slug: true, name: true, goal: true, siteUrl: true, organisation: { select: { slug: true } } } },
           votes: { where: { userId }, select: { id: true, value: true }, take: 1 },
-          duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+          duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
           duplicates: {
             where: { isDeleted: false },
-            select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+            select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
             orderBy: { number: "asc" },
             take: 20,
           },
@@ -409,31 +420,31 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     notFound();
   }
 
-  const tenantId = await currentTenantIdFor(userId);
+  const organisationId = await currentOrganisationIdFor(userId);
   // These tables arrived after the issue row. A missing one must not blank the page.
-  const [redesignProposals, membership] = tenantId ? await Promise.all([
+  const [redesignProposals, membership] = organisationId ? await Promise.all([
     loadOptional("redesigns", [], () =>
       prisma.redesignProposal.findMany({
-        where: { tenantId, bugId: bug.id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        where: { organisationId, bugId: bug.id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { id: true, title: true, body: true, previewUrl: true, status: true,
           authorAgent: { select: { name: true } }, attachments: { select: { id: true, filename: true, contentType: true } } },
       }),
     ),
     loadOptional("membership", null, () =>
-      prisma.membership.findUnique({ where: { tenantId_userId: { tenantId, userId } }, select: { role: true } }),
+      prisma.membership.findUnique({ where: { organisationId_userId: { organisationId, userId } }, select: { role: true } }),
     ),
   ]) : [[], null] as const;
-  const canChooseRedesign = isTenantAdminRole(membership?.role, user.role);
+  const canChooseRedesign = isOrganisationAdminRole(membership?.role, user.role);
   // Once an issue is past Requires confirmation, the Conversation opens on who
   // has it (its claims), then every bid it took (#issue-bids).
   const pastConfirmation = bug.substatus !== "requires_confirmation";
   // Bids come in from the start, while it awaits confirmation too.
-  const [hold, bidList, claimHistory] = await Promise.all([
+  const [hold, bidList, claimHistory, watchRow] = await Promise.all([
     pastConfirmation ? loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)) : Promise.resolve(null as IssueHold | null),
     // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
     loadOptional<BidEntryView[]>("bids", [], async () => {
       const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
-      return bug.status === "open" ? markAtCapacity({ tenantId: bug.tenantId, projectId: bug.projectId }, entries) : entries;
+      return bug.status === "open" ? markAtCapacity({ organisationId: bug.organisationId, projectId: bug.projectId }, entries) : entries;
     }),
     // Every offer or claim, newest first: the timeline's Award step (#issue-timeline) is the
     // newest, held or since released; the Activity panel lists each award and release.
@@ -459,16 +470,21 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         releasedAt: claim.releasedAt,
       }));
     }),
+    loadOptional("issue watch", null, () => prisma.issueWatch.findUnique({
+      where: { userId_bugId: { userId: user.id, bugId: bug.id } },
+      select: { watching: true },
+    })),
   ]);
+  const isWatchingIssue = watchRow?.watching ?? (bug.reporterId === user.id || bug.assigneeId === user.id);
   const awardClaim: AwardStepView | null = claimHistory[0] ?? null;
 
   const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations] =
     await Promise.all([
       canTriage
         ? loadOptional("users", [], () =>
-            // #502: only the issue's tenant can be mentioned or assigned.
+            // #502: only the issue's organisation can be mentioned or assigned.
             prisma.user.findMany({
-              where: tenantMemberWhere(bug.tenantId),
+              where: organisationMemberWhere(bug.organisationId),
               orderBy: { name: "asc" },
               select: { id: true, name: true, role: true, image: true },
             }),
@@ -691,13 +707,13 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         },
       ),
       loadOptional<TicketEscalation[]>("escalations", [], () =>
-        tenantId ? listBugEscalations(id, tenantId) : Promise.resolve([]),
+        organisationId ? listBugEscalations(id, organisationId) : Promise.resolve([]),
       ),
     ]);
   // Anyone who owns an agent in the organisation can award, through it, an open bid whose votes reached the threshold (#award-bids).
   const canAwardBids =
     (bug.substatus === "open" || bug.substatus === "requires_confirmation") && !bug.isDeleted
-      ? await loadOptional("award permission", false, async () => Boolean(await awardingAgentOf(user.id, bug.tenantId)))
+      ? await loadOptional("award permission", false, async () => Boolean(await awardingAgentOf(user.id, bug.organisationId)))
       : false;
   // One-click bid: while the issue takes bids, nobody is working on it, and you have no open bid on it,
   // the Bids step shows a Bid button with your agents to choose from.
@@ -710,18 +726,18 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           ]);
           if (workedOn > 0 || myOpenBid > 0) return [];
           return prisma.agent.findMany({
-            where: { tenantId: bug.tenantId, ownerUserId: user.id, revokedAt: null },
+            where: { organisationId: bug.organisationId, ownerUserId: user.id, revokedAt: null },
             orderBy: { name: "asc" },
             select: { id: true, name: true },
           });
         })
       : [];
-  // #603: the tenant's active agents, offered in the comment @mention list
+  // #603: the organisation's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
   const mentionAgents = canTriage
     ? await loadOptional("mention agents", [], () =>
         prisma.agent.findMany({
-          where: { tenantId: bug.tenantId, revokedAt: null },
+          where: { organisationId: bug.organisationId, revokedAt: null },
           orderBy: { name: "asc" },
           select: { id: true, name: true, owner: { select: { name: true } } },
         }),
@@ -750,7 +766,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   ]);
   const confirmationsData = await loadOptional<(ConfirmationsData & { confirmed?: boolean }) | null>("confirmations", null, () =>
     // #confirmation-files: other confirmers' files show once the viewer has confirmed (admins always).
-    listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id, { userId: user.id, admin: canChooseRedesign }),
+    listConfirmations({ organisationId: bug.organisationId, projectId: bug.projectId }, bug.id, { userId: user.id, admin: canChooseRedesign }),
   );
   // #issue-confirmations: at Requires confirmation the issue takes confirmation
   // entries, and so does one whose work started before it was confirmed, until
@@ -836,7 +852,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         .filter((review) => review.verdict === "reject" && new Date(review.updatedAt).getTime() >= deliveredAt)
         .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
       const notGood = testVerdictList.filter((verdict) => !verdict.goodToMerge && new Date(verdict.updatedAt).getTime() >= deliveredAt);
-      sentBack = rejected
+      // #github-status: someone sent it back from the GitHub panel.
+      const githubSendBack = activities.find((a) => {
+        const meta = a.metadata as Record<string, unknown> | null;
+        return meta?.via === "github_send_back" && new Date(a.createdAt).getTime() >= deliveredAt;
+      });
+      const githubNote = (githubSendBack?.metadata as { note?: unknown } | null)?.note;
+      const githubReason = typeof githubNote === "string" ? githubNote.split("\n").find((line) => line.trim())?.trim() ?? null : null;
+      sentBack = githubSendBack && (!rejected || new Date(githubSendBack.createdAt) >= new Date(rejected.updatedAt))
+        ? { reason: `Sent back from the GitHub status: ${githubReason ?? "GitHub can't merge it yet."}`, at: githubSendBack.createdAt }
+        : rejected
         ? { reason: `${rejected.agentName} for ${rejected.by} rejected it for merging: ${rejected.summary}`, at: rejected.updatedAt }
         : notGood.length > 0
           ? { reason: `${notGood.length} ${notGood.length === 1 ? "judgement says" : "judgements say"} it is not good to merge.`, at: notGood[0].updatedAt }
@@ -851,11 +876,65 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       sentBack,
     };
   }
+  // #github-status: the pull request as GitHub sees it, from In progress until it is Live.
+  let githubPanel: GitHubStatusPanelProps | null = null;
+  if (bug.pullRequestUrl && !bug.isDeleted && ["in_progress", "done", "merge"].includes(bug.status)) {
+    const pullRequestUrl = bug.pullRequestUrl;
+    const [githubStatus, myAgents, latestReport] = await Promise.all([
+      loadOptional("GitHub status", null, () => storedGitHubStatus({ id: bug.id, pullRequestUrl })),
+      loadOptional("agent levels", [] as { level: "working" | "manager" | "merger" }[], () =>
+        prisma.agent.findMany({ where: { organisationId: bug.organisationId, ownerUserId: user.id, revokedAt: null }, select: { level: true } }),
+      ),
+      loadOptional("latest pull request report", null, () =>
+        prisma.pullRequestReport.findFirst({
+          where: { bugId: bug.id, pullRequestUrl },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { source: true, note: true, createdAt: true, agent: { select: { name: true } } },
+        }),
+      ),
+    ]);
+    githubPanel = {
+      bugId: bug.id,
+      pullRequestUrl,
+      issueStatus: bug.status,
+      status: githubStatus
+        ? { snapshot: githubStatus.snapshot, diagnosis: githubStatus.diagnosis, checkedAt: githubStatus.checkedAt.toISOString() }
+        : null,
+      powers: githubStatusPowers({
+        member: Boolean(access.membershipRole),
+        admin: access.admin,
+        ownsIssue: bug.reporterId === user.id || bug.beneficiaryUserId === user.id,
+        agentLevels: myAgents.map((agent) => agent.level),
+      }),
+      newerAgentReport:
+        latestReport?.source === "agent" && latestReport.agent && (!githubStatus || latestReport.createdAt > githubStatus.checkedAt)
+          ? { agentName: latestReport.agent.name, note: latestReport.note, at: latestReport.createdAt.toISOString() }
+          : null,
+    };
+  }
+
   // Comments on the issue itself, at every stage (lib/comment-placement.ts).
   const takesComments = !bug.isDeleted;
+  // Looked up here, not on `hold`: holder is also what agents read through the API.
+  const workingAgent = hold?.status === "active"
+    ? await loadOptional("working agent", null, () => prisma.agent.findFirst({
+        where: { organisationId: bug.organisationId, claims: { some: { bugId: bug.id, status: "active", releasedAt: null } } },
+        select: { id: true, ownerUserId: true, revokedAt: true, pausedAt: true },
+      }))
+    : null;
+  // Owner-only: steering, and what the agent answered.
+  const steeringAgent = workingAgent && workingAgent.ownerUserId === user.id && !workingAgent.revokedAt ? workingAgent : null;
+  const steerNotes = steeringAgent
+    ? await loadOptional("steer notes", [], () => prisma.agentInboxItem.findMany({
+        where: { agentId: steeringAgent.id, bugId: bug.id, eventType: "agent.steer" },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: { id: true, payload: true },
+      }))
+    : [];
   const commentCount = comments.shownThreads + comments.hiddenThreads;
   // #489: the Admin label follows each person's role in this issue's
-  // organization, not their account-wide role, the same rule as admin powers.
+  // organisation, not their account-wide role, the same rule as admin powers.
   const namedUserIds = [
     ...new Set(
       [bug.reporterId, bug.assigneeId, ...comments.comments.map((c) => c.authorId)].filter(
@@ -863,17 +942,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       ),
     ),
   ];
-  const organizationRoleRows = await loadOptional<{ userId: string; role: OrganizationRole }[]>(
-    "organization roles",
+  const organisationRoleRows = await loadOptional<{ userId: string; role: OrganisationRole }[]>(
+    "organisation roles",
     [],
     () =>
       prisma.membership.findMany({
-        where: { tenantId: bug.tenantId, userId: { in: namedUserIds } },
+        where: { organisationId: bug.organisationId, userId: { in: namedUserIds } },
         select: { userId: true, role: true },
       }),
   );
-  const organizationRoles: Record<string, OrganizationRole> = Object.fromEntries(
-    organizationRoleRows.map((row) => [row.userId, row.role]),
+  const organisationRoles: Record<string, OrganisationRole> = Object.fromEntries(
+    organisationRoleRows.map((row) => [row.userId, row.role]),
   );
   const pageQuery = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -926,6 +1005,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const stale = bug.isDeleted ? null : (await loadOptional("stale hold", null, () => staleHold(bug.id)))?.kind ?? null;
   const abandonCheck = bug.isDeleted || bug.status !== "in_progress" ? null : await loadOptional("sense check", null, () => senseCheck(bug.id));
   const closeSuggestions = await loadOptional<CloseSuggestionsData | null>("close suggestions", null, () => closeSuggestionsFor(bug.id));
+  // A decision other members made about the viewer's own issue (#your-decisions).
+  const yourDecision = closeSuggestions
+    ? decisionFor({
+        issue: bug,
+        viewerId: user.id,
+        suggestions: closeSuggestions.entries,
+        threshold: closeSuggestions.threshold,
+        decidedAt: bug.closedAt,
+      })
+    : null;
   // The judgements as the Delivered rule counts them (independent, weighted, on
   // the delivered pull request), so the bar says what will actually move it.
   const judgementCount = bug.status === "done" && !bug.isDeleted
@@ -1061,6 +1150,517 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     ...activities,
     ...stepActivities.filter((entry) => !oldestLoadedActivity || entry.createdAt.getTime() >= new Date(oldestLoadedActivity).getTime()),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || b.id.localeCompare(a.id));
+
+  if (bug.track === "marketing") {
+    const marketingDeliveries = (
+      await prisma.delivery.findMany({
+        where: { bugId: bug.id },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          agentId: true,
+          beneficiaryUserId: true,
+          summary: true,
+          description: true,
+          deliverableText: true,
+          deliverableUrls: true,
+          screenshots: true,
+          testResults: true,
+          updatedAt: true,
+          agent: { select: { name: true } },
+          beneficiary: { select: { name: true } },
+          replies: entryReplySelect,
+        },
+      })
+    ).map(({ agent, beneficiary, replies, ...row }) => ({
+      ...row,
+      agentName: agent.name,
+      by: beneficiary.name ?? "A member",
+      current: true,
+      replies: toEntryReplies(replies),
+    }));
+
+    const marketingReviews = testVerdictList.map((verdict) => ({
+      id: verdict.id,
+      goodToMerge: verdict.goodToMerge,
+      summary: verdict.summary,
+      description: verdict.description,
+      agentName: verdict.agentName,
+      by: verdict.by,
+      updatedAt: verdict.updatedAt,
+      replies: verdict.replies ?? [],
+    }));
+
+    if (marketingDeliveries.length > 0) {
+      const latestMarketingDelivery = marketingDeliveries[0];
+      const deliveredAt = new Date(latestMarketingDelivery.updatedAt).getTime();
+      const stillDelivered = ["done", "merge", "resolved"].includes(bug.status);
+      let sentBack: DeliveredBannerProps["sentBack"] = null;
+      if (!stillDelivered && bug.status !== "closed") {
+        const notGood = testVerdictList.filter(
+          (verdict) => !verdict.goodToMerge && new Date(verdict.updatedAt).getTime() >= deliveredAt,
+        );
+        sentBack = notGood.length > 0
+          ? {
+              reason: `${notGood.length} ${notGood.length === 1 ? "review says" : "reviews say"} revisions are needed.`,
+              at: notGood[0].updatedAt,
+            }
+          : { reason: "The claim on it ended, so the task is open for bids again.", at: null };
+      }
+      deliveredBanner = {
+        agentName: latestMarketingDelivery.agentName,
+        by: latestMarketingDelivery.by,
+        summary: latestMarketingDelivery.summary,
+        deliverableUrls: latestMarketingDelivery.deliverableUrls,
+        hasDeliverableText: Boolean(latestMarketingDelivery.deliverableText),
+        pullRequestUrl: null,
+        deliveredAt: latestMarketingDelivery.updatedAt,
+        sentBack,
+      };
+    }
+
+    const marketingNextStep = {
+      ...nextStep,
+      detail: nextStep.detail ? nextStep.detail.replace(/\bissue\b/gi, "task") : null,
+      action: nextStep.action
+        ? nextStep.action.replace(/\bfixing it\b/gi, "executing it").replace(/\bissue\b/gi, "task")
+        : null,
+    };
+
+    // The brief's focus, when it has one (M-API-8); otherwise the project's own.
+    const marketingBrief = await prisma.projectBrief.findUnique({
+      where: { projectId: bug.projectId },
+      select: { currentFocus: true },
+    });
+    const marketingFocus = marketingBrief?.currentFocus ?? bug.project.goal;
+    const marketingSite = bug.project.siteUrl;
+
+    return (
+      <>
+      <MarketingAreaMarker />
+      <MarketingTaskDetail
+        bug={{
+          id: bug.id,
+          number: bug.number,
+          title: bug.title,
+          description: bug.description,
+          status: bug.status,
+          substatus: bug.substatus,
+          reward: bug.reward ? Number(bug.reward) : null,
+          revisionCount: bug.revisionCount,
+          createdAt: bug.createdAt,
+          type: bug.type,
+          reporter: bug.reporter,
+          createdByAgent: bug.createdByAgent,
+          project: {
+            slug: refOf(bug.project),
+            name: bug.project.name,
+            goal: marketingFocus,
+            siteUrl: marketingSite,
+          },
+          idea: bug.idea
+            ? {
+                id: bug.idea.id,
+                number: bug.idea.number,
+                rationale: bug.idea.rationale,
+              }
+            : null,
+        }}
+        revisionLimit={workflow.revisionLimit}
+        hold={hold}
+        agentPaused={Boolean(workingAgent?.pausedAt)}
+        isWatching={isWatchingIssue}
+        isIssueOwner={bug.reporterId === user.id}
+        deliveries={marketingDeliveries}
+        reviews={marketingReviews}
+        bannerSlot={deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
+        nextStepSlot={<NextStepBar step={marketingNextStep} agentInstructions={agentInstructions} />}
+        mergeReviewsSlot={
+          timelineReviews.length > 0 || mergeReviewing ? (
+            <MergeReviewsPanel
+              at={firstAt(timelineReviews)}
+              bugId={bug.id}
+              reviews={timelineReviews}
+              canReply={mergeReviewing}
+              history={!mergeReviewing}
+            />
+          ) : null
+        }
+        disputeSlot={
+          disputeRoles.length > 0 ? (
+            <DisputeAwardDialog bugNumber={bug.number} roles={disputeRoles} />
+          ) : null
+        }
+        escalationsSlot={<IssueEscalations escalations={escalations} />}
+        descriptionSlot={
+          <div className="flex flex-col gap-5">
+            {marketingFocus ? (
+              <div className="flex items-start gap-3 rounded-xl border border-zk-info-fg/30 bg-zk-info-bg/40 p-3.5 text-sm text-zk-text">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zk-info-fg text-white">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="m12 8 4 4-4 4M8 12h8" />
+                  </svg>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold uppercase tracking-wider text-[11px] text-zk-info-fg">
+                      {bug.project.name ? `${bug.project.name} Focus` : "Campaign Focus"}
+                    </span>
+                    {marketingSite ? (
+                      <a
+                        href={marketingSite}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-zk-accent hover:underline"
+                      >
+                        Visit Site <span aria-hidden="true">↗</span>
+                      </a>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 font-medium leading-relaxed">{marketingFocus}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {bug.idea?.rationale ? (
+              <div className="rounded-xl border border-zk-border bg-zk-surface p-4 text-xs">
+                <span className="font-bold uppercase tracking-wider text-[11px] text-zk-muted">
+                  Strategic Rationale
+                </span>
+                <p className="mt-1.5 text-sm leading-relaxed text-zk-text">
+                  {bug.idea.rationale}
+                </p>
+              </div>
+            ) : null}
+
+            <EditableIssueDescription
+              bugId={bug.id}
+              initialTitle={bug.title}
+              initialDescription={bug.description}
+              summary={bug.summary}
+              canEdit={canEdit}
+              users={users}
+              lastEditedAt={lastRevision?.editedAt ?? null}
+              historyHref={issueHref(bug, "/history")}
+              tags={
+                bug.area ? (
+                  <span title="Area" className="inline-flex items-center rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-semibold text-zk-text2 ring-1 ring-zk-border">
+                    {bug.area.name}
+                  </span>
+                ) : null
+              }
+            >
+              {bug.milestone ? (
+                <dl className="mt-4 grid grid-cols-1 gap-3 text-sm text-zk-text2 sm:grid-cols-2">
+                  <div>
+                    <dt className="font-medium text-zk-muted">Milestone</dt>
+                    <dd className="flex flex-wrap items-center gap-2">
+                      <Link href={milestoneIssuesHref(refOf(bug.project), bug.milestone.id)} className="font-bold text-zk-accent hover:underline">
+                        {bug.milestone.title}
+                      </Link>
+                      <MilestoneDue due={dueDateValue(bug.milestone.dueDate) || null} isClosed={bug.milestone.isClosed} />
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
+            </EditableIssueDescription>
+          </div>
+        }
+        bidsCount={bidList.length}
+        commentsCount={commentCount}
+        bidsSlot={
+          pastConfirmation || bidList.length > 0 || bidAgents.length > 0 ? (
+            <IssueBidsPanel
+              bidAction={bidAgents.length > 0 ? <BidButton bugId={bug.id} agents={bidAgents} /> : undefined}
+              bids={bidList}
+              at={firstAt(bidList)}
+              collapsed={bug.status !== "open"}
+              canAward={canAwardBids}
+              awardThreshold={workflow.awardThreshold}
+            />
+          ) : null
+        }
+        awardSlot={awardClaim ? <AwardStep award={awardClaim} /> : null}
+        commentsSlot={
+          takesComments || commentCount > 0 ? (
+            <section
+              id="comments"
+              aria-label="Comments"
+              className="scroll-mt-24 rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-[22px]"
+            >
+              <IssueComments
+                count={commentCount}
+                composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}
+                replyBugId={takesComments ? bug.id : undefined}
+                reporterId={bug.reporterId}
+                comments={commentTree}
+                attachmentsByComment={attachmentsByComment}
+                organisationRoles={organisationRoles}
+                users={commentMentionUsers}
+                currentUserId={user.id}
+                currentUserRole={user.role}
+                organisationAdmin={access.admin}
+                readOnly={bug.isDeleted}
+                markedImportantBy={importanceMarkers}
+              >
+                {comments.hiddenThreads > 0 ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-zk-chip px-3 py-2 text-sm text-zk-text2 print:hidden">
+                    <span>
+                      {comments.hiddenThreads} earlier{" "}
+                      {comments.hiddenThreads === 1 ? "thread" : "threads"} not shown.
+                    </span>
+                    <Link
+                      href={earlierThreadsHref(pageQuery, comments.shownThreads)}
+                      scroll={false}
+                      className="font-bold text-zk-accent hover:underline"
+                    >
+                      Show {Math.min(comments.hiddenThreads, COMMENT_THREADS_PER_PAGE)} earlier
+                    </Link>
+                    {comments.hiddenThreads > COMMENT_THREADS_PER_PAGE ? (
+                      <Link
+                        href={earlierThreadsHref(pageQuery, comments.shownThreads, true)}
+                        scroll={false}
+                        className="font-bold text-zk-accent hover:underline"
+                      >
+                        Show all
+                      </Link>
+                    ) : null}
+                  </div>
+                ) : null}
+              </IssueComments>
+              <Suspense fallback={null}>
+                <CommentPermalinkResolver />
+              </Suspense>
+            </section>
+          ) : null
+        }
+        voteButtonSlot={
+          <VoteButton
+            bugId={bug.id}
+            voteCount={bug.voteCount}
+            userVote={userVote}
+            likeCount={voterSummary.likes.count}
+            likeVoters={voterSummary.likes.voters}
+            size="md"
+            showAvatars={false}
+            readOnly={bug.isDeleted}
+          />
+        }
+        actionsMenuSlot={
+          canMarkDuplicate || canDeleteHere ? (
+            <IssueActionsMenu>
+              {canMarkDuplicate ? <MarkDuplicateButton bugId={bug.id} /> : null}
+              {canDeleteHere ? (
+                <DeleteIssueButton bugId={bug.id} bugTitle={bug.title} counts={keptCounts} variant="danger" size="sm" />
+              ) : null}
+            </IssueActionsMenu>
+          ) : null
+        }
+        attachmentsSlot={
+          issueAttachments.length > 0 ? (
+            <section className="rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6">
+              <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+                Attachments
+              </h2>
+              <AttachmentList attachments={issueAttachments} />
+            </section>
+          ) : null
+        }
+        alertsSlot={
+          <>
+            {bug.isDeleted ? (
+              <div className="rounded-[20px] border border-zk-bad-bd bg-zk-bad-bg p-4 sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zk-bad-fg">
+                      This task was deleted
+                    </h3>
+                    <p className="text-xs text-zk-bad-fg/90">
+                      {deletedSummary(keptCounts)}
+                    </p>
+                  </div>
+                  <RestoreIssueButton
+                    bugId={bug.id}
+                    bugTitle={bug.title}
+                    counts={keptCounts}
+                    size="sm"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {bug.duplicateOf ? (
+              <section
+                aria-label="Duplicate"
+                className="rounded-[20px] border border-zk-warn-bd bg-zk-warn-bg p-4 sm:p-5"
+              >
+                <h2 className="text-sm font-semibold text-zk-warn-fg">
+                  Marked as duplicate of{" "}
+                  <Link
+                    href={issueHref(bug.duplicateOf)}
+                    className="underline hover:text-zk-text"
+                  >
+                    #{bug.duplicateOf.number} {bug.duplicateOf.title}
+                  </Link>
+                </h2>
+              </section>
+            ) : null}
+
+            {resolution ? (
+              <section
+                aria-label="Resolution note"
+                className="rounded-[20px] border border-zk-border bg-zk-ok-bg p-4 sm:p-5"
+              >
+                <h2 className="text-sm font-semibold text-zk-ok-fg">
+                  {resolutionStatusLabel[resolution.status]} by {resolution.by}
+                  <span className="ml-2 text-xs font-normal">
+                    <LocalTime date={resolution.at} />
+                  </span>
+                </h2>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-zk-text">
+                  {resolution.note}
+                </p>
+              </section>
+            ) : null}
+          </>
+        }
+        sideRailSlot={
+          <>
+            {bug.linkedIssue && !bug.linkedIssue.isDeleted ? (
+              <section aria-label="Related product issue" className="flex flex-col gap-2 rounded-[20px] border border-zk-border bg-zk-surface p-5">
+                <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Related product issue</h2>
+                <Link href={issuePath(refOf(bug.project), bug.linkedIssue.number)} className="text-sm font-semibold text-zk-accent hover:underline">
+                  #{bug.linkedIssue.number} {bug.linkedIssue.title}
+                </Link>
+              </section>
+            ) : null}
+            <section aria-label="Status" className="flex flex-col gap-2.5 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
+              <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Status</h2>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                {bug.isDeleted ? (
+                  <span className={`${issueChipBaseClass} bg-zk-bad-bg text-zk-bad-fg`}>Deleted</span>
+                ) : null}
+                <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.substatus]}`}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+                  {stateLabel(bug.substatus)}
+                </Badge>
+                {bug.isBoosted && !bug.isDeleted ? (
+                  <span className={`${issueChipBaseClass} border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg`}>Boosted</span>
+                ) : null}
+              </div>
+              {statusFlags.length > 0 ? (
+                <ul data-testid="status-flags" className="m-0 flex list-none flex-col gap-1 p-0">
+                  {statusFlags.map((flag) => (
+                    <li key={flag.label} className="flex items-center gap-1.5 text-xs text-zk-text2" title={flag.title}>
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${FLAG_DOT[flag.tone]}`} aria-hidden />
+                      {flag.label}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {bug.status === "closed" && bug.closeEvidence && !bug.isDeleted ? (
+                <p data-testid="close-evidence" className="m-0 break-words text-xs leading-[1.5] text-zk-muted">
+                  {bug.closeEvidence}
+                </p>
+              ) : null}
+              {canWithdraw ? (
+                <form action={withdrawIssueAction} data-testid="issue-withdraw">
+                  <input type="hidden" name="issueId" value={bug.id} />
+                  <ConfirmSubmitButton
+                    confirm={{
+                      title: `Withdraw issue #${bug.number}?`,
+                      body: "It closes as withdrawn at once, and any agent working on it is released. Its comments and entries stay.",
+                      confirmLabel: "Withdraw issue",
+                    }}
+                  >
+                    Withdraw issue
+                  </ConfirmSubmitButton>
+                </form>
+              ) : null}
+            </section>
+
+            {rewardRow ? (
+              <IssueRewardPanel
+                bugId={bug.id}
+                reward={Number(rewardRow.reward)}
+                fixed={Boolean(rewardRow.rewardFixedAt)}
+                estimates={rewardEstimates}
+                viewerId={user.id}
+                canEstimate={!bug.isDeleted && bug.status !== "closed"}
+                caption="paid upon accepted delivery"
+              />
+            ) : null}
+
+            <section className="flex flex-col gap-2 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
+              <span className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">People</span>
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="w-16 shrink-0 text-xs text-zk-muted">Reporter</span>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <UserNameWithBadges
+                    name={bug.reporter.name}
+                    image={bug.reporter.image}
+                    avatar="sm"
+                    className="min-w-0 !flex-nowrap text-xs"
+                    userId={bug.reporterId}
+                  />
+                  {bug.createdByAgent ? <AgentChip name={bug.createdByAgent.name} className="ml-auto" /> : null}
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="w-16 shrink-0 text-xs text-zk-muted">Assignee</span>
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  {assignee ? (
+                    <UserNameWithBadges
+                      name={assignee.name}
+                      role={assignee.role}
+                      organisationRole={organisationRoles[assignee.id] ?? null}
+                      image={assignee.image}
+                      avatar="sm"
+                      className="min-w-0 !flex-nowrap text-xs"
+                      userId={assignee.id}
+                    />
+                  ) : (
+                    <span className="text-xs text-zk-muted">Unassigned</span>
+                  )}
+                  {assignee && hold?.agentName ? <AgentChip name={hold.agentName} className="ml-auto" /> : null}
+                  {canSelfAssign && (!assignee || isAssignee) ? (
+                    <SelfAssignButton
+                      bugId={bug.id}
+                      isAssignedToMe={isAssignee}
+                      variant="ghost"
+                      size="xs"
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <IssueLinks
+              links={proofLinks}
+              linkedPullRequestUrl={bug.pullRequestUrl}
+              pullRequests={false}
+              idea={sourceIdea ? { number: sourceIdea.number, slug: refOf(bug.project) } : null}
+              repairs={linkRepairs}
+            />
+
+            <SubmissionEvidence
+              screenshots={submissionScreenshots}
+              testResults={submissionTestResults}
+              pullRequestUrl={bug.pullRequestUrl}
+            />
+
+            <ActivityTimeline
+              activities={[...shownActivities].reverse()}
+              totalCount={activityCount + stepActivities.length}
+            />
+          </>
+        }
+        canReply={!bug.isDeleted}
+      />
+      </>
+    );
+  }
 
   return (
     <div className="issue-detail-scope flex flex-col gap-5 pb-10">
@@ -1296,11 +1896,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           />
 
           <NextStepBar step={liveFix ? liveNextStep(liveFix.check, liveFix.repo) : nextStep} agentInstructions={agentInstructions} />
+          {yourDecision ? <DecisionCard issueId={bug.id} decision={yourDecision} /> : null}
 
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
 
+          {githubPanel ? <GitHubStatusPanel {...githubPanel} /> : null}
+
               {/* Who has the issue, while it is the latest thing (In progress); the timeline below keeps the award after that. */}
-              {hold?.status === "active" && bug.status === "in_progress" ? <AwardBox hold={hold} /> : null}
+              {hold?.status === "active" && bug.status === "in_progress" ? <AwardBox hold={hold} agentPaused={Boolean(workingAgent?.pausedAt)} bugId={bug.id} isWatching={isWatchingIssue} isIssueOwner={bug.reporterId === user.id} /> : null}
 
               {conversationHasContent ? (
                 <section
@@ -1370,6 +1973,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   aria-label="Comments"
                   className="scroll-mt-24 rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-[22px]"
                 >
+                  {steeringAgent ? (
+                    <AgentSteerPanel
+                      agentId={steeringAgent.id}
+                      issueId={bug.id}
+                      paused={steeringAgent.pausedAt !== null}
+                      notes={steerNotes.map((note) => {
+                        const payload = (note.payload ?? {}) as { body?: unknown; plan?: unknown };
+                        return { id: note.id, body: String(payload.body ?? ""), plan: typeof payload.plan === "string" ? payload.plan : null };
+                      })}
+                    />
+                  ) : null}
                   <IssueComments
                     count={commentCount}
                     composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}
@@ -1377,11 +1991,11 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     reporterId={bug.reporterId}
                     comments={commentTree}
                     attachmentsByComment={attachmentsByComment}
-                    organizationRoles={organizationRoles}
+                    organisationRoles={organisationRoles}
                     users={commentMentionUsers}
                     currentUserId={user.id}
                     currentUserRole={user.role}
-                    tenantAdmin={access.admin}
+                    organisationAdmin={access.admin}
                     readOnly={bug.isDeleted}
                     markedImportantBy={importanceMarkers}
                   >
@@ -1511,7 +2125,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   <UserNameWithBadges
                     name={assignee.name}
                     role={assignee.role}
-                    organizationRole={organizationRoles[assignee.id] ?? null}
+                    organisationRole={organisationRoles[assignee.id] ?? null}
                     image={assignee.image}
                     avatar="sm"
                     className="min-w-0 !flex-nowrap text-xs"

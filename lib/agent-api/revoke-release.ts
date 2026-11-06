@@ -17,12 +17,12 @@ import { moveTo } from "@/lib/issue-substatus";
  */
 export async function releaseWorkOfRevokedAgent(
   tx: Prisma.TransactionClient,
-  input: { agentId: string; tenantId: string; actorUserId: string; now: Date },
+  input: { agentId: string; organisationId: string; actorUserId: string; now: Date },
 ): Promise<{
   releasedClaims: number;
   withdrawnBids: number;
 }> {
-  const { agentId, tenantId, actorUserId, now } = input;
+  const { agentId, organisationId, actorUserId, now } = input;
   const open = await tx.issueClaim.findMany({
     where: { agentId, releasedAt: null, status: { in: ["offered", "active"] } },
     select: { id: true, bugId: true },
@@ -48,18 +48,18 @@ export async function releaseWorkOfRevokedAgent(
     if (!otherOpen && claim.status === "active") {
       await tx.bug.updateMany({
         // A delivered fix stays where it got to (#one-status).
-        where: { id: claim.bugId, tenantId, isDeleted: false, assigneeId: claim.beneficiaryUserId, status: "in_progress", pullRequestUrl: null },
+        where: { id: claim.bugId, organisationId, isDeleted: false, assigneeId: claim.beneficiaryUserId, status: "in_progress", pullRequestUrl: null },
         data: { assigneeId: null, ...moveTo("open") },
       });
     }
     await publish(tx, {
-      tenantId,
+      organisationId,
       type: "claim.released",
       actorAgentId: agentId,
       bugId: claim.bugId,
       payload: { claimId: claim.id, issueId: claim.bugId, beneficiaryUserId: claim.beneficiaryUserId, reason: "revoked" },
     });
-    await audit({ agentId, tenantId }, "claim.released", claim.bugId, { claimId: claim.id, reason: "revoked" }, {
+    await audit({ agentId, organisationId }, "claim.released", claim.bugId, { claimId: claim.id, reason: "revoked" }, {
       db: tx,
       bugId: claim.bugId,
       actorUserId,

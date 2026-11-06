@@ -8,7 +8,7 @@ import { OrgPageHeader, ReadOnlyNote } from "../org-ui";
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Milestones" };
 
-/** The organization's milestones. Owners and admins manage them; everyone reads them on /milestones. */
+/** The organisation's milestones. Owners and admins manage them; everyone reads them on /milestones. */
 export default async function OrgMilestonesPage() {
   const { user, org } = await loadOrg();
   if (!org) return null;
@@ -40,7 +40,7 @@ export default async function OrgMilestonesPage() {
     );
   }
 
-  const milestones = await loadMilestoneSummaries({ tenantId: scope.tenantId });
+  const milestones = await loadMilestoneSummaries({ organisationId: scope.organisationId });
 
   return (
     <div className="space-y-6">

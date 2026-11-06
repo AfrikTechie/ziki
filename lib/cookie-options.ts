@@ -12,7 +12,7 @@ export function secureCookiesEnabled(env: Env = process.env): boolean {
   return env.NODE_ENV === "production" && !authUrl?.startsWith("http://localhost");
 }
 
-/** Attributes for the app's preference cookies (active tenant, active project, theme). */
+/** Attributes for the app's preference cookies (active organisation, active project, theme). */
 export function appCookieOptions(maxAge: number) {
   return {
     path: "/",

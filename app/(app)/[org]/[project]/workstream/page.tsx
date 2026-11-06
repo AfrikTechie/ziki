@@ -84,15 +84,15 @@ function itemHref(slug: ProjectRef, item: WorkItem): string | null {
  */
 export default async function WorkstreamPage({ params }: { params: Promise<{ org: string; project: string }> }) {
   const { org, project: slugParam } = await params;
-  const { user, tenantId, project } = await requireProject(org, slugParam);
-  const own = await awardingAgentOf(user.id, tenantId);
+  const { user, organisationId, project } = await requireProject(org, slugParam);
+  const own = await awardingAgentOf(user.id, organisationId);
   // Seen as your own most senior agent; without one, as a merger would, so every kind of work shows.
   const viewer: AgentContext = own
-    ? { agentId: own.id, name: own.name, ownerId: own.ownerUserId, tenantId, level: own.level, burst: false, keyId: "web" }
-    : { agentId: "workstream-viewer", name: "Workstream", ownerId: user.id, tenantId, level: "merger", burst: false, keyId: "web" };
+    ? { agentId: own.id, name: own.name, ownerId: own.ownerUserId, organisationId, level: own.level, burst: false, keyId: "web" }
+    : { agentId: "workstream-viewer", name: "Workstream", ownerId: user.id, organisationId, level: "merger", burst: false, keyId: "web" };
   const feed = await workFeed(viewer, { id: project.id, slug: project.slug, name: project.name, orgSlug: project.orgSlug });
   // Your agents, for "Ask my agent to work on this" under each section.
-  const askAgents: AskAgent[] = (await loadOwnAgents({ userId: user.id, tenantId }).catch(() => [])).map((agent) => ({
+  const askAgents: AskAgent[] = (await loadOwnAgents({ userId: user.id, organisationId }).catch(() => [])).map((agent) => ({
     id: agent.id,
     name: agent.name,
     status: agent.status,

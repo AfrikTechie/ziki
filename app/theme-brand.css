@@ -74,27 +74,27 @@
    badge pairs keep their AA contrast when the palette flips. */
 @media screen and (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --background: #070f22;
-    --foreground: #e8eef9;
+    --background: #0b0b0c;
+    --foreground: #ececee;
 
-    /* Cards sit one step above the dark canvas via --card (bg-card).
+    /* A neutral dark (near-black and greys, not navy). Cards sit one step above the canvas via --card (bg-card).
        --color-white stays white so text-white, rings, and white/opacity
        chrome keep their contrast. */
     --color-white: #fff;
-    --card: #0e1a33;
-    --color-slate-50: #070f22;
-    --color-slate-100: #1b2a47;
+    --card: #161618;
+    --color-slate-50: #0b0b0c;
+    --color-slate-100: #222226;
 
-    --zk-bg: #070f22;
-    --zk-surface: #0e1a33;
-    --zk-text: #e8eef9;
-    --zk-text2: #b7c3da;
-    --zk-muted: #93a0b8;
-    --zk-border: #22324f;
-    --zk-divider: #1a2844;
-    --zk-tint: #15284a;
-    --zk-chip: #1b2a47;
-    --zk-seg: #0a1530;
+    --zk-bg: #0b0b0c;
+    --zk-surface: #161618;
+    --zk-text: #ececee;
+    --zk-text2: #bdbdc3;
+    --zk-muted: #8f8f97;
+    --zk-border: #2c2c31;
+    --zk-divider: #232327;
+    --zk-tint: #1c2333;
+    --zk-chip: #222226;
+    --zk-seg: #111113;
     --zk-accent: #8fc9ff;
     --zk-ok-bg: #0f3326;
     --zk-ok-fg: #6ee7a8;
@@ -148,24 +148,24 @@
 
 @media screen {
   :root[data-theme="dark"] {
-    --background: #070f22;
-    --foreground: #e8eef9;
+    --background: #0b0b0c;
+    --foreground: #ececee;
 
     --color-white: #fff;
-    --card: #0e1a33;
-    --color-slate-50: #070f22;
-    --color-slate-100: #1b2a47;
+    --card: #161618;
+    --color-slate-50: #0b0b0c;
+    --color-slate-100: #222226;
 
-    --zk-bg: #070f22;
-    --zk-surface: #0e1a33;
-    --zk-text: #e8eef9;
-    --zk-text2: #b7c3da;
-    --zk-muted: #93a0b8;
-    --zk-border: #22324f;
-    --zk-divider: #1a2844;
-    --zk-tint: #15284a;
-    --zk-chip: #1b2a47;
-    --zk-seg: #0a1530;
+    --zk-bg: #0b0b0c;
+    --zk-surface: #161618;
+    --zk-text: #ececee;
+    --zk-text2: #bdbdc3;
+    --zk-muted: #8f8f97;
+    --zk-border: #2c2c31;
+    --zk-divider: #232327;
+    --zk-tint: #1c2333;
+    --zk-chip: #222226;
+    --zk-seg: #111113;
     --zk-accent: #8fc9ff;
     --zk-ok-bg: #0f3326;
     --zk-ok-fg: #6ee7a8;

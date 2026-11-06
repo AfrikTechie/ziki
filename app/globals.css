@@ -102,6 +102,28 @@ body:has([data-app-shell]) {
   }
 }
 
+/* Earn pages: blocks rise in one after another, a short and gentle entrance. --i is the block's place in
+   line. Reduced motion shows everything at once. */
+@keyframes earn-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.earn-rise {
+  animation: earn-rise 0.45s cubic-bezier(0.2, 0, 0, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .earn-rise {
+    animation: none;
+  }
+}
+
 /* Header account menu opening (respects reduced motion via motion-safe:). */
 @keyframes header-pop {
   from {
@@ -523,7 +545,38 @@ body:has([data-app-shell]) {
 .earn-coin { animation: earn-coin 0.9s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .earn-spark { animation: earn-spark 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both; }
 .earn-hop { animation: earn-hop 0.8s ease-out 0.5s both; }
+/* The celebration window (#earn-celebrate): it pops in, and confetti bursts out of the coin and falls away. */
+@keyframes earn-pop {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+/* The earner's agent looks around now and then: a small tilt one way, then the other, then a long rest. */
+@keyframes earn-look {
+  0%, 62%, 100% { transform: rotate(0deg) translateX(0); }
+  70% { transform: rotate(-8deg) translateX(-1px); }
+  80% { transform: rotate(-8deg) translateX(-1px); }
+  88% { transform: rotate(7deg) translateX(1px); }
+  94% { transform: rotate(7deg) translateX(1px); }
+}
+.earn-look { animation: earn-look 5s ease-in-out 1s infinite; transform-origin: 50% 80%; }
+@media (prefers-reduced-motion: reduce) { .earn-look { animation: none; } }
+
+/* Party poppers: each piece shoots up and out fast, then drifts down and fades. */
+@keyframes earn-confetti {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0deg); animation-timing-function: cubic-bezier(0.12, 0.8, 0.3, 1); }
+  45% { opacity: 1; transform: translate(var(--dx), var(--dy)) rotate(calc(var(--spin) * 0.5)); animation-timing-function: cubic-bezier(0.4, 0, 0.8, 0.6); }
+  100% { opacity: 0; transform: translate(calc(var(--dx) * 1.25), calc(var(--dy) + var(--fall))) rotate(var(--spin)); }
+}
+/* The amount pops when the poppers go off. */
+@keyframes earn-cheer {
+  0% { opacity: 0; transform: scale(0.6); }
+  55% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.earn-pop { animation: earn-pop 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.earn-confetti { animation: earn-confetti 1.8s linear both; }
+.earn-cheer { animation: earn-cheer 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both; }
 @media (prefers-reduced-motion: reduce) {
-  .earn-grow, .earn-coin, .earn-spark, .earn-hop { animation: none; }
-  .earn-spark { opacity: 0; }
+  .earn-grow, .earn-coin, .earn-spark, .earn-hop, .earn-pop, .earn-confetti, .earn-cheer { animation: none; }
+  .earn-spark, .earn-confetti { opacity: 0; }
 }

@@ -30,7 +30,8 @@ import {
   newlyMentionedUserIds,
   normalizeMentions,
 } from "@/lib/mentions";
-import { resolveTenantMentions, tenantMemberWhere } from "@/lib/tenant-mentions";
+import { resolveOrganisationMentions, organisationMemberWhere } from "@/lib/organisation-mentions";
+import { parseIdeaTrack, typeFitsTrack } from "@/lib/marketing/idea-track";
 import { structureIdea } from "@/lib/idea-structuring";
 import {
   commentSchema,
@@ -76,11 +77,11 @@ import { getForeignKeyErrorMessage } from "@/lib/foreign-key-errors";
 import { parseAttachmentIds } from "@/lib/attachments";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import {
-  bugInTenant,
-  currentTenantIdFor,
-  NO_TENANT_MESSAGE,
-} from "@/lib/tenant-context";
-import { currentTenantAccess } from "@/lib/tenant-access";
+  bugInOrganisation,
+  currentOrganisationIdFor,
+  NO_ORGANISATION_MESSAGE,
+} from "@/lib/organisation-context";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { award, solverAwardFor } from "@/lib/points/award";
 import { holdPayout } from "@/lib/points/payout";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
@@ -105,7 +106,8 @@ import {
   type MentionedAgent,
 } from "@/lib/agent-mentions";
 import { ideaPath, refOf } from "@/lib/project-paths";
-import { ENTRY_SUBSTATUS, moveTo } from "@/lib/issue-substatus";
+import { moveTo } from "@/lib/issue-substatus";
+import { entrySubstatus } from "@/lib/marketing/track";
 
 export type ActionResult = {
   error?: string;
@@ -117,13 +119,13 @@ export type ActionResult = {
 };
 
 /**
- * Resolves `@[Name](userId)` tags against this tenant's members: known ids are
+ * Resolves `@[Name](userId)` tags against this organisation's members: known ids are
  * rewritten to the current name, anyone else degrades to plain `@Name` (#502).
- * `agents` are the issue tenant's agents the text may keep tags for (#603).
+ * `agents` are the issue organisation's agents the text may keep tags for (#603).
  */
 async function normalizeMentionTags(
   text: string,
-  tenantId: string,
+  organisationId: string,
   agents: MentionedAgent[] = [],
 ): Promise<string> {
   const mentionedIds = extractMentionedUserIds(text);
@@ -131,7 +133,7 @@ async function normalizeMentionTags(
 
   const validUsers = mentionedIds.length
     ? await prisma.user.findMany({
-        where: { id: { in: mentionedIds }, ...tenantMemberWhere(tenantId) },
+        where: { id: { in: mentionedIds }, ...organisationMemberWhere(organisationId) },
         select: { id: true, name: true },
       })
     : [];
@@ -150,11 +152,11 @@ function foreignKeyError(error: unknown): string | null {
 }
 
 /** Reads the type, including when the template column has not been migrated yet. */
-async function issueTypeForCreate(typeId: string, tenantId: string) {
+async function issueTypeForCreate(typeId: string, organisationId: string) {
   try {
     return await prisma.issueType.findUnique({
-      where: { id_tenantId: { id: typeId, tenantId } },
-      select: { id: true, isActive: true, template: true },
+      where: { id_organisationId: { id: typeId, organisationId } },
+      select: { id: true, isActive: true, template: true, track: true },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
@@ -168,10 +170,10 @@ async function issueTypeForCreate(typeId: string, tenantId: string) {
       /column [`'"]?(?:[\w."]+\.)*template[`'"]?/i.test(message);
     if (!missingTemplate) throw error;
     const row = await prisma.issueType.findUnique({
-      where: { id_tenantId: { id: typeId, tenantId } },
+      where: { id_organisationId: { id: typeId, organisationId } },
       select: { id: true, isActive: true },
     });
-    return row ? { ...row, template: null } : null;
+    return row ? { ...row, template: null, track: "product" as const } : null;
   }
 }
 
@@ -230,27 +232,40 @@ export async function createBugAction(
     return fromZodError(parsed.error);
   }
 
+  // Product (the default) or a marketing task, which must say why it is worth doing.
+  const trackFields = parseIdeaTrack({ track: formData.get("track"), rationale: formData.get("rationale") });
+  if (!trackFields.ok) {
+    return fieldError(trackFields.field, trackFields.message);
+  }
+  const { track, rationale } = trackFields.value;
+
   const typeId =
     parsed.data.typeId && parsed.data.typeId.length > 0
       ? parsed.data.typeId
       : null;
 
-  // #425: the idea goes into the reporter's tenant. No membership, no idea.
-  const tenantId = await currentTenantIdFor(userId);
-  // #project-urls: the project the form was opened in, and only if it is in this workspace.
+  // #425: the idea goes into the reporter's organisation. No membership, no idea.
+  const organisationId = await currentOrganisationIdFor(userId);
+  // #project-urls: the project the form was opened in, and only if it is in this organisation.
   const requestedProjectId = typeof formData.get("projectId") === "string" ? String(formData.get("projectId")) : "";
-  const targetProject = tenantId && requestedProjectId
-    ? await prisma.project.findFirst({ where: { id: requestedProjectId, tenantId, archivedAt: null }, select: { id: true, slug: true, tenant: { select: { slug: true } } } })
+  const targetProject = organisationId && requestedProjectId
+    ? await prisma.project.findFirst({ where: { id: requestedProjectId, organisationId, archivedAt: null }, select: { id: true, slug: true, organisation: { select: { slug: true } } } })
     : null;
-  if (!tenantId || !targetProject) {
-    return { error: NO_TENANT_MESSAGE };
+  if (!organisationId || !targetProject) {
+    return { error: NO_ORGANISATION_MESSAGE };
   }
   const projectId = targetProject.id;
 
   if (typeId) {
-    const issueType = await issueTypeForCreate(typeId, tenantId);
+    const issueType = await issueTypeForCreate(typeId, organisationId);
     if (!issueType || !issueType.isActive) {
       return fieldError("typeId", "That type no longer exists. Please pick another.");
+    }
+    if (!typeFitsTrack(issueType.track, track)) {
+      return fieldError(
+        "typeId",
+        track === "marketing" ? "Pick one of the marketing task types." : "That type is for marketing tasks. Please pick another.",
+      );
     }
     // #307: headings alone pass the length check but say nothing.
     if (isUntouchedTemplate(parsed.data.description, issueType.template)) {
@@ -263,10 +278,13 @@ export async function createBugAction(
     : null;
   // #idea-intake: Claude writes what they typed up as a clear idea (title and the standard
   // headings) before it is saved. Without the key, or if that fails, it is saved as typed.
-  const structured = await structureIdea({ title: parsed.data.title, description: parsed.data.description });
+  // A marketing task is kept as written: the structuring writes a product report's headings.
+  const structured = track === "product"
+    ? await structureIdea({ title: parsed.data.title, description: parsed.data.description })
+    : null;
   const ideaTitle = structured?.title ?? parsed.data.title;
-  // #502: mentions resolve only to members of the idea's tenant.
-  const description = await resolveTenantMentions(prisma, tenantId, structured?.description ?? parsed.data.description);
+  // #502: mentions resolve only to members of the idea's organisation.
+  const description = await resolveOrganisationMentions(prisma, organisationId, structured?.description ?? parsed.data.description);
 
   if (areaId) {
     const area = await prisma.projectArea.findFirst({
@@ -281,12 +299,14 @@ export async function createBugAction(
     idea = await prisma.$transaction(async (tx) => {
       const created = await tx.idea.create({
         data: {
-          tenantId,
+          organisationId,
           projectId,
           beneficiaryUserId: userId,
           reporterId: userId,
           title: ideaTitle,
           description,
+          track,
+          rationale,
           typeId,
           proofLinks: parsed.data.proofLinks,
           areaId,
@@ -307,7 +327,7 @@ export async function createBugAction(
       });
       // #600 / #534: agents hear about ideas people file.
       await publish(tx, {
-        tenantId,
+        organisationId,
         type: "idea.created",
         projectId,
         payload: {
@@ -339,12 +359,12 @@ export async function updateBugAction(
 ): Promise<ActionResult> {
   const user = await requireUser();
   const userId = user.id;
-  const access = await currentTenantAccess(userId, user.role);
+  const access = await currentOrganisationAccess(userId, user.role);
   const admin = access.admin;
 
-  const tenantId = await currentTenantIdFor(userId);
+  const organisationId = await currentOrganisationIdFor(userId);
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(tenantId) },
+    where: { id: bugId, ...bugInOrganisation(organisationId) },
     include: {
       assignee: { select: { id: true, name: true } },
       area: { select: { id: true, name: true } },
@@ -390,7 +410,7 @@ export async function updateBugAction(
 
   if (!admin && !isAssignee && !isSelfAssigning) {
     return {
-      error: "Only the assignee, or an owner or admin of this organization, can update this issue",
+      error: "Only the assignee, or an owner or admin of this organisation, can update this issue",
     };
   }
 
@@ -476,7 +496,7 @@ export async function updateBugAction(
     boostedAt?: Date | null;
   } = {};
 
-  if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(ENTRY_SUBSTATUS[parsed.data.status]));
+  if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(entrySubstatus(existing.track, parsed.data.status)));
   if (admin) {
     if (parsed.data.typeId !== undefined) {
       data.typeId = parsed.data.typeId === "" ? null : parsed.data.typeId;
@@ -534,11 +554,11 @@ export async function updateBugAction(
     let toName: string | null = null;
     if (data.assigneeId) {
       const nextAssignee = await prisma.user.findFirst({
-        where: { id: data.assigneeId, memberships: { some: { tenantId: existing.tenantId } } },
+        where: { id: data.assigneeId, memberships: { some: { organisationId: existing.organisationId } } },
         select: { name: true },
       });
       if (!nextAssignee) {
-        return { error: "Assignee not found in this workspace" };
+        return { error: "Assignee not found in this organisation" };
       }
       toName = nextAssignee.name ?? null;
     }
@@ -557,7 +577,7 @@ export async function updateBugAction(
     let toName: string | null = null;
     if (data.typeId) {
       const nextType = await prisma.issueType.findUnique({
-        where: { id_tenantId: { id: data.typeId, tenantId: existing.tenantId } },
+        where: { id_organisationId: { id: data.typeId, organisationId: existing.organisationId } },
         select: { id: true, name: true, isActive: true },
       });
       if (!nextType || !nextType.isActive) {
@@ -604,7 +624,7 @@ export async function updateBugAction(
       let toTitle: string | null = null;
       if (nextMilestoneId) {
         const milestone = await prisma.milestone.findUnique({
-          where: { id_tenantId: { id: nextMilestoneId, tenantId: existing.tenantId } },
+          where: { id_organisationId: { id: nextMilestoneId, organisationId: existing.organisationId } },
           select: { title: true, isClosed: true },
         });
         if (!milestone) return fieldError("milestoneId", "That milestone no longer exists.");
@@ -657,7 +677,7 @@ export async function updateBugAction(
         });
         for (const claim of activeClaims) {
           await publish(tx, {
-            tenantId: existing.tenantId,
+            organisationId: existing.organisationId,
             type: "claim.released",
             actorAgentId: claim.agentId,
             bugId,
@@ -701,7 +721,7 @@ export async function updateBugAction(
           });
           for (const claim of priorClaims) {
             await publish(tx, {
-              tenantId: existing.tenantId,
+              organisationId: existing.organisationId,
               type: "claim.released",
               actorAgentId: claim.agentId,
               bugId,
@@ -727,7 +747,7 @@ export async function updateBugAction(
               },
             });
             await publish(tx, {
-              tenantId: existing.tenantId,
+              organisationId: existing.organisationId,
               type: "claim.offered",
               actorAgentId: agent.id,
               bugId,
@@ -741,7 +761,7 @@ export async function updateBugAction(
       if (data.status === "resolved" && existing.status !== "resolved") {
         const solver = await solverAwardFor(tx, {
           id: bugId,
-          tenantId: existing.tenantId,
+          organisationId: existing.organisationId,
           assigneeId: data.assigneeId !== undefined ? data.assigneeId : existing.assigneeId,
         });
         if (solver) await holdPayout(tx, bugId, [solver]);
@@ -835,10 +855,10 @@ export async function reopenBugAction(
  */
 export async function reopenAgentResolvedAction(bugId: string): Promise<ActionResult> {
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
-  const tenantId = await currentTenantIdFor(user.id);
+  const access = await currentOrganisationAccess(user.id, user.role);
+  const organisationId = await currentOrganisationIdFor(user.id);
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(tenantId) },
+    where: { id: bugId, ...bugInOrganisation(organisationId) },
     select: { id: true, status: true, substatus: true, assigneeId: true, isDeleted: true },
   });
   if (!existing || existing.isDeleted) return { error: "Issue not found" };
@@ -916,7 +936,7 @@ export async function editBugContentAction(
   }
 
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(userId)) },
     select: {
       id: true,
       title: true,
@@ -925,7 +945,7 @@ export async function editBugContentAction(
       beneficiaryUserId: true,
       status: true,
       substatus: true,
-      tenantId: true,
+      organisationId: true,
       isDeleted: true,
     },
   });
@@ -938,7 +958,7 @@ export async function editBugContentAction(
     !canEditTicket({
       actorId: userId,
       actorRole: user.role,
-      membershipRole: (await currentTenantAccess(userId, user.role)).membershipRole,
+      membershipRole: (await currentOrganisationAccess(userId, user.role)).membershipRole,
       reporterId: existing.reporterId,
     })
   ) {
@@ -954,7 +974,7 @@ export async function editBugContentAction(
     return fromZodError(parsed.error);
   }
 
-  const normalizedDescription = await resolveTenantMentions(prisma, existing.tenantId, parsed.data.description);
+  const normalizedDescription = await resolveOrganisationMentions(prisma, existing.organisationId, parsed.data.description);
   const changedFields = getChangedEditFields(existing, {
     title: parsed.data.title,
     description: normalizedDescription,
@@ -990,7 +1010,7 @@ export async function editBugContentAction(
     // each person gives theirs again to count.
     type OptionalTxExtensions = {
       pointEntry?: {
-        findFirst?: (args: unknown) => Promise<{ id: string; tenantId: string; userId: string; bugId: string | null; role: "solver" | "reporter" | "reviewer"; points: number } | null>;
+        findFirst?: (args: unknown) => Promise<{ id: string; organisationId: string; userId: string; bugId: string | null; role: "solver" | "reporter" | "reviewer"; points: number } | null>;
         update?: (args: unknown) => Promise<unknown>;
       };
     };
@@ -998,14 +1018,14 @@ export async function editBugContentAction(
 
     if (wasConfirmed) {
       const recipientId = existing.beneficiaryUserId ?? existing.reporterId;
-      const tenantId = existing.tenantId ?? (await currentTenantIdFor(userId));
+      const organisationId = existing.organisationId ?? (await currentOrganisationIdFor(userId));
       if (recipientId && typeof txExtensions.pointEntry?.findFirst === "function") {
         const entry = await txExtensions.pointEntry.findFirst({
           where: {
-            tenantId,
+            organisationId,
             sourceKey: pointSourceKey("reporter", bugId, recipientId),
           },
-          select: { id: true, tenantId: true, userId: true, bugId: true, role: true, points: true },
+          select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true },
         });
         if (entry) {
           await correct(tx, { entry });
@@ -1106,7 +1126,7 @@ export async function editProofLinksAction(
   }
 
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(userId)) },
     select: {
       id: true,
       proofLinks: true,
@@ -1126,7 +1146,7 @@ export async function editProofLinksAction(
     canEditTicket({
       actorId: userId,
       actorRole: user.role,
-      membershipRole: (await currentTenantAccess(userId, user.role)).membershipRole,
+      membershipRole: (await currentOrganisationAccess(userId, user.role)).membershipRole,
       reporterId: existing.reporterId,
     });
   if (!mayEditLinks) {
@@ -1244,14 +1264,14 @@ export async function addCommentAction(
   }
 
   const bug = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(userId)) },
     select: {
       id: true,
       isDeleted: true,
       title: true,
       reporterId: true,
       assigneeId: true,
-      tenantId: true,
+      organisationId: true,
       status: true,
       substatus: true,
       pullRequestUrl: true,
@@ -1271,9 +1291,9 @@ export async function addCommentAction(
   }
   const { confirmationId, bidId, deliveryId, testVerdictId, mergeReviewId, parentId, parentAuthorId } = placement;
 
-  // #603: only agents in this issue's organization can be mentioned.
-  const agents = await mentionedAgents(prisma, bug.tenantId, parsed.data.body);
-  const normalizedBody = await normalizeMentionTags(parsed.data.body, bug.tenantId, agents);
+  // #603: only agents in this issue's organisation can be mentioned.
+  const agents = await mentionedAgents(prisma, bug.organisationId, parsed.data.body);
+  const normalizedBody = await normalizeMentionTags(parsed.data.body, bug.organisationId, agents);
 
   const commentId = await prisma.$transaction(async (tx) => {
     const created = await tx.comment.create({
@@ -1408,8 +1428,8 @@ export async function toggleVoteAction(
   }
 
   const bug = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
-    select: { id: true, isDeleted: true, tenantId: true },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(userId)) },
+    select: { id: true, isDeleted: true, organisationId: true },
   });
   if (!bug || bug.isDeleted) {
     return { error: "Issue not found" };
@@ -1441,7 +1461,7 @@ export async function toggleVoteAction(
       });
       // The first mark on an issue earns a point, once per person (#vote-points).
       await award(tx, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         userId,
         bugId,
         role: "vote",
@@ -1486,7 +1506,7 @@ export async function toggleVoteAction(
  */
 export async function deleteBugAction(bugId: string): Promise<ActionResult> {
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await currentOrganisationAccess(user.id, user.role);
   if (!canDeleteTicket(user.role, access.membershipRole)) {
     return { error: TICKET_DELETION_ERRORS.unauthorized };
   }
@@ -1496,7 +1516,7 @@ export async function deleteBugAction(bugId: string): Promise<ActionResult> {
   }
 
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(user.id)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(user.id)) },
     select: { id: true, isDeleted: true },
   });
 
@@ -1559,7 +1579,7 @@ export async function deleteBugAction(bugId: string): Promise<ActionResult> {
  */
 export async function restoreBugAction(bugId: string): Promise<ActionResult> {
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await currentOrganisationAccess(user.id, user.role);
   if (!canRestoreTicket(user.role, access.membershipRole)) {
     return { error: TICKET_DELETION_ERRORS.unauthorizedRestore };
   }
@@ -1569,7 +1589,7 @@ export async function restoreBugAction(bugId: string): Promise<ActionResult> {
   }
 
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(user.id)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(user.id)) },
     select: { id: true, isDeleted: true },
   });
 
@@ -1640,7 +1660,7 @@ export async function toggleBoostBugAction(
   bugId: string,
 ): Promise<ActionResult & { isBoosted?: boolean }> {
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await currentOrganisationAccess(user.id, user.role);
   if (!canBoostTicket(user.role, access.membershipRole)) {
     return { error: TICKET_BOOST_ERRORS.unauthorized };
   }
@@ -1650,7 +1670,7 @@ export async function toggleBoostBugAction(
   }
 
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(user.id)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(user.id)) },
     select: { id: true, isBoosted: true, isDeleted: true },
   });
 
@@ -1727,7 +1747,7 @@ export async function selfAssignBugAction(
   }
 
   const existing = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(userId)) },
     select: {
       id: true,
       title: true,
@@ -1751,7 +1771,7 @@ export async function selfAssignBugAction(
     !canAssignTicket({
       actorId: userId,
       actorRole: user.role,
-      membershipRole: (await currentTenantAccess(userId, user.role)).membershipRole,
+      membershipRole: (await currentOrganisationAccess(userId, user.role)).membershipRole,
       currentAssigneeId: existing.assigneeId,
       targetAssigneeId,
     })

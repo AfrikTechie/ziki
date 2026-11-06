@@ -3,13 +3,13 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
-  leaveTenantAction,
+  leaveOrganisationAction,
   removeMemberAction,
   setMemberRoleAction,
 } from "@/app/actions/membership";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import type { OrganizationRole } from "@/lib/organization-role";
+import type { OrganisationRole } from "@/lib/organisation-role";
 
 const secondaryBtn =
   "inline-flex min-h-10 items-center justify-center rounded-full border border-zk-border bg-zk-surface px-3.5 py-2 text-sm font-bold text-zk-text transition hover:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2 disabled:opacity-50";
@@ -17,12 +17,12 @@ const dangerBtn =
   "inline-flex min-h-10 items-center justify-center rounded-full border border-zk-bad-bd bg-zk-surface px-3.5 py-2 text-sm font-bold text-zk-bad-fg transition hover:bg-zk-bad-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zk-bad-fg focus-visible:ring-offset-2 disabled:opacity-50";
 
 /**
- * Promote, demote, remove, or leave inside one organization.
+ * Promote, demote, remove, or leave inside one organisation.
  * A site super admin's site role is not edited here.
  */
 export function MemberRoleActions({
-  tenantId,
-  tenantName,
+  organisationId,
+  organisationName,
   userId,
   userName,
   membershipRole,
@@ -32,11 +32,11 @@ export function MemberRoleActions({
   isSelf,
   ownerCount,
 }: {
-  tenantId: string;
-  tenantName: string;
+  organisationId: string;
+  organisationName: string;
   userId: string;
   userName: string;
-  membershipRole: OrganizationRole;
+  membershipRole: OrganisationRole;
   siteSuperAdmin?: boolean;
   canChangeRoles: boolean;
   canRemove: boolean;
@@ -86,14 +86,14 @@ export function MemberRoleActions({
           disabled={pending}
           onClick={async () => {
             const confirmed = await confirm({
-              title: `Make ${userName} an admin of ${tenantName}?`,
-              body: `They will be able to triage and delete issues in ${tenantName}. This does not make them an admin of any other organization.`,
+              title: `Make ${userName} an admin of ${organisationName}?`,
+              body: `They will be able to triage and delete issues in ${organisationName}. This does not make them an admin of any other organisation.`,
               confirmLabel: "Promote to admin",
             });
             if (!confirmed) return;
             run(
-              () => setMemberRoleAction(tenantId, userId, "admin"),
-              `${userName} is now an admin of ${tenantName}.`,
+              () => setMemberRoleAction(organisationId, userId, "admin"),
+              `${userName} is now an admin of ${organisationName}.`,
             );
           }}
         >
@@ -114,14 +114,14 @@ export function MemberRoleActions({
           onClick={async () => {
             const confirmed = await confirm({
               title: `Remove admin from ${userName}?`,
-              body: `They stay in ${tenantName} as a member. They will no longer be able to triage its issues.`,
+              body: `They stay in ${organisationName} as a member. They will no longer be able to triage its issues.`,
               confirmLabel: "Remove admin",
               tone: "danger",
             });
             if (!confirmed) return;
             run(
-              () => setMemberRoleAction(tenantId, userId, "member"),
-              `${userName} is a member of ${tenantName}.`,
+              () => setMemberRoleAction(organisationId, userId, "member"),
+              `${userName} is a member of ${organisationName}.`,
             );
           }}
         >
@@ -142,14 +142,14 @@ export function MemberRoleActions({
           onClick={async () => {
             const confirmed = await confirm({
               title: `Make ${userName} an admin instead of an owner?`,
-              body: `${tenantName} still has another owner.`,
+              body: `${organisationName} still has another owner.`,
               confirmLabel: "Demote to admin",
               tone: "danger",
             });
             if (!confirmed) return;
             run(
-              () => setMemberRoleAction(tenantId, userId, "admin"),
-              `${userName} is an admin of ${tenantName}.`,
+              () => setMemberRoleAction(organisationId, userId, "admin"),
+              `${userName} is an admin of ${organisationName}.`,
             );
           }}
         >
@@ -169,15 +169,15 @@ export function MemberRoleActions({
           disabled={pending}
           onClick={async () => {
             const confirmed = await confirm({
-              title: `Remove ${userName} from ${tenantName}?`,
-              body: "They keep their account. They lose access to this organization's issues until someone invites them again.",
+              title: `Remove ${userName} from ${organisationName}?`,
+              body: "They keep their account. They lose access to this organisation's issues until someone invites them again.",
               confirmLabel: "Remove",
               tone: "danger",
             });
             if (!confirmed) return;
             run(
-              () => removeMemberAction(tenantId, userId),
-              `${userName} was removed from ${tenantName}.`,
+              () => removeMemberAction(organisationId, userId),
+              `${userName} was removed from ${organisationName}.`,
             );
           }}
         >
@@ -197,13 +197,13 @@ export function MemberRoleActions({
           disabled={pending}
           onClick={async () => {
             const confirmed = await confirm({
-              title: `Leave ${tenantName}?`,
+              title: `Leave ${organisationName}?`,
               body: "You will lose access to its issues until someone invites you back.",
               confirmLabel: "Leave",
               tone: "danger",
             });
             if (!confirmed) return;
-            run(() => leaveTenantAction(tenantId), `You left ${tenantName}.`, "/tenants");
+            run(() => leaveOrganisationAction(organisationId), `You left ${organisationName}.`, "/organisations");
           }}
         >
           Leave

@@ -1,3 +1,4 @@
+import { DEFAULT_MARKETING_TASK_TYPES } from "../lib/marketing/default-task-types";
 import { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
@@ -9,16 +10,16 @@ async function ensureZeduOwnerMembership(
   userId: string,
   tx: Prisma.TransactionClient,
 ) {
-  const tenant = await tx.tenant.upsert({
+  const organisation = await tx.organisation.upsert({
     where: { slug: "zedu" },
     update: {},
     create: { slug: "zedu", name: "Ziki" },
   });
 
   await tx.membership.upsert({
-    where: { tenantId_userId: { tenantId: tenant.id, userId } },
+    where: { organisationId_userId: { organisationId: organisation.id, userId } },
     update: { role: "owner" },
-    create: { tenantId: tenant.id, userId, role: "owner" },
+    create: { organisationId: organisation.id, userId, role: "owner" },
   });
 }
 
@@ -127,15 +128,15 @@ async function seedDemoData() {
   });
 
   // The migration creates Zedu (#423); upsert so a seed never depends on it.
-  const tenant = await prisma.tenant.upsert({
+  const organisation = await prisma.organisation.upsert({
     where: { slug: "zedu" },
     update: {},
     create: { slug: "zedu", name: "Ziki" },
   });
   const project = await prisma.project.upsert({
-    where: { tenantId_slug: { tenantId: tenant.id, slug: "zedu" } },
+    where: { organisationId_slug: { organisationId: organisation.id, slug: "zedu" } },
     update: {},
-    create: { tenantId: tenant.id, slug: "zedu", name: "Ziki", workflow: { create: {} } },
+    create: { organisationId: organisation.id, slug: "zedu", name: "Ziki", workflow: { create: {} } },
   });
   // A project seeded before #595 has no workflow row yet.
   await prisma.projectWorkflow.upsert({
@@ -143,9 +144,9 @@ async function seedDemoData() {
     update: {},
     create: { projectId: project.id },
   });
-  const zedu = { tenantId: tenant.id, projectId: project.id };
+  const zedu = { organisationId: organisation.id, projectId: project.id };
   await prisma.membership.createMany({
-    data: [alice, bob, cara].map((user) => ({ tenantId: tenant.id, userId: user.id })),
+    data: [alice, bob, cara].map((user) => ({ organisationId: organisation.id, userId: user.id })),
     skipDuplicates: true,
   });
 
@@ -275,12 +276,19 @@ async function seedDemoData() {
 }
 
 async function ensureDefaultTypes() {
-  const tenant = await prisma.tenant.findUnique({ where: { slug: "zedu" }, select: { id: true } });
-  if (!tenant) {
-    console.log("Skipping default issue types: the Zedu organization is missing.");
+  const organisation = await prisma.organisation.findUnique({ where: { slug: "zedu" }, select: { id: true } });
+  if (!organisation) {
+    console.log("Skipping default issue types: the Zedu organisation is missing.");
     return;
   }
-  const count = await prisma.issueType.count({ where: { tenantId: tenant.id } });
+  for (const type of DEFAULT_MARKETING_TASK_TYPES) {
+    await prisma.issueType.upsert({
+      where: { organisationId_name: { organisationId: organisation.id, name: type.name } },
+      update: {},
+      create: { ...type, organisationId: organisation.id, track: "marketing" },
+    });
+  }
+  const count = await prisma.issueType.count({ where: { organisationId: organisation.id } });
   if (count > 0) {
     return;
   }
@@ -294,10 +302,10 @@ async function ensureDefaultTypes() {
 
   for (const item of defaults) {
     await prisma.issueType.upsert({
-      where: { tenantId_name: { tenantId: tenant.id, name: item.name } },
+      where: { organisationId_name: { organisationId: organisation.id, name: item.name } },
       update: {},
       create: {
-        tenantId: tenant.id,
+        organisationId: organisation.id,
         name: item.name,
         description: item.description,
         isActive: true,

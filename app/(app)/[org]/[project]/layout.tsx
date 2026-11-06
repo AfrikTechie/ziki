@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { optionalUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { ProjectBreadcrumb } from "@/components/project-breadcrumb";
 
 /**
@@ -11,7 +11,7 @@ import { ProjectBreadcrumb } from "@/components/project-breadcrumb";
  *
  * Every project page starts with the breadcrumb (#no-platforms): All Projects,
  * project and page. It only reads: each page checks access and switches
- * workspace itself (lib/project-route.ts), keeping its own address.
+ * organisation itself (lib/project-route.ts), keeping its own address.
  */
 export default async function ProjectLayout({
   children,
@@ -25,18 +25,18 @@ export default async function ProjectLayout({
 }) {
   const { org, project: slug } = await params;
   const user = await optionalUser();
-  const tenantId = user ? await currentTenantIdFor(user.id) : null;
-  const project = tenantId
+  const organisationId = user ? await currentOrganisationIdFor(user.id) : null;
+  const project = organisationId
     ? await prisma.project.findFirst({
-        where: { tenantId, slug: decodeURIComponent(slug), archivedAt: null, tenant: { slug: decodeURIComponent(org), memberships: { some: { userId: user!.id } } } },
-        select: { slug: true, name: true, tenant: { select: { slug: true } } },
+        where: { organisationId, slug: decodeURIComponent(slug), archivedAt: null, organisation: { slug: decodeURIComponent(org), memberships: { some: { userId: user!.id } } } },
+        select: { slug: true, name: true, organisation: { select: { slug: true } } },
       })
     : null;
-  // Not this workspace's project (yet): the page switches workspace or 404s.
+  // Not this organisation's project (yet): the page switches organisation or 404s.
   if (!project) return <>{children}{modal}</>;
   return (
     <>
-      <ProjectBreadcrumb project={{ orgSlug: project.tenant.slug, slug: project.slug, name: project.name }} />
+      <ProjectBreadcrumb project={{ orgSlug: project.organisation.slug, slug: project.slug, name: project.name }} />
       {children}
       {modal}
     </>

@@ -11,7 +11,7 @@ import { agentPointsToReverse } from "@/lib/points/reset-agent-points";
 const BATCH = 200;
 
 /**
- * Super admin: reverse every point an agent earned in one organization.
+ * Super admin: reverse every point an agent earned in one organisation.
  *
  * Nothing is deleted. Each entry gets a correcting entry through the ledger's
  * usual `correct()` (sourceKey `undo:{id}`), so balances drop to zero for that
@@ -20,15 +20,15 @@ const BATCH = 200;
 export async function resetAgentPointsAction(formData: FormData) {
   await requireSuperAdmin();
   const slug = String(formData.get("slug") ?? "");
-  const tenant = await prisma.tenant.findUnique({ where: { slug }, select: { id: true, slug: true } });
-  if (!tenant) redirect("/superadmin/users");
+  const organisation = await prisma.organisation.findUnique({ where: { slug }, select: { id: true, slug: true } });
+  if (!organisation) redirect("/superadmin/users");
 
   let reversed = 0;
   for (;;) {
     const batch = await prisma.pointEntry.findMany({
-      where: agentPointsToReverse(tenant.id),
+      where: agentPointsToReverse(organisation.id),
       take: BATCH,
-      select: { id: true, tenantId: true, userId: true, bugId: true, role: true, points: true, agentId: true },
+      select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true, agentId: true },
     });
     if (batch.length === 0) break;
     await prisma.$transaction(
@@ -40,7 +40,7 @@ export async function resetAgentPointsAction(formData: FormData) {
     reversed += batch.length;
   }
 
-  clearLeaderboardCache(tenant.id);
-  revalidatePath(`/superadmin/orgs/${tenant.slug}`);
-  redirect(`/superadmin/orgs/${tenant.slug}?reversed=${reversed}`);
+  clearLeaderboardCache(organisation.id);
+  revalidatePath(`/superadmin/orgs/${organisation.slug}`);
+  redirect(`/superadmin/orgs/${organisation.slug}?reversed=${reversed}`);
 }

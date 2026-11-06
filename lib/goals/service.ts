@@ -28,7 +28,7 @@ import {
 /**
  * Goal budgets and pool splitting (#616). The arithmetic lives in
  * `lib/goals/pool-split.ts`; this module owns the Prisma reads/writes, the
- * tenant/project scoping, and the transactional guard that keeps
+ * organisation/project scoping, and the transactional guard that keeps
  * `Goal.allocated` from ever passing `Goal.budgetPool`.
  */
 
@@ -45,7 +45,7 @@ export type GoalWithBudget = GoalRecord & { budget: GoalBudgetSummary };
 
 const goalSelect = {
   id: true,
-  tenantId: true,
+  organisationId: true,
   projectId: true,
   createdById: true,
   title: true,
@@ -99,16 +99,16 @@ function toApiError(error: PoolBudgetError): IssueApiError {
 }
 
 /**
- * Loads a goal scoped to the agent's tenant, enforcing the key's project.
+ * Loads a goal scoped to the agent's organisation, enforcing the key's project.
  *
  * @param agent - The authenticated agent context.
  * @param goalId - The goal to load.
  * @returns The selected goal row.
- * @throws {IssueApiError} 404 when no such goal exists in the tenant.
+ * @throws {IssueApiError} 404 when no such goal exists in the organisation.
  */
 async function resolveGoal(agent: AgentContext, goalId: string): Promise<GoalRecord> {
   const goal = await prisma.goal.findFirst({
-    where: { id: goalId, tenantId: agent.tenantId },
+    where: { id: goalId, organisationId: agent.organisationId },
     select: goalSelect,
   });
   if (!goal) throw new IssueApiError(404, "Goal not found.");
@@ -123,16 +123,16 @@ async function resolveGoal(agent: AgentContext, goalId: string): Promise<GoalRec
  * @param agent - The authenticated agent context; its owner becomes the creator.
  * @param input - A validated create payload (`createGoalSchema`).
  * @returns The created goal row.
- * @throws {IssueApiError} 404 when the agent's tenant has no such project.
+ * @throws {IssueApiError} 404 when the agent's organisation has no such project.
  */
 export async function createGoal(agent: AgentContext, input: CreateGoalInput): Promise<GoalRecord> {
   const parsed = createGoalSchema.parse(input);
   const { projectId, ...fields } = parsed;
 
   const project = await prisma.project.findFirst({
-    where: { tenantId: agent.tenantId, ...(projectId ? { id: projectId } : {}) },
+    where: { organisationId: agent.organisationId, ...(projectId ? { id: projectId } : {}) },
     orderBy: { createdAt: "asc" },
-    select: { id: true, tenantId: true },
+    select: { id: true, organisationId: true },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
   assertKeyProject(agent, project.id);
@@ -140,7 +140,7 @@ export async function createGoal(agent: AgentContext, input: CreateGoalInput): P
   return prisma.$transaction(async (tx) => {
     const goal = await tx.goal.create({
       data: {
-        tenantId: project.tenantId,
+        organisationId: project.organisationId,
         projectId: project.id,
         createdById: agent.ownerId,
         title: fields.title,
@@ -152,7 +152,7 @@ export async function createGoal(agent: AgentContext, input: CreateGoalInput): P
 
     await audit(agent, "goal.created", goal.id, { projectId: project.id, budgetPool: goal.budgetPool }, { db: tx });
     await publish(tx, {
-      tenantId: project.tenantId,
+      organisationId: project.organisationId,
       type: "goal.created",
       actorAgentId: agent.agentId,
       payload: {
@@ -169,14 +169,14 @@ export async function createGoal(agent: AgentContext, input: CreateGoalInput): P
 /**
  * Lists a project's goals, newest first, each with its budget projection.
  *
- * @param tenantId - Tenant the goals belong to.
+ * @param organisationId - Organisation the goals belong to.
  * @param projectId - Project whose goals to list.
  * @param take - Row cap (default 50).
  * @returns Goal rows with `budget`, newest first.
  */
-export async function listGoals(tenantId: string, projectId: string, take = 50): Promise<GoalWithBudget[]> {
+export async function listGoals(organisationId: string, projectId: string, take = 50): Promise<GoalWithBudget[]> {
   const goals = await prisma.goal.findMany({
-    where: { tenantId, projectId },
+    where: { organisationId, projectId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take,
     select: goalSelect,
@@ -210,7 +210,7 @@ export async function readGoal(
  * Verifies every split target actually exists inside the goal's scope.
  *
  * @param db - Client or transaction performing the reads.
- * @param goal - The goal being split; supplies tenant and project scope.
+ * @param goal - The goal being split; supplies organisation and project scope.
  * @param targets - Validated split targets.
  * @throws {IssueApiError} 400 when a goal would fund itself, 404 when an
  *   issue, nested goal, or agent named by a target does not exist in scope.
@@ -223,7 +223,7 @@ async function assertTargetsExist(
   const bugIds = [...new Set(targets.filter((t) => t.targetBugId).map((t) => t.targetBugId!))];
   if (bugIds.length) {
     const found = await db.bug.findMany({
-      where: { id: { in: bugIds }, tenantId: goal.tenantId, projectId: goal.projectId, isDeleted: false },
+      where: { id: { in: bugIds }, organisationId: goal.organisationId, projectId: goal.projectId, isDeleted: false },
       select: { id: true },
     });
     const known = new Set(found.map((bug) => bug.id));
@@ -235,7 +235,7 @@ async function assertTargetsExist(
   if (goalIds.length) {
     if (goalIds.includes(goal.id)) throw new IssueApiError(400, "A goal cannot fund itself.");
     const found = await db.goal.findMany({
-      where: { id: { in: goalIds }, tenantId: goal.tenantId, projectId: goal.projectId },
+      where: { id: { in: goalIds }, organisationId: goal.organisationId, projectId: goal.projectId },
       select: { id: true },
     });
     const known = new Set(found.map((row) => row.id));
@@ -246,12 +246,12 @@ async function assertTargetsExist(
   const agentIds = [...new Set(targets.filter((t) => t.targetAgentId).map((t) => t.targetAgentId!))];
   if (agentIds.length) {
     const found = await db.agent.findMany({
-      where: { id: { in: agentIds }, tenantId: goal.tenantId },
+      where: { id: { in: agentIds }, organisationId: goal.organisationId },
       select: { id: true },
     });
     const known = new Set(found.map((row) => row.id));
     const missing = agentIds.find((id) => !known.has(id));
-    if (missing) throw new IssueApiError(404, `Agent ${missing} not found in this tenant.`);
+    if (missing) throw new IssueApiError(404, `Agent ${missing} not found in this organisation.`);
   }
 }
 
@@ -398,7 +398,7 @@ export async function splitGoalPool(
       { db: tx },
     );
     await publish(tx, {
-      tenantId: goal.tenantId,
+      organisationId: goal.organisationId,
       type: "goal.split",
       actorAgentId: agent.agentId,
       payload: {
@@ -440,7 +440,7 @@ export async function updateGoalStatus(
     });
     await audit(agent, "goal.status_changed", goal.id, { status }, { db: tx });
     await publish(tx, {
-      tenantId: goal.tenantId,
+      organisationId: goal.organisationId,
       type: "goal.updated",
       actorAgentId: agent.agentId,
       payload: { goalId: goal.id, projectId: goal.projectId, status },

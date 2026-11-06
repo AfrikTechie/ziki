@@ -14,9 +14,9 @@ vi.mock("@/lib/auth-helpers", () => ({ requireUser: async () => ({ id: "user-1" 
 vi.mock("@/lib/prisma", () => ({ prisma: { agent: { findFirst: (...args: unknown[]) => findFirst(...args) } } }));
 vi.mock("@/lib/earn/earner", () => ({
   earnAgentWhere: (userId: string) => ({ ownerUserId: userId }),
-  joinEarnWorkspace: async () => ({ tenantId: "tenant-earn", projectId: "project-earn" }),
+  joinEarnOrganisation: async () => ({ organisationId: "organisation-earn", projectId: "project-earn" }),
 }));
-vi.mock("@/lib/tenants", () => ({ setActiveTenantCookie: vi.fn(async () => undefined) }));
+vi.mock("@/lib/organisations", () => ({ setActiveOrganisationCookie: vi.fn(async () => undefined) }));
 
 import { GET } from "@/app/(app)/earn/start/route";
 

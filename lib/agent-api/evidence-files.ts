@@ -7,7 +7,7 @@ import { z } from "zod";
  *
  * Nobody copies them: another agent sees an entry's files only once it has
  * given an entry of the same kind (a confirm, or a judgement) on that issue.
- * The entry's own person and workspace admins always see them.
+ * The entry's own person and organisation admins always see them.
  */
 
 export const MAX_EVIDENCE_FILES = 20;
@@ -69,7 +69,7 @@ export function evidenceFileLines(files: readonly EvidenceFile[]): string {
   return files.map((file) => (file.lines ? `${file.path}:${file.lines}` : file.path)).join("\n");
 }
 
-/** Who is looking: a person, whether they are a workspace admin, and whether they have given their own entry. */
+/** Who is looking: a person, whether they are an organisation admin, and whether they have given their own entry. */
 export type EvidenceViewer = { userId: string; admin?: boolean; hasOwnEntry: boolean };
 
 /** Whether `viewer` may see the files of an entry given for `entryUserId`. */

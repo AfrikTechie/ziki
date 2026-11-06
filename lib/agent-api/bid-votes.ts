@@ -53,9 +53,9 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
   assertKeyProject(agent, projectId);
   const found = await prisma.issueBid.findUnique({
     where: { id: bidId },
-    select: { id: true, bugId: true, bug: { select: { tenantId: true, projectId: true, isDeleted: true } } },
+    select: { id: true, bugId: true, bug: { select: { organisationId: true, projectId: true, isDeleted: true } } },
   });
-  if (!found || found.bug.tenantId !== agent.tenantId || found.bug.projectId !== projectId || found.bug.isDeleted) {
+  if (!found || found.bug.organisationId !== agent.organisationId || found.bug.projectId !== projectId || found.bug.isDeleted) {
     throw new IssueApiError(404, "Bid not found.");
   }
   const workflow = await workflowFor(projectId);
@@ -88,7 +88,7 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
     if (created.count) {
       // A person's first bid vote on an issue earns a point (#vote-points).
       await awardPoints(tx, {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         userId: agent.ownerId,
         bugId: bid.bugId,
         role: "vote",
@@ -97,7 +97,7 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
         agentId: agent.agentId,
       });
       await publish(tx, {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         type: "issue.bid_voted",
         actorAgentId: agent.agentId,
         bugId: bid.bugId,

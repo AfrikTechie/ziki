@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-/** A workspace area that isn't built yet: what it will be, and a way back to Product. */
+/** An organisation area that isn't built yet: what it will be, and a way back to Product. */
 export function ComingSoon({
   title,
   icon,

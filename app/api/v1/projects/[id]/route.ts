@@ -3,13 +3,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { agentIssueRequest } from "@/lib/agent-api/issues";
 import { getAgentProject } from "@/lib/agent-api/projects";
 
-/** GET — one project in the agent's tenant with its goal, repo and staging
+/** GET — one project in the agent's organisation with its goal, repo and staging
  * URL, the workflow gate numbers and the open-issue count (#607).
- * Another tenant's project is a 404. */
+ * Another organisation's project is a 404. */
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   return agentIssueRequest(request, "projects.read", "read", id, async (agent) => {
-    return NextResponse.json(await getAgentProject(agent.tenantId, id));
+    return NextResponse.json(await getAgentProject(agent.organisationId, id));
   });
 }
 

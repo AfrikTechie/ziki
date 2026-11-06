@@ -1,11 +1,8 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { settableLevels } from "@/lib/agents/levels";
 import { MAX_ACTIVE_AGENTS_PER_OWNER } from "@/lib/agents/registry-limits";
-import { isTenantAdminRole } from "@/lib/agents/membership";
-import { projectContextFor } from "@/lib/project-context";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { openSecret } from "@/lib/secret-box";
 import { materializeApprovedPairings } from "@/lib/agents/pairing";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
@@ -53,28 +50,19 @@ export default async function AgentsPage() {
   }
 
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  const context = await projectContextFor(prisma, tenantId);
-  const membership = tenantId
-    ? await prisma.membership.findUnique({
-        where: { tenantId_userId: { tenantId, userId: user.id } },
-        select: { role: true },
-      })
-    : null;
-  const isAdmin = isTenantAdminRole(membership?.role, user.role);
-  const projects = context.projects;
+  const organisationId = await currentOrganisationIdFor(user.id);
   const now = new Date();
 
-  if (tenantId) {
+  if (organisationId) {
     try {
-      await materializeApprovedPairings(user.id, tenantId);
+      await materializeApprovedPairings(user.id, organisationId);
     } catch (error) {
       console.error("[agents] approved agents were not listed", error);
     }
   }
-  const mine = tenantId
+  const mine = organisationId
     ? await prisma.agent.findMany({
-        where: { ownerUserId: user.id, tenantId },
+        where: { ownerUserId: user.id, organisationId },
         orderBy: [{ revokedAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }],
         select: {
           id: true,
@@ -85,6 +73,7 @@ export default async function AgentsPage() {
           level: true,
           createdAt: true,
           revokedAt: true,
+          pausedAt: true,
           defaultProjectId: true,
           apiKeys: {
             where: { revokedAt: null },
@@ -100,9 +89,16 @@ export default async function AgentsPage() {
       })
     : [];
 
-  const ownLevels = settableLevels({ isOwner: true, isTenantAdmin: isAdmin });
-  const activeCount = mine.filter((agent) => !agent.revokedAt).length;
+  const live = mine.filter((agent) => !agent.revokedAt);
+  const activeCount = live.length;
+  // Until one of their agents has called Ziki with its key, show how to connect one.
+  const connected = mine.some((agent) => !agent.revokedAt && agent.apiKeys.some((key) => key.lastUsedAt));
   const recentCutoff = now.getTime() - 24 * 60 * 60 * 1000;
+  // A key made in the Connect modal works in the agent's current key's project, else the organisation's default.
+  const defaultProject = organisationId
+    ? (await prisma.project.findFirst({ where: { organisationId, archivedAt: null, slug: "web" }, select: { id: true, name: true } }))
+      ?? (await prisma.project.findFirst({ where: { organisationId, archivedAt: null }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }))
+    : null;
 
   const manageItems: ManageAgentItem[] = mine.map((agent) => {
     const lastUsedMs = agent.apiKeys
@@ -117,9 +113,10 @@ export default async function AgentsPage() {
       level: agent.level,
       createdAt: agent.createdAt.toISOString(),
       revokedAt: agent.revokedAt ? agent.revokedAt.toISOString() : null,
+      pausedAt: agent.pausedAt ? agent.pausedAt.toISOString() : null,
       personal: Boolean(agent.defaultProjectId),
-      currentProjectId: agent.apiKeys.find((key) => key.project)?.project?.id ?? null,
       recent: lastUsedMs >= recentCutoff,
+      keyProject: agent.apiKeys.find((key) => key.project)?.project ?? defaultProject,
       apiKeys: agent.apiKeys.map((key) => ({
         id: key.id,
         prefix: key.prefix,
@@ -132,13 +129,13 @@ export default async function AgentsPage() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full max-w-5xl space-y-8">
       <div className="space-y-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-1">
             <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">My agents</h1>
             <p className={agentsMutedClass}>
-              Each agent has its own key. Copy sends that key and this site to that agent only.
+              Copy an agent&apos;s key into your AI coding assistant to connect it.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -149,14 +146,14 @@ export default async function AgentsPage() {
         </div>
       </div>
 
-      {!tenantId ? (
+      {!organisationId ? (
         <div className={`${agentsSurface} border-dashed p-6 text-sm text-zk-text2`}>
           <p>
-            You aren&apos;t in a workspace yet, so you can&apos;t register agents. Join a workspace via an invite from your team, or create your own workspace to start managing agents.
+            You aren&apos;t in an organisation yet, so you can&apos;t register agents. Join an organisation via an invite from your team, or create your own organisation to start managing agents.
           </p>
           <div className="mt-3">
-            <Link href="/tenants" className={agentsPrimaryBtn}>
-              Create or join a workspace →
+            <Link href="/organisations" className={agentsPrimaryBtn}>
+              Create or join an organisation →
             </Link>
           </div>
         </div>
@@ -165,15 +162,18 @@ export default async function AgentsPage() {
           <h2 id="mine-heading" className="sr-only">
             Your agents
           </h2>
-          {mine.length === 0 ? (
-            <FirstAgentEmptyState />
-          ) : (
+          {connected ? null : (
+            <FirstAgentEmptyState
+              hasAgents={live.length > 0}
+              hasKey={live.some((agent) => agent.apiKeys.some((key) => key.sealedKey))}
+              addHref={CREATE_AGENT_HREF}
+            />
+          )}
+          {mine.length === 0 ? null : (
             <ManageAgentsList
               agents={manageItems}
               activeCount={activeCount}
               maxActive={MAX_ACTIVE_AGENTS_PER_OWNER}
-              levels={ownLevels}
-              projects={projects}
             />
           )}
         </section>

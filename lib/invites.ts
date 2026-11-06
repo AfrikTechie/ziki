@@ -3,14 +3,14 @@ import { after } from "next/server";
 import { awardSignupBonus } from "@/lib/points/signup-bonus";
 import type { MembershipRole, PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { notifyTenantInvite } from "@/lib/agent-notifications";
+import { notifyOrganisationInvite } from "@/lib/agent-notifications";
 import { canSendMail, sendMail } from "@/lib/mail";
 import { absoluteUrl } from "@/lib/site-url";
 
 /**
- * Invites to a tenant (#444). Joining a tenant you're not in is invite-only.
+ * Invites to a organisation (#444). Joining a organisation you're not in is invite-only.
  *
- * - Only an owner or admin of the tenant can invite, and only into it.
+ * - Only an owner or admin of the organisation can invite, and only into it.
  * - An invite is a single-use link sent to one email address. Only a SHA-256
  *   hash of its token is stored; the raw link is shown to the inviter once.
  * - It expires after 7 days. Accepting it adds the person as a `member`.
@@ -18,7 +18,7 @@ import { absoluteUrl } from "@/lib/site-url";
  *   forwarded or leaked link lets nobody else in.
  *
  * Someone who already has an account is also told in Ziki (#443): that
- * notification links to /tenants?invite=<id>, where the same account rule
+ * notification links to /organisations?invite=<id>, where the same account rule
  * applies. Anyone else gets the link by email.
  */
 
@@ -26,13 +26,13 @@ type Db = PrismaClient;
 
 export const INVITE_TTL_DAYS = 7;
 export const INVITE_TTL_MS = INVITE_TTL_DAYS * 24 * 60 * 60 * 1000;
-export const INVITE_PATH = "/tenants/invite";
+export const INVITE_PATH = "/organisations/invite";
 
 export const CREATE_INVITE_RATE_LIMIT = { max: 30, windowMs: 60 * 60 * 1000 };
 export const ACCEPT_INVITE_RATE_LIMIT = { max: 20, windowMs: 15 * 60 * 1000 };
 
-/** The same words whether the tenant doesn't exist or isn't yours to manage. */
-export const INVITE_NOT_ALLOWED = "Only an owner or admin of this organization can manage its invites.";
+/** The same words whether the organisation doesn't exist or isn't yours to manage. */
+export const INVITE_NOT_ALLOWED = "Only an owner or admin of this organisation can manage its invites.";
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
@@ -60,7 +60,7 @@ export function inviteUrl(rawToken: string): string {
   return absoluteUrl(invitePath(rawToken));
 }
 
-/** Where a pasted invite should open. Share links live at /join, email invites at /tenants/invite. */
+/** Where a pasted invite should open. Share links live at /join, email invites at /organisations/invite. */
 export function destinationForInviteInput(raw: string): string | null {
   const token = parseInviteLink(raw);
   if (!token) return null;
@@ -74,7 +74,7 @@ export function destinationForInviteInput(raw: string): string | null {
 export function parseInviteLink(input: string): string | null {
   const value = input.trim();
   if (isInviteToken(value)) return value;
-  const match = /\/(?:tenants\/invite|join)\/([^/?#\s]+)/.exec(value);
+  const match = /\/(?:organisations\/invite|join)\/([^/?#\s]+)/.exec(value);
   const token = match?.[1];
   return token && isInviteToken(token) ? token : null;
 }
@@ -118,7 +118,7 @@ export type CreateInviteResult =
   | {
       ok: true;
       invite: { id: string; email: string; expiresAt: Date };
-      tenant: { id: string; slug: string; name: string };
+      organisation: { id: string; slug: string; name: string };
       /** Shown to the inviter once. Never stored. */
       rawToken: string;
     }
@@ -127,19 +127,19 @@ export type CreateInviteResult =
 export async function createInvite(
   db: Db,
   inviter: { id: string },
-  input: { tenantId: string; email: unknown },
+  input: { organisationId: string; email: unknown },
   now = new Date(),
 ): Promise<CreateInviteResult> {
-  const inviterMembership = input.tenantId
+  const inviterMembership = input.organisationId
     ? await db.membership.findUnique({
-        where: { tenantId_userId: { tenantId: input.tenantId, userId: inviter.id } },
-        select: { role: true, tenant: { select: { id: true, slug: true, name: true } } },
+        where: { organisationId_userId: { organisationId: input.organisationId, userId: inviter.id } },
+        select: { role: true, organisation: { select: { id: true, slug: true, name: true } } },
       })
     : null;
   if (!inviterMembership || !canInvite(inviterMembership.role)) {
     return { ok: false, error: INVITE_NOT_ALLOWED };
   }
-  const { tenant } = inviterMembership;
+  const { organisation } = inviterMembership;
 
   const parsed = inviteEmailSchema.safeParse(typeof input.email === "string" ? input.email : "");
   if (!parsed.success) {
@@ -148,21 +148,21 @@ export async function createInvite(
   const email = parsed.data;
 
   const alreadyMember = await db.membership.findFirst({
-    where: { tenantId: tenant.id, user: { email: { equals: email, mode: "insensitive" } } },
+    where: { organisationId: organisation.id, user: { email: { equals: email, mode: "insensitive" } } },
     select: { id: true },
   });
   if (alreadyMember) {
-    return { ok: false, error: `${email} is already a member of ${tenant.name}.`, field: "email" };
+    return { ok: false, error: `${email} is already a member of ${organisation.name}.`, field: "email" };
   }
 
   const token = generateInviteToken();
   const invite = await db.$transaction(async (tx) => {
-    // One live link per person and tenant: inviting again replaces the old
+    // One live link per person and organisation: inviting again replaces the old
     // link, whose token can't be shown again anyway.
-    await tx.tenantInvite.deleteMany({ where: { tenantId: tenant.id, email, acceptedAt: null } });
-    return tx.tenantInvite.create({
+    await tx.organisationInvite.deleteMany({ where: { organisationId: organisation.id, email, acceptedAt: null } });
+    return tx.organisationInvite.create({
       data: {
-        tenantId: tenant.id,
+        organisationId: organisation.id,
         email,
         role: "member",
         tokenHash: token.hash,
@@ -173,20 +173,20 @@ export async function createInvite(
     });
   });
 
-  return { ok: true, invite, tenant, rawToken: token.raw };
+  return { ok: true, invite, organisation, rawToken: token.raw };
 }
 
 /** The email someone without an account gets. */
 export function inviteEmail(input: {
   inviterName: string;
-  tenantName: string;
+  organisationName: string;
   email: string;
   link: string;
 }): { subject: string; text: string } {
   return {
-    subject: `[Ziki Issues] ${input.inviterName} invited you to ${input.tenantName}`,
+    subject: `[Ziki Issues] ${input.inviterName} invited you to ${input.organisationName}`,
     text: [
-      `${input.inviterName} invited you to join ${input.tenantName} on Ziki.`,
+      `${input.inviterName} invited you to join ${input.organisationName} on Ziki.`,
       "",
       `Accept the invite: ${input.link}`,
       "",
@@ -209,18 +209,18 @@ export async function deliverInvite(
   input: {
     invite: { id: string; email: string };
     rawToken: string;
-    tenantId?: string;
-    tenantName: string;
+    organisationId?: string;
+    organisationName: string;
     inviter: { id: string; name: string };
   },
 ): Promise<InviteDelivery> {
-  const { invite, rawToken, tenantName, inviter } = input;
+  const { invite, rawToken, organisationName, inviter } = input;
   const account = await db.user.findUnique({ where: { email: invite.email }, select: { id: true } });
   if (account) {
-    await notifyTenantInvite({
+    await notifyOrganisationInvite({
       id: invite.id,
-      ...(input.tenantId ? { tenantId: input.tenantId } : {}),
-      tenantName,
+      ...(input.organisationId ? { organisationId: input.organisationId } : {}),
+      organisationName,
       email: invite.email,
       invitedBy: inviter,
     });
@@ -230,7 +230,7 @@ export async function deliverInvite(
 
   const message = inviteEmail({
     inviterName: inviter.name,
-    tenantName,
+    organisationName,
     email: invite.email,
     link: inviteUrl(rawToken),
   });
@@ -258,23 +258,23 @@ export type InviteLookup = { token: string } | { inviteId: string };
 const inviteSelect = {
   id: true,
   email: true,
-  tenantId: true,
+  organisationId: true,
   acceptedAt: true,
   expiresAt: true,
   invitedBy: { select: { name: true } },
-  tenant: { select: { id: true, slug: true, name: true } },
+  organisation: { select: { id: true, slug: true, name: true } },
 } as const;
 
 async function findInvite(db: Db, lookup: InviteLookup) {
   if ("token" in lookup) {
     if (!isInviteToken(lookup.token)) return null;
-    return db.tenantInvite.findUnique({
+    return db.organisationInvite.findUnique({
       where: { tokenHash: hashInviteToken(lookup.token) },
       select: inviteSelect,
     });
   }
   if (!lookup.inviteId) return null;
-  return db.tenantInvite.findUnique({ where: { id: lookup.inviteId }, select: inviteSelect });
+  return db.organisationInvite.findUnique({ where: { id: lookup.inviteId }, select: inviteSelect });
 }
 
 export type InviteView = {
@@ -287,7 +287,7 @@ export type InviteView = {
   forThisAccount: boolean;
   /** Who and what it's for: only shown to the account it was sent to. */
   details: {
-    tenant: { id: string; slug: string; name: string };
+    organisation: { id: string; slug: string; name: string };
     invitedByName: string;
     alreadyMember: boolean;
   } | null;
@@ -295,7 +295,7 @@ export type InviteView = {
 
 /**
  * What the signed-in person may see of an invite. By link, anyone holding it
- * learns its state and the masked address; the tenant's name is only for the
+ * learns its state and the masked address; the organisation's name is only for the
  * invited account. By id (from an in-app notification), an invite for
  * another account is `null`, the same as one that doesn't exist.
  */
@@ -313,11 +313,11 @@ export async function viewInvite(
   let details: InviteView["details"] = null;
   if (forThisAccount) {
     const membership = await db.membership.findUnique({
-      where: { tenantId_userId: { tenantId: invite.tenantId, userId: account.id } },
+      where: { organisationId_userId: { organisationId: invite.organisationId, userId: account.id } },
       select: { id: true },
     });
     details = {
-      tenant: invite.tenant,
+      organisation: invite.organisation,
       invitedByName: invite.invitedBy.name,
       alreadyMember: Boolean(membership),
     };
@@ -343,7 +343,7 @@ export const ACCEPT_INVITE_ERRORS: Record<AcceptInviteFailure, string> = {
 };
 
 export type AcceptInviteResult =
-  | { ok: true; tenant: { id: string; slug: string; name: string }; alreadyMember: boolean }
+  | { ok: true; organisation: { id: string; slug: string; name: string }; alreadyMember: boolean }
   | { ok: false; reason: AcceptInviteFailure; error: string };
 
 function failed(reason: AcceptInviteFailure): AcceptInviteResult {
@@ -355,7 +355,7 @@ function failed(reason: AcceptInviteFailure): AcceptInviteResult {
  *
  * The claim is a conditional update (`acceptedAt IS NULL AND expiresAt >
  * now`), so when two requests race with one link, Postgres row locking lets
- * exactly one through. Someone already in the tenant keeps their role.
+ * exactly one through. Someone already in the organisation keeps their role.
  */
 export async function acceptInvite(
   db: Db,
@@ -375,13 +375,13 @@ export async function acceptInvite(
   if (!forThisAccount) return failed("wrong_account");
 
   return db.$transaction(async (tx) => {
-    const claimed = await tx.tenantInvite.updateMany({
+    const claimed = await tx.organisationInvite.updateMany({
       where: { id: invite.id, acceptedAt: null, expiresAt: { gt: now } },
       data: { acceptedAt: now },
     });
     if (claimed.count !== 1) {
       // Lost a race with another click, or it expired a moment ago.
-      const latest = await tx.tenantInvite.findUnique({
+      const latest = await tx.organisationInvite.findUnique({
         where: { id: invite.id },
         select: { acceptedAt: true },
       });
@@ -389,21 +389,21 @@ export async function acceptInvite(
     }
 
     const existing = await tx.membership.findUnique({
-      where: { tenantId_userId: { tenantId: invite.tenantId, userId: account.id } },
+      where: { organisationId_userId: { organisationId: invite.organisationId, userId: account.id } },
       select: { id: true },
     });
     await tx.membership.upsert({
-      where: { tenantId_userId: { tenantId: invite.tenantId, userId: account.id } },
-      create: { tenantId: invite.tenantId, userId: account.id, role: "member" },
+      where: { organisationId_userId: { organisationId: invite.organisationId, userId: account.id } },
+      create: { organisationId: invite.organisationId, userId: account.id, role: "member" },
       update: {},
     });
-    if (!existing) await awardSignupBonus(tx, account.id, invite.tenantId);
-    return { ok: true as const, tenant: invite.tenant, alreadyMember: Boolean(existing) };
+    if (!existing) await awardSignupBonus(tx, account.id, invite.organisationId);
+    return { ok: true as const, organisation: invite.organisation, alreadyMember: Boolean(existing) };
   });
 }
 
 // ---------------------------------------------------------------------------
-// Managing a tenant's invites
+// Managing a organisation's invites
 // ---------------------------------------------------------------------------
 
 export type PendingInvite = {
@@ -417,12 +417,12 @@ export type PendingInvite = {
 export type AccountInvite = {
   id: string;
   expiresAt: Date;
-  tenant: { id: string; name: string; slug: string };
+  organisation: { id: string; name: string; slug: string };
   invitedByName: string;
 };
 
 /**
- * Live invites addressed to this account. The tenants page lists these so
+ * Live invites addressed to this account. The organisations page lists these so
  * the person can join without pasting the link. One they already belong to
  * is left out.
  */
@@ -433,7 +433,7 @@ export async function openInvitesFor(
 ): Promise<AccountInvite[]> {
   const email = account.email?.trim();
   if (!email) return [];
-  const rows = await db.tenantInvite.findMany({
+  const rows = await db.organisationInvite.findMany({
     where: {
       email: { equals: email, mode: "insensitive" },
       acceptedAt: null,
@@ -442,8 +442,8 @@ export async function openInvitesFor(
     select: {
       id: true,
       expiresAt: true,
-      tenantId: true,
-      tenant: { select: { id: true, name: true, slug: true } },
+      organisationId: true,
+      organisation: { select: { id: true, name: true, slug: true } },
       invitedBy: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -452,14 +452,14 @@ export async function openInvitesFor(
   const open: AccountInvite[] = [];
   for (const row of rows) {
     const membership = await db.membership.findUnique({
-      where: { tenantId_userId: { tenantId: row.tenantId, userId: account.id } },
+      where: { organisationId_userId: { organisationId: row.organisationId, userId: account.id } },
       select: { id: true },
     });
     if (membership) continue;
     open.push({
       id: row.id,
       expiresAt: row.expiresAt,
-      tenant: row.tenant,
+      organisation: row.organisation,
       invitedByName: row.invitedBy.name,
     });
   }
@@ -469,12 +469,12 @@ export async function openInvitesFor(
 /** Links still waiting to be used, newest first. */
 export async function pendingInvites(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   now = new Date(),
 ): Promise<PendingInvite[]> {
   // The inviter is loaded apart so a deleted account does not fail the page.
-  const rows = await db.tenantInvite.findMany({
-    where: { tenantId, acceptedAt: null, expiresAt: { gt: now } },
+  const rows = await db.organisationInvite.findMany({
+    where: { organisationId, acceptedAt: null, expiresAt: { gt: now } },
     select: { id: true, email: true, expiresAt: true, createdAt: true, invitedById: true },
     orderBy: { createdAt: "desc" },
     take: 50,
@@ -498,7 +498,7 @@ export async function pendingInvites(
 }
 
 export type RevokeInviteResult =
-  | { ok: true; tenantSlug: string }
+  | { ok: true; organisationSlug: string }
   | { ok: false; error: string };
 
 /** An owner or admin withdraws a link that hasn't been used. */
@@ -508,21 +508,21 @@ export async function revokeInvite(
   inviteId: string,
 ): Promise<RevokeInviteResult> {
   const invite = inviteId
-    ? await db.tenantInvite.findUnique({
+    ? await db.organisationInvite.findUnique({
         where: { id: inviteId },
-        select: { id: true, tenantId: true, acceptedAt: true, tenant: { select: { slug: true } } },
+        select: { id: true, organisationId: true, acceptedAt: true, organisation: { select: { slug: true } } },
       })
     : null;
   const membership = invite
     ? await db.membership.findUnique({
-        where: { tenantId_userId: { tenantId: invite.tenantId, userId: actor.id } },
+        where: { organisationId_userId: { organisationId: invite.organisationId, userId: actor.id } },
         select: { role: true },
       })
     : null;
-  // Someone else's tenant's invite looks the same as no invite.
+  // Someone else's organisation's invite looks the same as no invite.
   if (!invite || !canInvite(membership?.role)) return { ok: false, error: INVITE_NOT_ALLOWED };
   if (invite.acceptedAt) return { ok: false, error: "That invite was already accepted." };
 
-  await db.tenantInvite.deleteMany({ where: { id: invite.id, acceptedAt: null } });
-  return { ok: true, tenantSlug: invite.tenant.slug };
+  await db.organisationInvite.deleteMany({ where: { id: invite.id, acceptedAt: null } });
+  return { ok: true, organisationSlug: invite.organisation.slug };
 }

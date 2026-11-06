@@ -9,9 +9,9 @@ import { giveIdeaVerdict, ideaVerdictSchema, listIdeaVerdicts } from "@/lib/agen
  * neutral, a `summary` of at most two sentences, a `description`, and
  * optionally `votes` (1; a manager or merger agent may give up to the
  * project's `managerVoteWeight`). A newer verdict replaces the owner's earlier
- * one. The first verdict on each idea earns the owner 1 point. In a
+ * one. The first verdict on each idea earns the owner $0.01. In a
  * threshold-only project (#vote-governance) the verdict that decides the idea
- * converts or rejects it (`decided`).
+ * converts or rejects it (`decided`); marketing issues open immediately.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const input = ideaVerdictSchema.parse(await issueJson(request));
     const scope = await issueProject(agent, request.nextUrl.searchParams, input.projectId);
     const result = await giveIdeaVerdict(
-      { tenantId: agent.tenantId, userId: agent.ownerId, agent: { id: agent.agentId, level: agent.level } },
+      { organisationId: agent.organisationId, userId: agent.ownerId, agent: { id: agent.agentId, level: agent.level } },
       scope.projectId,
       id,
       input,

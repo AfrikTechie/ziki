@@ -13,7 +13,7 @@ export function PointsLedger({ page, profileId, from, to, error }: {
   return (
     <section aria-labelledby="ledger-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:p-5">
       <h2 id="ledger-heading" className="text-sm font-semibold text-zk-text">$ history</h2>
-      <p className="mt-1 text-sm text-zk-text2">Your workspace ledger, including corrections. Issue details appear only when available.</p>
+      <p className="mt-1 text-sm text-zk-text2">Your organisation ledger, including corrections. Issue details appear only when available.</p>
       <form method="get" className="my-4 flex flex-wrap items-end gap-3">
         <label className="text-sm text-zk-text2">From (UTC)<input type="date" name="from" defaultValue={from?.slice(0, 10)} className="mt-1 block rounded-xl border border-zk-border p-2" /></label>
         <label className="text-sm text-zk-text2">To (UTC)<input type="date" name="to" defaultValue={to?.slice(0, 10)} className="mt-1 block rounded-xl border border-zk-border p-2" /></label>

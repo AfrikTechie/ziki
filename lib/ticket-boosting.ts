@@ -1,9 +1,9 @@
 import type { MembershipRole } from "@prisma/client";
-import { isOrganizationAdmin } from "@/lib/organization-role";
+import { isOrganisationAdmin } from "@/lib/organisation-role";
 import type { AppRole } from "@/lib/roles";
 
 export const TICKET_BOOST_ERRORS = {
-  unauthorized: "Only an owner or admin of this organization can boost issues",
+  unauthorized: "Only an owner or admin of this organisation can boost issues",
   invalidId: "Invalid issue ID",
   notFound: "Issue not found",
   failed: "Could not update issue boost status. Please try again.",
@@ -11,12 +11,12 @@ export const TICKET_BOOST_ERRORS = {
 
 export type TicketBoostError = keyof typeof TICKET_BOOST_ERRORS;
 
-/** Boosting is an organization power, not a site-wide admin power. */
+/** Boosting is an organisation power, not a site-wide admin power. */
 export function canBoostTicket(
   role?: AppRole | null,
   membershipRole?: MembershipRole | null,
 ): boolean {
-  return isOrganizationAdmin(membershipRole, role);
+  return isOrganisationAdmin(membershipRole, role);
 }
 
 /** Statuses that mean the work is done, so a boost no longer applies. */

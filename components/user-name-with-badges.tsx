@@ -5,12 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import type { AvatarSize } from "@/lib/avatar";
 import { authorBadgeClass } from "@/lib/labels";
 import type { AppRole } from "@/lib/roles";
-import { isOrganizationAdmin, type OrganizationRole } from "@/lib/organization-role";
+import { isOrganisationAdmin, type OrganisationRole } from "@/lib/organisation-role";
 
 export function UserNameWithBadges({
   name,
   role,
-  organizationRole,
+  organisationRole,
   userId,
   showAuthor = false,
   agentName,
@@ -22,11 +22,11 @@ export function UserNameWithBadges({
   /** Account-wide role. On its own it only labels the site's super admin. */
   role?: AppRole | null;
   /**
-   * The person's role in the organization this page belongs to (#489). The
+   * The person's role in the organisation this page belongs to (#489). The
    * Admin label follows it, the same rule as admin powers: an admin of another
-   * organization who is only a member here is not labelled Admin here.
+   * organisation who is only a member here is not labelled Admin here.
    */
-  organizationRole?: OrganizationRole | null;
+  organisationRole?: OrganisationRole | null;
   /**
    * Links the name to that person's profile. Leave it out anywhere the name
    * already sits inside a link — a list row, say — because a link inside a
@@ -56,7 +56,7 @@ export function UserNameWithBadges({
       )}
       {agentName ? <AgentChip name={agentName} /> : null}
       {showAuthor ? <Badge className={authorBadgeClass}>Creator</Badge> : null}
-      {isOrganizationAdmin(organizationRole, role) ? <AdminBadge /> : null}
+      {isOrganisationAdmin(organisationRole, role) ? <AdminBadge /> : null}
     </span>
   );
 }

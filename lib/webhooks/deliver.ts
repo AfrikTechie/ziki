@@ -51,6 +51,27 @@ export async function attemptDelivery(params: {
 }
 
 /** Lease pending rows atomically so overlapping dispatchers cannot send the same attempt. */
+export function webhookBody(event: {
+  id: string;
+  type: string;
+  payload: unknown;
+  actorAgentId: string | null;
+  bugId: string | null;
+  createdAt: Date;
+}) {
+  const eventPayload = (event.payload && typeof event.payload === "object") ? (event.payload as Record<string, unknown>) : {};
+  const track = (eventPayload.track as string | undefined) ?? null;
+  return {
+    id: event.id,
+    type: event.type,
+    payload: event.payload,
+    actorAgentId: event.actorAgentId,
+    bugId: event.bugId,
+    createdAt: event.createdAt.toISOString(),
+    ...(track ? { track } : {}),
+  };
+}
+
 export async function processDelivery(deliveryId: string, now = new Date()): Promise<void> {
   const lease = new Date(now.getTime() + LEASE_MS);
   const claimed = await prisma.webhookDelivery.updateMany({
@@ -59,14 +80,14 @@ export async function processDelivery(deliveryId: string, now = new Date()): Pro
   });
   if (!claimed.count) return;
   const delivery = await prisma.webhookDelivery.findUnique({ where: { id: deliveryId }, include: {
-    subscription: { include: { agent: { include: { owner: { select: { memberships: { select: { tenantId: true } } } } } } } },
+    subscription: { include: { agent: { include: { owner: { select: { memberships: { select: { organisationId: true } } } } } } } },
     event: true,
   } });
   if (!delivery) return;
   const { subscription, event } = delivery;
   const agent = subscription.agent;
-  if (!subscription.enabled || agent.revokedAt || agent.tenantId !== event.tenantId ||
-      !agent.owner.memberships.some((membership) => membership.tenantId === event.tenantId) ||
+  if (!subscription.enabled || agent.revokedAt || agent.organisationId !== event.organisationId ||
+      !agent.owner.memberships.some((membership) => membership.organisationId === event.organisationId) ||
       (subscription.events.length > 0 && !subscription.events.includes(event.type))) {
     await prisma.webhookDelivery.updateMany({ where: { id: deliveryId, nextAttemptAt: lease }, data: { status: "dead", nextAttemptAt: null } });
     return;
@@ -77,8 +98,7 @@ export async function processDelivery(deliveryId: string, now = new Date()): Pro
     result = address.ok ? await attemptDelivery({
       url: subscription.url, resolvedAddress: address.address,
       rawSecret: decryptSigningSecret(subscription.signingSecretEncrypted), eventId: event.id,
-      body: JSON.stringify({ id: event.id, type: event.type, payload: event.payload,
-        actorAgentId: event.actorAgentId, bugId: event.bugId, createdAt: event.createdAt.toISOString() }),
+      body: JSON.stringify(webhookBody(event)),
     }) : { ok: false, error: "Webhook address is no longer public." };
   } catch { result = { ok: false, error: "Webhook signing configuration is invalid." }; }
   const attempts = delivery.attemptCount + 1;

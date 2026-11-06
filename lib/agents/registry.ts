@@ -9,16 +9,16 @@ import { generateApiKey } from "@/lib/agents/keys";
 import { sealSecret } from "@/lib/secret-box";
 import { CREATION_LEVELS, DEFAULT_AGENT_LEVEL, canSetLevel } from "@/lib/agents/levels";
 import { isAgentAvatar } from "@/lib/agents/avatars";
-import { isTenantAdmin } from "@/lib/agents/membership";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { AGENT_LIMIT_MESSAGE, AGENT_MODEL_MAX, AGENT_NAME_MAX, MAX_ACTIVE_AGENTS_PER_OWNER } from "@/lib/agents/registry-limits";
 import { releaseWorkOfRevokedAgent } from "@/lib/agent-api/revoke-release";
 
 /**
  * Registering agents and managing their keys (#427). A person creates agents
- * under their own account, sees each key once, and can revoke them; a tenant
- * admin can revoke any agent in the tenant. An agent can only rotate its own
+ * under their own account, sees each key once, and can revoke them; a organisation
+ * admin can revoke any agent in the organisation. An agent can only rotate its own
  * key: it can't rename itself, change owner, create agents or raise its level.
  */
 
@@ -56,7 +56,7 @@ export type IssuedKey = { agentId: string; name: string; level: AgentLevel; rawK
 /** Inserts an agent and its first key. Shared by the settings page and pairing. */
 export async function insertAgentWithKey(
   db: Db,
-  input: { tenantId: string; ownerUserId: string; name: string; model: string | null; level: AgentLevel; projectId: string; instructions?: string | null },
+  input: { organisationId: string; ownerUserId: string; name: string; model: string | null; level: AgentLevel; projectId: string; instructions?: string | null },
 ): Promise<IssuedKey> {
   const key = generateApiKey();
   const { projectId, ...agentInput } = input;
@@ -64,7 +64,7 @@ export async function insertAgentWithKey(
     data: {
       ...agentInput,
       // #agent-profile: its @username starts as its name; it can change it.
-      username: await freeUsername(db, input.tenantId, input.name),
+      username: await freeUsername(db, input.organisationId, input.name),
       apiKeys: {
         create: { keyHash: key.hash, prefix: key.prefix, projectId, sealedKey: sealSecret(key.raw) },
       },
@@ -90,24 +90,24 @@ export async function createAgent(owner: Actor, input: unknown): Promise<CreateA
       field: field === "name" || field === "model" || field === "level" || field === "projectId" ? field : undefined,
     };
   }
-  const tenantId = await currentTenantIdFor(owner.id);
-  if (!tenantId) {
+  const organisationId = await currentOrganisationIdFor(owner.id);
+  if (!organisationId) {
     return { ok: false, error: "Join or create a team before you register agents." };
   }
-  if (!canSetLevel({ isOwner: true, isTenantAdmin: await isTenantAdmin(owner, tenantId) }, parsed.data.level)) {
+  if (!canSetLevel({ isOwner: true, isAdminOfOrganisation: await isAdminOfOrganisation(owner, organisationId) }, parsed.data.level)) {
     return { ok: false, error: "Only a team admin can make an agent a manager or merger agent.", field: "level" };
   }
-  const project = await projectInTenant(tenantId, parsed.data.projectId);
-  if (!project) return { ok: false, error: "Choose a project in this workspace.", field: "projectId" };
+  const project = await projectInOrganisation(organisationId, parsed.data.projectId);
+  if (!project) return { ok: false, error: "Choose a project in this organisation.", field: "projectId" };
 
   const key = await prisma.$transaction(async (tx) => {
     // Per-agent budgets would multiply with every extra agent (#511).
     const active = await tx.agent.count({
-      where: { tenantId, ownerUserId: owner.id, revokedAt: null },
+      where: { organisationId, ownerUserId: owner.id, revokedAt: null },
     });
     if (active >= MAX_ACTIVE_AGENTS_PER_OWNER) return null;
     const issued = await insertAgentWithKey(tx, {
-      tenantId,
+      organisationId,
       ownerUserId: owner.id,
       name: parsed.data.name,
       model: parsed.data.model,
@@ -115,7 +115,7 @@ export async function createAgent(owner: Actor, input: unknown): Promise<CreateA
       projectId: project.id,
     });
     await audit(
-      { agentId: issued.agentId, tenantId },
+      { agentId: issued.agentId, organisationId },
       "agent.created",
       `agent:${issued.agentId}`,
       { name: issued.name, model: parsed.data.model, level: parsed.data.level, projectId: project.id, via: "settings" },
@@ -131,31 +131,31 @@ type ManagedAgent = {
   id: string;
   name: string;
   level: AgentLevel;
-  tenantId: string;
+  organisationId: string;
   ownerUserId: string;
   revokedAt: Date | null;
   defaultProjectId: string | null;
 };
 
-async function projectInTenant(tenantId: string, projectId: string) {
+async function projectInOrganisation(organisationId: string, projectId: string) {
   if (!projectId) return null;
   return prisma.project.findFirst({
-    where: { id: projectId, tenantId },
+    where: { id: projectId, organisationId },
     select: { id: true, slug: true, name: true },
   });
 }
 
-/** The agent, and whether the actor may manage it: its owner or a tenant admin. */
+/** The agent, and whether the actor may manage it: its owner or a organisation admin. */
 async function managedAgent(actor: Actor, agentId: string) {
   const agent: ManagedAgent | null = await prisma.agent.findUnique({
     where: { id: agentId },
-    select: { id: true, name: true, level: true, tenantId: true, ownerUserId: true, revokedAt: true, defaultProjectId: true },
+    select: { id: true, name: true, level: true, organisationId: true, ownerUserId: true, revokedAt: true, defaultProjectId: true },
   });
   if (!agent) return null;
   const isOwner = agent.ownerUserId === actor.id;
-  const isAdmin = await isTenantAdmin(actor, agent.tenantId);
+  const isAdmin = await isAdminOfOrganisation(actor, agent.organisationId);
   if (!isOwner && !isAdmin) return null;
-  return { agent, isOwner, isTenantAdmin: isAdmin };
+  return { agent, isOwner, isAdminOfOrganisation: isAdmin };
 }
 
 export type ManageResult = { ok: true } | { ok: false; error: string };
@@ -176,15 +176,15 @@ export async function revokeAgent(actor: Actor, agentId: string, now = new Date(
     // #523: a dead key can't deliver, so its claims and bids go back to the team.
     const handedBack = await releaseWorkOfRevokedAgent(tx, {
       agentId,
-      tenantId: managed.agent.tenantId,
+      organisationId: managed.agent.organisationId,
       actorUserId: actor.id,
       now,
     });
     await audit(
-      { agentId, tenantId: managed.agent.tenantId },
+      { agentId, organisationId: managed.agent.organisationId },
       "agent.revoked",
       `agent:${agentId}`,
-      { by: managed.isOwner ? "owner" : "tenant_admin", ...handedBack },
+      { by: managed.isOwner ? "owner" : "organisation_admin", ...handedBack },
       { actorUserId: actor.id, db: tx },
     );
   });
@@ -201,7 +201,7 @@ export async function deleteAgent(actor: Actor, agentId: string, now = new Date(
   await prisma.$transaction(async (tx) => {
     await releaseWorkOfRevokedAgent(tx, {
       agentId,
-      tenantId: managed.agent.tenantId,
+      organisationId: managed.agent.organisationId,
       actorUserId: actor.id,
       now,
     });
@@ -210,7 +210,7 @@ export async function deleteAgent(actor: Actor, agentId: string, now = new Date(
   return { ok: true };
 }
 
-/** The owner, or a tenant admin, moves an agent to another level. */
+/** The owner, or a organisation admin, moves an agent to another level. */
 export async function setAgentLevel(actor: Actor, agentId: string, level: AgentLevel): Promise<ManageResult> {
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
@@ -223,10 +223,10 @@ export async function setAgentLevel(actor: Actor, agentId: string, level: AgentL
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({ where: { id: agentId }, data: { level, levelChangedAt: new Date() } });
     await audit(
-      { agentId, tenantId: managed.agent.tenantId },
+      { agentId, organisationId: managed.agent.organisationId },
       "agent.level_changed",
       `agent:${agentId}`,
-      { from: before.level, to: level, by: managed.isOwner ? "owner" : "tenant_admin" },
+      { from: before.level, to: level, by: managed.isOwner ? "owner" : "organisation_admin" },
       { actorUserId: actor.id, db: tx },
     );
   });
@@ -237,7 +237,7 @@ export type RenameResult = { ok: true; name: string } | { ok: false; error: stri
 
 /**
  * Rename an agent, as its owner or a team admin. An owner keeps one agent per
- * name in a workspace, because the agent's page is addressed by its name.
+ * name in an organisation, because the agent's page is addressed by its name.
  */
 export async function renameAgent(actor: Actor, agentId: string, input: unknown): Promise<RenameResult> {
   const parsed = agentNameSchema.safeParse(input);
@@ -250,7 +250,7 @@ export async function renameAgent(actor: Actor, agentId: string, input: unknown)
 
   const taken = await prisma.agent.findFirst({
     where: {
-      tenantId: managed.agent.tenantId,
+      organisationId: managed.agent.organisationId,
       ownerUserId: managed.agent.ownerUserId,
       name: { equals: name, mode: "insensitive" },
       id: { not: agentId },
@@ -262,10 +262,10 @@ export async function renameAgent(actor: Actor, agentId: string, input: unknown)
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({ where: { id: agentId }, data: { name } });
     await audit(
-      { agentId, tenantId: managed.agent.tenantId },
+      { agentId, organisationId: managed.agent.organisationId },
       "agent.renamed",
       `agent:${agentId}`,
-      { from: managed.agent.name, to: name, by: managed.isOwner ? "owner" : "tenant_admin" },
+      { from: managed.agent.name, to: name, by: managed.isOwner ? "owner" : "organisation_admin" },
       { actorUserId: actor.id, db: tx },
     );
   });
@@ -286,10 +286,10 @@ export async function setAgentAvatar(actor: Actor, agentId: string, avatar: unkn
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({ where: { id: agentId }, data: { avatar } });
     await audit(
-      { agentId, tenantId: managed.agent.tenantId },
+      { agentId, organisationId: managed.agent.organisationId },
       "agent.avatar_changed",
       `agent:${agentId}`,
-      { from: before.avatar, to: avatar, by: managed.isOwner ? "owner" : "tenant_admin" },
+      { from: before.avatar, to: avatar, by: managed.isOwner ? "owner" : "organisation_admin" },
       { actorUserId: actor.id, db: tx },
     );
   });
@@ -306,8 +306,8 @@ export async function setAgentAreaPreferences(
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
   if (managed.agent.revokedAt) return { ok: false, error: "That agent is revoked." };
-  const project = await projectInTenant(managed.agent.tenantId, projectId);
-  if (!project) return { ok: false, error: "Choose a project in this workspace." };
+  const project = await projectInOrganisation(managed.agent.organisationId, projectId);
+  if (!project) return { ok: false, error: "Choose a project in this organisation." };
 
   const wanted = [...new Set(areaIds)].sort();
   const validAreas = wanted.length
@@ -333,10 +333,10 @@ export async function setAgentAreaPreferences(
       await tx.agentAreaPreference.createMany({ data: wanted.map((projectAreaId) => ({ agentId, projectAreaId })) });
     }
     await audit(
-      { agentId, tenantId: managed.agent.tenantId },
+      { agentId, organisationId: managed.agent.organisationId },
       "agent.area_preferences_changed",
       `agent:${agentId}`,
-      { projectId: project.id, from: before, to: wanted, by: managed.isOwner ? "owner" : "tenant_admin" },
+      { projectId: project.id, from: before, to: wanted, by: managed.isOwner ? "owner" : "organisation_admin" },
       { actorUserId: actor.id, db: tx },
     );
   });
@@ -345,7 +345,7 @@ export async function setAgentAreaPreferences(
 
 /**
  * Turns the higher read budget on or off (#440; writes have no hourly cap since #699), optionally until a time
- * (#596). A workspace admin or a site admin may do this. An owner who is not
+ * (#596). An organisation admin or a site admin may do this. An owner who is not
  * an admin cannot.
  *
  * `burst` stays the enabled flag; `burstUntil` only limits it. Disabling
@@ -362,7 +362,7 @@ export async function setAgentBurst(
 ): Promise<ManageResult> {
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
-  if (!managed.isTenantAdmin && !isAdmin(actor.role)) {
+  if (!managed.isAdminOfOrganisation && !isAdmin(actor.role)) {
     return { ok: false, error: "Only an admin can change an agent's read budget." };
   }
   if (managed.agent.revokedAt) return { ok: false, error: "That agent is revoked." };
@@ -385,7 +385,7 @@ export async function setAgentBurst(
     await prisma.$transaction(async (tx) => {
       await tx.agent.update({ where: { id: agentId }, data: { burst, burstUntil: nextUntil } });
       await audit(
-        { agentId, tenantId: managed.agent.tenantId },
+        { agentId, organisationId: managed.agent.organisationId },
         "agent.burst_changed",
         `agent:${agentId}`,
         {
@@ -438,7 +438,7 @@ export type RegenerateKeyResult =
   | { ok: false; error: string; field?: "projectId" };
 
 /**
- * The owner or a tenant admin replaces every live key without the old secret
+ * The owner or a organisation admin replaces every live key without the old secret
  * (#572). The agent, its level and its history stay. The new key is sealed so
  * it can be copied again, and it is limited to the project they choose.
  */
@@ -451,8 +451,8 @@ export async function regenerateKey(
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
   if (managed.agent.revokedAt) return { ok: false, error: "That agent is revoked." };
-  const project = await projectInTenant(managed.agent.tenantId, projectId);
-  if (!project) return { ok: false, error: "Choose a project in this workspace.", field: "projectId" };
+  const project = await projectInOrganisation(managed.agent.organisationId, projectId);
+  if (!project) return { ok: false, error: "Choose a project in this organisation.", field: "projectId" };
 
   const key = generateApiKey();
   await prisma.$transaction(async (tx) => {
@@ -467,10 +467,10 @@ export async function regenerateKey(
       },
     });
     await audit(
-      { agentId, tenantId: managed.agent.tenantId },
+      { agentId, organisationId: managed.agent.organisationId },
       "agent.key_rotated",
       `agent:${agentId}`,
-      { prefix: key.prefix, projectId: project.id, by: managed.isOwner ? "owner" : "tenant_admin", via: "settings" },
+      { prefix: key.prefix, projectId: project.id, by: managed.isOwner ? "owner" : "organisation_admin", via: "settings" },
       { actorUserId: actor.id, db: tx },
     );
   });
@@ -493,7 +493,7 @@ export async function updateAgentProfileAsPerson(
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
   if (managed.agent.revokedAt) return { ok: false, error: "That agent is revoked." };
-  const result = await updateAgentProfile({ agentId, tenantId: managed.agent.tenantId, actorUserId: actor.id }, input);
+  const result = await updateAgentProfile({ agentId, organisationId: managed.agent.organisationId, actorUserId: actor.id }, input);
   return result.ok ? { ok: true, username: result.profile.username } : { ok: false, error: result.error };
 }
 
@@ -525,7 +525,7 @@ export async function replaceAgentSkillsAsPerson(actor: Actor, agentId: string, 
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
   if (managed.agent.revokedAt) return { ok: false, error: "That agent is revoked." };
-  const result = await replaceAgentSkills({ agentId, tenantId: managed.agent.tenantId, actorUserId: actor.id }, input);
+  const result = await replaceAgentSkills({ agentId, organisationId: managed.agent.organisationId, actorUserId: actor.id }, input);
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
@@ -538,7 +538,7 @@ export async function setAgentPictureAsPerson(
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, status: 404, error: NOT_FOUND };
   if (managed.agent.revokedAt) return { ok: false, status: 409, error: "That agent is revoked." };
-  const who = { agentId, tenantId: managed.agent.tenantId, actorUserId: actor.id };
+  const who = { agentId, organisationId: managed.agent.organisationId, actorUserId: actor.id };
   const result = bytes ? await setAgentPicture(who, bytes) : await removeAgentPicture(who);
   return result.ok ? { ok: true } : result;
 }

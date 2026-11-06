@@ -60,7 +60,7 @@ const LIVE: StakeStatus[] = ["waiting", "open", "contested"];
 const ON_ISSUE: StakeStatus[] = ["open", "contested"];
 
 type Tx = Prisma.TransactionClient;
-type Scope = { tenantId: string; projectId: string };
+type Scope = { organisationId: string; projectId: string };
 
 const id = z.string().trim().min(1).max(191);
 export const stakeSchema = z
@@ -111,11 +111,11 @@ export function stakeJson(stake: StakeRow, votes?: number) {
 async function assertStakeCaps(tx: Tx, scope: Scope & { userId: string }, workflow: ProjectWorkflowValues) {
   await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${scope.userId} FOR UPDATE`;
   const [open, inProgress] = await Promise.all([
-    tx.issueStake.count({ where: { tenantId: scope.tenantId, projectId: scope.projectId, beneficiaryUserId: scope.userId, status: { in: LIVE } } }),
+    tx.issueStake.count({ where: { organisationId: scope.organisationId, projectId: scope.projectId, beneficiaryUserId: scope.userId, status: { in: LIVE } } }),
     tx.issueClaim.count({
       where: {
         beneficiaryUserId: scope.userId, status: "active", releasedAt: null,
-        bug: { tenantId: scope.tenantId, projectId: scope.projectId, isDeleted: false, status: "in_progress" },
+        bug: { organisationId: scope.organisationId, projectId: scope.projectId, isDeleted: false, status: "in_progress" },
       },
     }),
   ]);
@@ -149,7 +149,7 @@ async function lockBug(tx: Tx, scope: Scope, ref: string) {
   await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${found.id} FOR UPDATE`;
   const bug = await tx.bug.findUniqueOrThrow({
     where: { id: found.id },
-    select: { id: true, number: true, title: true, tenantId: true, projectId: true, substatus: true, assigneeId: true, assignee: { select: { name: true } } },
+    select: { id: true, number: true, title: true, organisationId: true, projectId: true, substatus: true, assigneeId: true, assignee: { select: { name: true } } },
   });
   return bug;
 }
@@ -207,13 +207,13 @@ export async function stakeIssue(agent: AgentContext, scope: Scope, ref: string,
     if (!other) {
       const stake = await tx.issueStake.create({
         data: {
-          tenantId: bug.tenantId, projectId: bug.projectId, bugId: bug.id, agentId: agent.agentId, beneficiaryUserId: agent.ownerId,
+          organisationId: bug.organisationId, projectId: bug.projectId, bugId: bug.id, agentId: agent.agentId, beneficiaryUserId: agent.ownerId,
           summary, description, status: "open", lastRefreshAt: at, windowEndsAt: new Date(now + STAKE_WINDOW_MS),
         },
         select: stakeView,
       });
       await publish(tx, {
-        tenantId: bug.tenantId, type: "issue.staked", actorAgentId: agent.agentId, bugId: bug.id, projectId: bug.projectId,
+        organisationId: bug.organisationId, type: "issue.staked", actorAgentId: agent.agentId, bugId: bug.id, projectId: bug.projectId,
         payload: { stakeId: stake.id, issueId: bug.id, issueNumber: bug.number, projectId: bug.projectId, agentId: agent.agentId, beneficiaryUserId: agent.ownerId, summary, windowEndsAt: stake.windowEndsAt?.toISOString() ?? null },
       });
       return { stake, created: true, contested: false };
@@ -223,14 +223,14 @@ export async function stakeIssue(agent: AgentContext, scope: Scope, ref: string,
     const contestEndsAt = new Date(now + STAKE_CONTEST_MS);
     const stake = await tx.issueStake.create({
       data: {
-        tenantId: bug.tenantId, projectId: bug.projectId, bugId: bug.id, agentId: agent.agentId, beneficiaryUserId: agent.ownerId,
+        organisationId: bug.organisationId, projectId: bug.projectId, bugId: bug.id, agentId: agent.agentId, beneficiaryUserId: agent.ownerId,
         summary, description, status: "contested", lastRefreshAt: at, contestEndsAt,
       },
       select: stakeView,
     });
     await tx.issueStake.update({ where: { id: other.id }, data: { status: "contested", contestEndsAt } });
     await publish(tx, {
-      tenantId: bug.tenantId, type: "issue.stake_contested", actorAgentId: agent.agentId, bugId: bug.id, projectId: bug.projectId,
+      organisationId: bug.organisationId, type: "issue.stake_contested", actorAgentId: agent.agentId, bugId: bug.id, projectId: bug.projectId,
       payload: { issueId: bug.id, issueNumber: bug.number, projectId: bug.projectId, stakeIds: [other.id, stake.id], agentIds: [other.agentId, agent.agentId], contestEndsAt: contestEndsAt.toISOString() },
     });
     return { stake, created: true, contested: true };
@@ -255,7 +255,7 @@ export async function stakeIdea(agent: AgentContext, scope: Scope, ref: string, 
     });
     if (!found) throw new IssueApiError(404, "Idea not found.");
     await tx.$queryRaw`SELECT "id" FROM "Idea" WHERE "id" = ${found.id} FOR UPDATE`;
-    const idea = await tx.idea.findUniqueOrThrow({ where: { id: found.id }, select: { id: true, number: true, status: true, tenantId: true, projectId: true } });
+    const idea = await tx.idea.findUniqueOrThrow({ where: { id: found.id }, select: { id: true, number: true, status: true, organisationId: true, projectId: true } });
     if (idea.status !== "open") refuse(409, "idea_not_open", "Only an open idea can be staked; stake the issue it became instead.");
     await expireIdeaStakes(tx, idea.id, now);
 
@@ -278,7 +278,7 @@ export async function stakeIdea(agent: AgentContext, scope: Scope, ref: string, 
     await assertStakeCaps(tx, { ...scope, userId: agent.ownerId }, workflow);
     const stake = await tx.issueStake.create({
       data: {
-        tenantId: idea.tenantId, projectId: idea.projectId, ideaId: idea.id, agentId: agent.agentId, beneficiaryUserId: agent.ownerId,
+        organisationId: idea.organisationId, projectId: idea.projectId, ideaId: idea.id, agentId: agent.agentId, beneficiaryUserId: agent.ownerId,
         summary: input.summary, description: input.description, status: "waiting", lastRefreshAt: new Date(now), expiresAt: new Date(now + IDEA_STAKE_MS),
       },
       select: stakeView,
@@ -294,7 +294,7 @@ export async function stakeIdea(agent: AgentContext, scope: Scope, ref: string, 
  * its waiting stakes move to the new issue. One starts its 10-minute window,
  * two start a contest; either way the first refresh is due 5 minutes from now.
  */
-export async function moveIdeaStakesToIssue(tx: Tx, ideaId: string, bug: { id: string; number: number; tenantId: string; projectId: string }, at: Date) {
+export async function moveIdeaStakesToIssue(tx: Tx, ideaId: string, bug: { id: string; number: number; organisationId: string; projectId: string }, at: Date) {
   const now = at.getTime();
   await expireIdeaStakes(tx, ideaId, now);
   const waiting = await tx.issueStake.findMany({ where: { ideaId, status: "waiting" }, orderBy: { createdAt: "asc" }, select: { id: true, agentId: true } });
@@ -305,7 +305,7 @@ export async function moveIdeaStakesToIssue(tx: Tx, ideaId: string, bug: { id: s
     const contestEndsAt = new Date(now + STAKE_CONTEST_MS);
     await tx.issueStake.updateMany({ where: { id: { in: waiting.map((stake) => stake.id) } }, data: { bugId: bug.id, status: "contested", lastRefreshAt: at, contestEndsAt } });
     await publish(tx, {
-      tenantId: bug.tenantId, type: "issue.stake_contested", actorAgentId: null, bugId: bug.id, projectId: bug.projectId,
+      organisationId: bug.organisationId, type: "issue.stake_contested", actorAgentId: null, bugId: bug.id, projectId: bug.projectId,
       payload: { issueId: bug.id, issueNumber: bug.number, projectId: bug.projectId, stakeIds: waiting.map((s) => s.id), agentIds: waiting.map((s) => s.agentId), contestEndsAt: contestEndsAt.toISOString() },
     });
   }
@@ -323,7 +323,7 @@ async function expireIdeaStakes(tx: Tx, ideaId: string, now: number) {
 // ---------------------------------------------------------------------------
 
 async function ownStake(tx: Tx, agent: AgentContext, stakeId: string) {
-  const stake = await tx.issueStake.findFirst({ where: { id: stakeId, tenantId: agent.tenantId }, select: { id: true, agentId: true, bugId: true, ideaId: true, projectId: true } });
+  const stake = await tx.issueStake.findFirst({ where: { id: stakeId, organisationId: agent.organisationId }, select: { id: true, agentId: true, bugId: true, ideaId: true, projectId: true } });
   if (!stake) throw new IssueApiError(404, "Stake not found.");
   assertKeyProject(agent, stake.projectId);
   if (stake.agentId !== agent.agentId) refuse(403, "not_your_stake", "Only the agent that placed a stake refreshes or withdraws it.");
@@ -370,7 +370,7 @@ export async function withdrawStake(agent: AgentContext, stakeId: string) {
 export async function voteStake(agent: AgentContext, stakeId: string) {
   requireLevel(agent, "working");
   const result = await prisma.$transaction(async (tx) => {
-    const stake = await tx.issueStake.findFirst({ where: { id: stakeId, tenantId: agent.tenantId }, select: { id: true, bugId: true, projectId: true } });
+    const stake = await tx.issueStake.findFirst({ where: { id: stakeId, organisationId: agent.organisationId }, select: { id: true, bugId: true, projectId: true } });
     if (!stake?.bugId) throw new IssueApiError(404, "Stake not found.");
     assertKeyProject(agent, stake.projectId);
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${stake.bugId} FOR UPDATE`;
@@ -443,14 +443,14 @@ export async function settleLocked(tx: Tx, bugId: string, now: number) {
     select: { id: true, status: true, lastRefreshAt: true, agentId: true },
   });
   if (live.length === 0) return;
-  const bug = await tx.bug.findUniqueOrThrow({ where: { id: bugId }, select: { id: true, number: true, title: true, tenantId: true, projectId: true, substatus: true, isDeleted: true, assigneeId: true, assignee: { select: { name: true } } } });
+  const bug = await tx.bug.findUniqueOrThrow({ where: { id: bugId }, select: { id: true, number: true, title: true, organisationId: true, projectId: true, substatus: true, isDeleted: true, assigneeId: true, assignee: { select: { name: true } } } });
 
   // Proof of life.
   for (const stake of live) {
     if (now - stake.lastRefreshAt.getTime() > STAKE_REFRESH_MS) {
       await endStake(tx, stake.id, "dropped", "no_refresh", at);
       if (stake.status === "contested") await reopenPartner(tx, bugId, stake.id, at);
-      await publish(tx, { tenantId: bug.tenantId, type: "issue.stake_ended", actorAgentId: stake.agentId, bugId, projectId: bug.projectId,
+      await publish(tx, { organisationId: bug.organisationId, type: "issue.stake_ended", actorAgentId: stake.agentId, bugId, projectId: bug.projectId,
         payload: { stakeId: stake.id, issueId: bugId, issueNumber: bug.number, agentId: stake.agentId, status: "dropped", resolution: "no_refresh" } });
     }
   }
@@ -501,7 +501,7 @@ export async function settleLocked(tx: Tx, bugId: string, now: number) {
  */
 async function winStake(
   tx: Tx,
-  bug: { id: string; number: number; title: string; tenantId: string; projectId: string; substatus: Substatus; assigneeId: string | null; assignee: { name: string | null } | null },
+  bug: { id: string; number: number; title: string; organisationId: string; projectId: string; substatus: Substatus; assigneeId: string | null; assignee: { name: string | null } | null },
   stake: { id: string; agentId: string; beneficiaryUserId: string },
   workflow: ProjectWorkflowValues,
   resolution: string,
@@ -509,7 +509,7 @@ async function winStake(
 ): Promise<boolean> {
   await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${stake.beneficiaryUserId} FOR UPDATE`;
   const inProgress = await tx.issueClaim.count({
-    where: { beneficiaryUserId: stake.beneficiaryUserId, status: "active", releasedAt: null, bug: { tenantId: bug.tenantId, projectId: bug.projectId, isDeleted: false, status: "in_progress" } },
+    where: { beneficiaryUserId: stake.beneficiaryUserId, status: "active", releasedAt: null, bug: { organisationId: bug.organisationId, projectId: bug.projectId, isDeleted: false, status: "in_progress" } },
   });
   if (inProgress >= workflow.stakeInProgressLimit) {
     await endStake(tx, stake.id, "dropped", "capacity", at);
@@ -534,11 +534,11 @@ async function winStake(
   await ensureWatching(tx, bug.id, [stake.beneficiaryUserId]);
   await tx.issueBid.updateMany({ where: { bugId: bug.id, withdrawnAt: null, awardedAt: null }, data: { withdrawnAt: at } });
   await publish(tx, {
-    tenantId: bug.tenantId, type: "claim.accepted", actorAgentId: stake.agentId, bugId: bug.id, projectId: bug.projectId,
+    organisationId: bug.organisationId, type: "claim.accepted", actorAgentId: stake.agentId, bugId: bug.id, projectId: bug.projectId,
     payload: { claimId: claim.id, issueId: bug.id, projectId: bug.projectId, beneficiaryUserId: stake.beneficiaryUserId, stakeId: stake.id },
   });
   await publish(tx, {
-    tenantId: bug.tenantId, type: "issue.stake_ended", actorAgentId: stake.agentId, bugId: bug.id, projectId: bug.projectId,
+    organisationId: bug.organisationId, type: "issue.stake_ended", actorAgentId: stake.agentId, bugId: bug.id, projectId: bug.projectId,
     payload: { stakeId: stake.id, issueId: bug.id, issueNumber: bug.number, agentId: stake.agentId, status: "won", resolution, claimId: claim.id },
   });
   return true;
@@ -549,7 +549,7 @@ async function winStake(
  * feed for one project): drops idea stakes past 24 hours and settles each
  * issue that has a live stake.
  */
-export async function sweepStakes(filter: { tenantId?: string; projectId?: string } = {}): Promise<{ settled: number }> {
+export async function sweepStakes(filter: { organisationId?: string; projectId?: string } = {}): Promise<{ settled: number }> {
   const now = Date.now();
   await prisma.issueStake.updateMany({
     where: { ...filter, status: "waiting", expiresAt: { lte: new Date(now) } },

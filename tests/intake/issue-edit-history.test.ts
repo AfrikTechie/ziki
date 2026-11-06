@@ -1,17 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-/** Editing an issue (#713): only the reporter and organization admins may edit, an edit keeps the old version and voids the confirmations given before it. */
+/** Editing an issue (#713): only the reporter and organisation admins may edit, an edit keeps the old version and voids the confirmations given before it. */
 const publishWebEvent = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("@/lib/agent-api/web-events", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/agent-api/web-events")>()),
   publishWebEvent,
 }));
 
-vi.mock("@/lib/tenant-context", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/tenant-context")>()),
-  currentTenantIdFor: vi.fn(async () => "tenant-zedu"),
+vi.mock("@/lib/organisation-context", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/organisation-context")>()),
+  currentOrganisationIdFor: vi.fn(async () => "organisation-zedu"),
   defaultProjectIdFor: vi.fn(async () => "project-zedu"),
-  tenantIdForUser: vi.fn(async () => "tenant-zedu"),
+  organisationIdForUser: vi.fn(async () => "organisation-zedu"),
 }));
 
 vi.mock("next/cache", () => ({
@@ -26,11 +26,11 @@ vi.mock("@/lib/auth-helpers", () => ({
   requireUser: vi.fn().mockResolvedValue({ id: "reporter-1", name: "Ada", role: "user" }),
 }));
 
-vi.mock("@/lib/tenant-access", () => ({
-  currentTenantAccess: vi.fn(async () => ({
-    tenantId: "tenant-zedu",
-    tenantName: "Zedu",
-    tenantSlug: "zedu",
+vi.mock("@/lib/organisation-access", () => ({
+  currentOrganisationAccess: vi.fn(async () => ({
+    organisationId: "organisation-zedu",
+    organisationName: "Zedu",
+    organisationSlug: "zedu",
     membershipRole: "member",
     admin: false,
   })),
@@ -87,7 +87,7 @@ function existingBug(overrides: Record<string, unknown> = {}) {
     description: "Original Description",
     reporterId: "reporter-1",
     beneficiaryUserId: "reporter-1",
-    tenantId: "tenant-zedu",
+    organisationId: "organisation-zedu",
     isDeleted: false,
     ...overrides,
   };
@@ -105,7 +105,7 @@ beforeEach(() => {
   db.prisma.bug.findUnique.mockResolvedValue(existingBug());
   db.tx.pointEntry.findFirst.mockResolvedValue({
     id: "entry-1",
-    tenantId: "tenant-zedu",
+    organisationId: "organisation-zedu",
     userId: "reporter-1",
     bugId: "bug-1",
     role: "reporter",
@@ -130,10 +130,10 @@ describe("editBugContentAction confirmation invalidation (#713)", () => {
     // Found reporter points entry
     expect(db.tx.pointEntry.findFirst).toHaveBeenCalledWith({
       where: {
-        tenantId: "tenant-zedu",
+        organisationId: "organisation-zedu",
         sourceKey: "reporter:bug-1:reporter-1",
       },
-      select: { id: true, tenantId: true, userId: true, bugId: true, role: true, points: true },
+      select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true },
     });
 
     // Reversed reporter points via correct()
@@ -178,7 +178,7 @@ describe("editBugContentAction confirmation invalidation (#713)", () => {
 });
 
 describe("who may edit", () => {
-  it("lets the reporter, an organization owner or admin, and a super admin edit", () => {
+  it("lets the reporter, an organisation owner or admin, and a super admin edit", () => {
     expect(canEditTicket({ actorId: "u1", actorRole: "user", reporterId: "u1" })).toBe(true);
     expect(canEditTicket({ actorId: "a1", actorRole: "user", membershipRole: "owner", reporterId: "u1" })).toBe(true);
     expect(canEditTicket({ actorId: "s1", actorRole: "super_admin", reporterId: "u1" })).toBe(true);

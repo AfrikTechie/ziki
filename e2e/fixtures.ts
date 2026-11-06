@@ -42,14 +42,33 @@ export { expect };
 /** The seeded project every spec works in (e2e/seed.ts); pages live under its organisation and slug (#project-urls). */
 export const PROJECT = "/zedu/zedu";
 
-/** Reports an issue through the form and returns its page URL. */
+/**
+ * Filing an idea is limited to 10 a minute per person (ACTION_RATE_LIMITS.createBug in lib/rate-limit.ts), and every submit
+ * counts. The busiest desktop user files close to that many in one run, and a retried test files more, so in a fast minute the
+ * form answers "too fast" and the test used to fail on a limit it is not about. Wait it out and press the button again.
+ */
+const TOO_FAST = /doing that too fast/i;
+const TOO_FAST_PAUSE_MS = 15_000;
+const TOO_FAST_TRIES = 5;
+
+/** Reports an issue through the form and returns its page URL. Waits out the create limit rather than failing on it. */
 export async function reportIssue(page: Page, title: string, description = "Steps: open the page, click Save. Expected it to save; it shows a blank page.") {
   await page.goto(`${PROJECT}/issues/new`);
   await page.getByLabel("Title").fill(title);
   // The description is the Markdown editor's textarea.
   await page.locator("#description").fill(description);
+  const heading = page.getByRole("heading", { level: 1, name: new RegExp(escapeRe(title)) });
+  const tooFast = page.getByText(TOO_FAST);
+  for (let attempt = 1; attempt < TOO_FAST_TRIES; attempt += 1) {
+    await page.getByRole("button", { name: "Create issue" }).click();
+    await expect(heading.or(tooFast)).toBeVisible();
+    if (await heading.isVisible()) return page.url();
+    // Limited: give this test the time it is about to wait, so the wait cannot time it out, then try again.
+    test.info().setTimeout(test.info().timeout + TOO_FAST_PAUSE_MS + 10_000);
+    await page.waitForTimeout(TOO_FAST_PAUSE_MS);
+  }
   await page.getByRole("button", { name: "Create issue" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: new RegExp(escapeRe(title)) })).toBeVisible();
+  await expect(heading).toBeVisible();
   return page.url();
 }
 
@@ -68,7 +87,7 @@ export async function fileIssue(page: Page, title: string) {
       const idea = await tx.idea.findFirstOrThrow({ where: { number: ideaNumber, title } });
       const issue = await tx.bug.create({
         data: {
-          tenantId: idea.tenantId,
+          organisationId: idea.organisationId,
           projectId: idea.projectId,
           title: idea.title,
           description: idea.description,

@@ -9,9 +9,9 @@ const convertSchema = z.object({ projectId: z.string().trim().min(1).max(191).op
 /**
  * POST /api/v1/ideas/:id/convert — any agent converts an idea (by number or
  * id) whose score reached the project's `ideaThreshold`, its owner's own
- * ideas included (#idea-table). Converting creates the issue,
- * which then needs confirming before work is offered. The response names
- * both: `ideaId`/`ideaNumber` and `issueId`/`issueNumber`.
+ * ideas included (#idea-table). Product issues start at Requires confirmation;
+ * marketing issues start at Open · Open and pay the configured reporter
+ * reward at conversion (D2, D7). The response names the idea and new issue.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;

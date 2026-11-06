@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
@@ -49,8 +50,9 @@ export async function findReadyIssues(
   while (ready.length < safeLimit) {
     const issues = await prisma.bug.findMany({
       where: {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         projectId,
+        ...PRODUCT_TRACK,
         isDeleted: false,
         substatus: "open",
         claims: { none: liveHoldWhere(workflow.offerWindowSeconds) },
@@ -108,14 +110,14 @@ export async function getDispatcherMetrics(
     findReadyIssues(agent, projectId, 100).then((issues) => issues.length),
     prisma.issueClaim.count({
       where: {
-        bug: { tenantId: agent.tenantId, projectId },
+        bug: { organisationId: agent.organisationId, projectId },
         status: "active",
         releasedAt: null,
       },
     }),
     prisma.issueClaim.count({
       where: {
-        bug: { tenantId: agent.tenantId, projectId },
+        bug: { organisationId: agent.organisationId, projectId },
         status: "offered",
         releasedAt: null,
         offeredAt: { gt: offerCutoff },
@@ -123,7 +125,7 @@ export async function getDispatcherMetrics(
     }),
     prisma.issueBid.count({
       where: {
-        bug: { tenantId: agent.tenantId, projectId },
+        bug: { organisationId: agent.organisationId, projectId },
         ...OPEN_BID_WHERE,
       },
     }),

@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { isAdmin } from "@/lib/roles";
 import {
   disputesForMember,
@@ -80,23 +80,23 @@ function DisputeCard({ dispute, children }: { dispute: DisputeView; children?: R
 /** Open a dispute on your own points, or resolve others' as an admin (#436). */
 export default async function PointsDisputesPage() {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) {
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">$ disputes</h1>
         <p className="rounded-[20px] border border-zk-border bg-zk-surface p-6 text-sm text-zk-text2">
-          You&apos;re not a member of a workspace yet, so there is no $ to dispute.
+          You&apos;re not a member of an organisation yet, so there is no $ to dispute.
         </p>
       </div>
     );
   }
 
-  const admin = isAdmin(user.role) || (await isTenantAdmin(user, tenantId));
+  const admin = isAdmin(user.role) || (await isAdminOfOrganisation(user, organisationId));
   const [mine, queue, entries] = await Promise.all([
-    disputesForMember(prisma, { tenantId, userId: user.id }),
-    admin ? openDisputes(prisma, tenantId) : Promise.resolve([]),
-    entriesForMember(prisma, { tenantId, userId: user.id }),
+    disputesForMember(prisma, { organisationId, userId: user.id }),
+    admin ? openDisputes(prisma, organisationId) : Promise.resolve([]),
+    entriesForMember(prisma, { organisationId, userId: user.id }),
   ]);
 
   return (
@@ -105,7 +105,7 @@ export default async function PointsDisputesPage() {
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">$ disputes</h1>
           <p className="text-sm text-zk-text2">
-            Say an award is missing or wrong; a workspace admin resolves it. Points are never
+            Say an award is missing or wrong; an organisation admin resolves it. Points are never
             deleted — a correction is a reversing entry.
           </p>
         </div>

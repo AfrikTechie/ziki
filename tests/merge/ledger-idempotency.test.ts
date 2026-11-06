@@ -29,16 +29,16 @@ function fakeLedger() {
   return { rows, db: { pointEntry: { createMany } } as never, createMany };
 }
 
-const issue = { id: "bug-1", tenantId: "tenant-zedu", assigneeId: "user-1" };
+const issue = { id: "bug-1", organisationId: "organisation-zedu", assigneeId: "user-1" };
 
 describe("points ledger (#428)", () => {
   it("pays the dispatcher once per completed issue, including reassignment", async () => {
     const { db, rows } = fakeLedger();
-    expect(await awardDispatcher(db, { id: "bug-1", tenantId: "tenant-zedu" }, "dispatcher-owner")).toBe(true);
-    expect(await awardDispatcher(db, { id: "bug-1", tenantId: "tenant-zedu" }, "dispatcher-owner")).toBe(false);
-    expect(await awardDispatcher(db, { id: "bug-1", tenantId: "tenant-zedu" }, "another-owner")).toBe(false);
+    expect(await awardDispatcher(db, { id: "bug-1", organisationId: "organisation-zedu" }, "dispatcher-owner")).toBe(true);
+    expect(await awardDispatcher(db, { id: "bug-1", organisationId: "organisation-zedu" }, "dispatcher-owner")).toBe(false);
+    expect(await awardDispatcher(db, { id: "bug-1", organisationId: "organisation-zedu" }, "another-owner")).toBe(false);
     expect(rows).toEqual([{
-      tenantId: "tenant-zedu", bugId: "bug-1", userId: "dispatcher-owner",
+      organisationId: "organisation-zedu", bugId: "bug-1", userId: "dispatcher-owner",
       role: "dispatcher", points: 0.6, sourceKey: "dispatcher:bug-1",
     }]);
   });
@@ -54,7 +54,7 @@ describe("points ledger (#428)", () => {
 
   it("skips duplicates in the database instead of failing", async () => {
     const { db, createMany } = fakeLedger();
-    await award(db, { tenantId: "t", userId: "u", bugId: null, role: "reporter", points: 5, sourceKey: "reporter:b:u" });
+    await award(db, { organisationId: "t", userId: "u", bugId: null, role: "reporter", points: 5, sourceKey: "reporter:b:u" });
     expect(createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
   });
 
@@ -64,7 +64,7 @@ describe("corrections (#450)", () => {
   it("writes one reversing entry under one key, however often the undo is retried", async () => {
     const createMany = vi.fn(async () => ({ count: 1 }));
     const db = { pointEntry: { update: vi.fn(async () => ({})), createMany } } as never;
-    const entry = { id: "entry-1", tenantId: "tenant-zedu", userId: "user-1", bugId: "bug-1", role: "reporter" as const, points: 5 };
+    const entry = { id: "entry-1", organisationId: "organisation-zedu", userId: "user-1", bugId: "bug-1", role: "reporter" as const, points: 5 };
     await correct(db, { entry });
     await correct(db, { entry });
     const rows = createMany.mock.calls.map((call) => (call as unknown as [{ data: Array<{ sourceKey: string; points: number }>; skipDuplicates: boolean }])[0]);

@@ -1,11 +1,11 @@
-import type { Status } from "@prisma/client";
+import type { Status, WorkTrack } from "@prisma/client";
 
 /**
  * Title suggestions for the issues search box (#671).
  *
  * Typing already filters the list after a short pause; these are the matching
  * issues shown underneath so a searcher can jump straight to one. The lookup
- * is tenant- and project-scoped in the API route, exactly like the list.
+ * is organisation- and project-scoped in the API route, exactly like the list.
  */
 
 export const SUGGEST_LIMIT = 5;
@@ -23,6 +23,7 @@ export type IssueSuggestion = {
   number: number;
   title: string;
   status: Status;
+  track: WorkTrack;
   /** The issue's address, `/<org>/<project>/<number>`. */
   path: string;
 };

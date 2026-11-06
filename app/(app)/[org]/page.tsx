@@ -4,6 +4,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { projectFirstTarget, requireOrg } from "@/lib/project-route";
 import { ideasPath, orgHomePath, projectRef } from "@/lib/project-paths";
 import { ProjectBreadcrumb } from "@/components/project-breadcrumb";
+import { NewProjectForm } from "./new-project-form";
 import { HEALTH_LABEL, projectHealthFor, type CheckState, type HealthStatus } from "@/lib/project-health";
 
 type Props = {
@@ -36,45 +37,64 @@ const SUMMARY: Record<HealthStatus, string> = { healthy: "text-zk-text2", at_ris
 const BAR: Record<CheckState, string> = { ok: "bg-emerald-500", warn: "bg-amber-500", bad: "bg-red-500" };
 
 /**
- * `/<org>` (#project-health): every project of the organisation with its
- * health, a 0–100 score from six checks on its work. All Projects in the
- * breadcrumb opens it. Filter by Healthy, At risk or Critical.
+ * `/<org>` (#project-health): every project of the organisation that has
+ * issues, with its health, a 0–100 score from six checks on its work. A
+ * project with no issues yet isn't listed. All Projects in the breadcrumb opens
+ * it. Filter by Healthy, At risk or Critical. New project creates one here.
  *
  * An old `/<project>` address (from before organisations were in URLs,
  * #project-urls) goes on to that project's issue list.
  */
 export default async function OrganisationProjectsPage({ params, searchParams }: Props) {
   const { org } = await params;
-  const { user, tenant } = await requireOrg(org);
-  if (!tenant) {
+  const { user, organisation } = await requireOrg(org);
+  if (!organisation) {
     const target = await projectFirstTarget(user, `/${org}/ideas`);
     if (target) permanentRedirect(target);
     notFound();
   }
-  const tenantId = tenant.id;
+  const organisationId = organisation.id;
   const rawFilter = (await searchParams).health;
   const filter = FILTERS.find((f) => f.value && f.value === (Array.isArray(rawFilter) ? rawFilter[0] : rawFilter))?.value ?? null;
 
-  const projects = await prisma.project.findMany({ where: { tenantId, archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, slug: true, name: true } });
-  const health = await projectHealthFor(tenantId, projects.map((p) => p.id));
+  const allProjects = await prisma.project.findMany({
+    where: { organisationId, archivedAt: null },
+    orderBy: { name: "asc" },
+    select: { id: true, slug: true, name: true, _count: { select: { bugs: { where: { isDeleted: false } } } } },
+  });
+  // A project with no issues yet has nothing to score: it isn't listed.
+  const projects = allProjects.filter((p) => p._count.bugs > 0);
+  const hiddenCount = allProjects.length - projects.length;
+  const health = await projectHealthFor(organisationId, projects.map((p) => p.id));
   const rows = projects
-    .map((p) => ({ ...p, health: health.get(p.id)! }))
+    .map((p) => ({ id: p.id, slug: p.slug, name: p.name, health: health.get(p.id)! }))
     // The ones that need attention first.
     .sort((a, b) => a.health.score - b.health.score || a.name.localeCompare(b.name));
   const counts = (value: HealthStatus | null) => (value ? rows.filter((r) => r.health.status === value).length : rows.length);
   const shown = filter ? rows.filter((r) => r.health.status === filter) : rows;
-  const filterHref = (value: HealthStatus | null) => orgHomePath(tenant.slug, value ? `health=${value}` : undefined);
+  const filterHref = (value: HealthStatus | null) => orgHomePath(organisation.slug, value ? `health=${value}` : undefined);
 
   return (
     <>
-    <ProjectBreadcrumb project={{ orgSlug: tenant.slug }} />
+    <ProjectBreadcrumb project={{ orgSlug: organisation.slug }} />
     <div className="mx-auto w-full max-w-6xl space-y-5">
-      <header>
-        <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">Projects</h1>
-        <p className="mt-1 text-sm text-zk-text2">
-          {tenant.name}: health is scored from 0 to 100 from six checks on each project&apos;s work, as of now.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">Projects</h1>
+          <p className="mt-1 text-sm text-zk-text2">
+            {organisation.name}: health is scored from 0 to 100 from six checks on each project&apos;s work, as of now.
+            {hiddenCount ? ` ${hiddenCount === 1 ? "1 project with no issues yet isn't" : `${hiddenCount} projects with no issues yet aren't`} listed.` : ""}
+          </p>
+        </div>
+        {allProjects.length ? <NewProjectForm /> : null}
       </header>
+
+      {allProjects.length ? null : (
+        <div className="space-y-3">
+          <p className="text-sm text-zk-text2">{organisation.name} has no projects yet. Create the first one to start collecting ideas and issues.</p>
+          <NewProjectForm startOpen />
+        </div>
+      )}
 
       <nav aria-label="Filter by health" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {FILTERS.map((f) => {
@@ -99,7 +119,7 @@ export default async function OrganisationProjectsPage({ params, searchParams }:
           {shown.map((row) => (
             <li key={row.id}>
               <Link
-                href={ideasPath(projectRef(tenant.slug, row.slug))}
+                href={ideasPath(projectRef(organisation.slug, row.slug))}
                 className="group flex items-center gap-5 rounded-2xl border border-zk-border bg-zk-surface px-5 py-4 transition hover:border-electric-blue-strong/60 hover:shadow-sm"
               >
                 <ScoreRing score={row.health.score} status={row.health.status} />
@@ -125,11 +145,11 @@ export default async function OrganisationProjectsPage({ params, searchParams }:
             </li>
           ))}
         </ul>
-      ) : (
+      ) : allProjects.length ? (
         <p className="rounded-2xl border border-dashed border-zk-border px-5 py-8 text-center text-sm text-zk-muted">
-          No {filter ? HEALTH_LABEL[filter].toLowerCase() : ""} projects right now.
+          {filter ? `No ${HEALTH_LABEL[filter].toLowerCase()} projects right now.` : "No project has issues yet."}
         </p>
-      )}
+      ) : null}
     </div>
     </>
   );

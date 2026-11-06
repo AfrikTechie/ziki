@@ -81,7 +81,7 @@ export function WalletAddressForm({ initialAddress }: { initialAddress: string }
             <rect x="5" y="11" width="14" height="10" rx="2" />
             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
           </svg>
-          Only you and workspace admins can see it
+          Only you and organisation admins can see it
         </span>
       </div>
       <label htmlFor="walletAddress" className="flex flex-col gap-1.5 text-[13px] font-bold text-zk-text">

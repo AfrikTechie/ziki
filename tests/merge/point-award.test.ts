@@ -1,3 +1,9 @@
+import { trackRules } from "@/lib/marketing/track";
+import {
+  clearLeaderboardCache,
+  leaderboardPeriodStart,
+  paginatedOrganisationLeaderboard,
+} from "@/lib/points/leaderboard";
 import { describe, expect, it, vi } from "vitest";
 
 // #pr-reports: whether a pull request was closed without merging is the latest
@@ -45,7 +51,7 @@ function issueDb(bugs: Record<string, { reward: number; pullRequestUrl?: string 
   } as never;
 }
 
-const issue = { id: "bug-1", tenantId: "tenant-zedu", assigneeId: "user-1" };
+const issue = { id: "bug-1", organisationId: "organisation-zedu", assigneeId: "user-1" };
 
 describe("points ledger (#428)", () => {
 
@@ -57,7 +63,7 @@ describe("points ledger (#428)", () => {
 
   it("pays the solver the issue's reward, in $, $1 before any estimate (#rewards)", () => {
     expect(solverAward({ ...issue, reward: 6.5 })).toEqual({
-      tenantId: "tenant-zedu",
+      organisationId: "organisation-zedu",
       userId: "user-1",
       bugId: "bug-1",
       role: "solver",
@@ -83,6 +89,53 @@ describe("points ledger (#428)", () => {
   it("does not award the solver when the linked pull request is reported closed without being merged (#642)", async () => {
     const db = issueDb({ "bug-1": { reward: 5, pullRequestUrl: "https://github.com/zedu/web/pull/closed-1" } });
     expect(await solverAwardFor(db, issue)).toBeNull();
+  });
+});
+
+describe("shared leaderboard periods (M-API-10)", () => {
+  it("uses UTC week and month boundaries, with no boundary for all time", () => {
+    const now = new Date("2026-11-05T18:30:00.000Z");
+    expect(leaderboardPeriodStart("week", now)?.toISOString()).toBe("2026-11-02T00:00:00.000Z");
+    expect(leaderboardPeriodStart("month", now)?.toISOString()).toBe("2026-11-01T00:00:00.000Z");
+    expect(leaderboardPeriodStart("all", now)).toBeNull();
+  });
+
+  it("ranks the shared PointEntry total for the selected period without separating marketing rewards", async () => {
+    clearLeaderboardCache();
+    const now = new Date("2026-11-05T18:30:00.000Z");
+    const periodStart = new Date("2026-11-02T00:00:00.000Z");
+    const groupBy = vi.fn(async ({ where }: { where: { role?: string } }) =>
+      where.role === "solver"
+        ? [{ userId: "worker", _count: { _all: 2 } }]
+        // PointEntry has no track split: this total can contain both product and marketing awards.
+        : [{ userId: "worker", _sum: { points: 12 } }],
+    );
+    const db = {
+      pointEntry: { groupBy },
+      user: {
+        findMany: vi.fn(async () => [{ id: "worker", name: "Worker", image: null }]),
+      },
+    } as never;
+
+    const result = await paginatedOrganisationLeaderboard(db, "organisation-zedu", {
+      period: "week",
+      now,
+    });
+
+    expect(result).toMatchObject({
+      period: "week",
+      periodStart: periodStart.toISOString(),
+      entries: [{ userId: "worker", points: 12, solvedTasks: 2, rank: 1 }],
+    });
+    expect(groupBy).toHaveBeenCalledTimes(2);
+    for (const [query] of groupBy.mock.calls) {
+      expect(query.where).toMatchObject({
+        organisationId: "organisation-zedu",
+        createdAt: { gte: periodStart },
+      });
+      expect(query.where).not.toHaveProperty("bug.track");
+      expect(query.where).not.toHaveProperty("track");
+    }
   });
 });
 
@@ -128,7 +181,7 @@ describe("payouts wait for the work to be live (#live-payout)", () => {
   /** One issue, its held payout and its deployment reports, with an in-memory ledger. */
   function payoutDb(reporters: string[]) {
     const ledger = fakeLedger();
-    const bug = { id: "bug-1", number: 1, tenantId: "tenant-zedu", projectId: "p1", assigneeId: "solver", heldPayout: null as unknown, payoutReleasedAt: null as Date | null };
+    const bug = { id: "bug-1", number: 1, organisationId: "organisation-zedu", projectId: "p1", assigneeId: "solver", heldPayout: null as unknown, payoutReleasedAt: null as Date | null };
     const db = {
       pointEntry: (ledger.db as unknown as { pointEntry: unknown }).pointEntry,
       bug: {
@@ -139,8 +192,8 @@ describe("payouts wait for the work to be live (#live-payout)", () => {
     };
     return { db: db as never, bug, rows: ledger.rows, reporters };
   }
-  const solver = { tenantId: "tenant-zedu", userId: "solver", bugId: "bug-1", role: "solver" as const, points: 6, sourceKey: "solver:bug-1:solver" };
-  const tester = { tenantId: "tenant-zedu", userId: "tester", bugId: "bug-1", role: "reviewer" as const, points: 3, sourceKey: "reviewer:bug-1:tester" };
+  const solver = { organisationId: "organisation-zedu", userId: "solver", bugId: "bug-1", role: "solver" as const, points: 6, sourceKey: "solver:bug-1:solver" };
+  const tester = { organisationId: "organisation-zedu", userId: "tester", bugId: "bug-1", role: "reviewer" as const, points: 3, sourceKey: "reviewer:bug-1:tester" };
 
   it("holds what resolving earned until three people other than the solver report it deployed", async () => {
     const { db, rows, reporters } = payoutDb(["solver", "a", "b"]);
@@ -154,5 +207,12 @@ describe("payouts wait for the work to be live (#live-payout)", () => {
     // Paid once: a later report pays nothing more.
     expect(await releasePayoutIfLive(db, "bug-1")).toBe(false);
     expect(rows).toHaveLength(2);
+  });
+});
+
+describe("when the reporter is paid", () => {
+  it("is at conversion for marketing, which has no confirmation, and at confirmation for product", () => {
+    expect(trackRules("marketing").reporterPaidOn).toBe("conversion");
+    expect(trackRules("product").reporterPaidOn).toBe("confirmation");
   });
 });

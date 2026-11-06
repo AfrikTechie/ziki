@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { undoAuditEvent } from "@/lib/agent-audit/undo";
 
 export type UndoAuditActionResult =
@@ -14,7 +14,7 @@ export type UndoAuditActionResult =
 /**
  * Reverse an audited agent action from the audit page (#450).
  *
- * Only a workspace admin may undo, and only within their own tenant. The undo
+ * Only an organisation admin may undo, and only within their own organisation. The undo
  * itself is audited, so nothing is ever silently erased. Failures carry the
  * human-readable message from `undoAuditEvent` so callers can show it directly.
  */
@@ -29,18 +29,18 @@ export async function undoAuditEventAction(
     return { ok: false, error: "Invalid audit event." };
   }
 
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) {
-    return { ok: false, error: "You're not a member of a workspace." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) {
+    return { ok: false, error: "You're not a member of an organisation." };
   }
-  if (!(await isTenantAdmin(user, tenantId))) {
-    return { ok: false, error: "Only a workspace admin can undo actions." };
+  if (!(await isAdminOfOrganisation(user, organisationId))) {
+    return { ok: false, error: "Only an organisation admin can undo actions." };
   }
 
   const result = await undoAuditEvent(prisma, {
     auditEventId,
     actorUserId: user.id,
-    tenantId,
+    organisationId,
   });
   if (!result.ok) {
     return { ok: false, error: result.message };

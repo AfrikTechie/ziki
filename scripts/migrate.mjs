@@ -565,11 +565,11 @@ try {
   );
 }
 
-// Agent platform data model (tenants, projects, memberships, agent tables, Bug/Comment columns).
+// Agent platform data model (organisations, projects, memberships, agent tables, Bug/Comment columns).
 // If an earlier migration was stuck or 20261021000000_agent_platform failed partially,
-// migrate deploy halts and /issues, /tenants, and layout crash.
+// migrate deploy halts and /issues, /organisations, and layout crash.
 try {
-  console.log("[db:migrate] Ensuring Agent platform schema (tenants, projects, memberships) exists...");
+  console.log("[db:migrate] Ensuring Agent platform schema (organisations, projects, memberships) exists...");
   runPrisma(
     "db execute --schema prisma/schema.prisma --file scripts/sql/ensure-agent-platform.sql",
     true,

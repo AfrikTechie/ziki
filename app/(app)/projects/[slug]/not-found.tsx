@@ -3,7 +3,7 @@ import { StatusPage, primaryActionClass } from "@/components/status-page";
 
 /**
  * The same page whether the project doesn't exist or the viewer can't manage
- * it, so a slug doesn't reveal which projects a workspace has.
+ * it, so a slug doesn't reveal which projects an organisation has.
  */
 export default function ProjectNotFound() {
   return (
@@ -16,7 +16,7 @@ export default function ProjectNotFound() {
         </Link>
       }
     >
-      <p>The link may be wrong, or only this workspace&apos;s admins can manage the project.</p>
+      <p>The link may be wrong, or only this organisation&apos;s admins can manage the project.</p>
     </StatusPage>
   );
 }

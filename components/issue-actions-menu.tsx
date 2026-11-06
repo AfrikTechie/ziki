@@ -10,22 +10,32 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 export function IssueActionsMenu({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
         buttonRef.current?.focus();
       }
     };
+    document.addEventListener("pointerdown", onPointer);
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   return (
-    <div className="relative print:hidden" data-testid="issue-actions-menu">
+    <div ref={menuRef} className="relative print:hidden" data-testid="issue-actions-menu">
       <button
         ref={buttonRef}
         type="button"
@@ -35,7 +45,7 @@ export function IssueActionsMenu({ children }: { children: ReactNode }) {
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zk-border bg-zk-surface text-zk-text2 hover:bg-zk-chip hover:text-zk-text"
+        className="inline-flex cursor-pointer h-10 w-10 items-center justify-center rounded-full border border-zk-border bg-zk-surface text-zk-text2 hover:bg-zk-chip hover:text-zk-text"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="5" cy="12" r="2" />

@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth-helpers";
-import { isTenantAdmin } from "@/lib/agents/membership";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { prisma } from "@/lib/prisma";
 import { getRequestOrigin } from "@/lib/auth-origin";
 import { logger } from "@/lib/logger";
@@ -69,15 +69,15 @@ export async function GET(request: NextRequest) {
   }
 
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId || !(await isTenantAdmin(user, tenantId))) {
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId || !(await isAdminOfOrganisation(user, organisationId))) {
     const response = NextResponse.redirect(new URL("/home", origin));
     response.cookies.delete(STATE_COOKIE);
     return response;
   }
 
   const project = await prisma.project.findFirst({
-    where: { tenantId, slug },
+    where: { organisationId, slug },
     select: { id: true, githubInstallationId: true },
   });
   if (!project) {
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
     });
     await tx.projectAuditEvent.create({
       data: {
-        tenantId,
+        organisationId,
         projectId: project.id,
         actorUserId: user.id,
         action: "github.installation.connected",

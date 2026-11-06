@@ -11,9 +11,9 @@ export const SIGNUP_BONUS_POINTS = 0.67;
  * paid in the first one the person joins or creates, and only once per
  * account: its source key is the account, so later organisations add nothing.
  */
-export async function awardSignupBonus(db: Db, userId: string, tenantId: string): Promise<boolean> {
+export async function awardSignupBonus(db: Db, userId: string, organisationId: string): Promise<boolean> {
   return award(db, {
-    tenantId,
+    organisationId,
     userId,
     bugId: null,
     role: "signup",

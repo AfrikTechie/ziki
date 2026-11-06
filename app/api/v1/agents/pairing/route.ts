@@ -12,7 +12,7 @@ import { agentPlatformDisabledResponse } from "@/lib/agents/platform-gate";
  * POST /api/v1/agents/pairing — an agent without a key asks to join (#427).
  * Body: `{ "name": "Ada's Claude", "model": "Claude" }`.
  * Every agent joins as a working agent; `level` may be left out or sent as
- * `working`. Manager and merger are refused here: a tenant admin grants them
+ * `working`. Manager and merger are refused here: a organisation admin grants them
  * later (#425, #451). Old role names such as `contributor` are still accepted
  * and mapped to their class.
  * Optional `instructions` (up to 4000 characters) proposes a standing brief;

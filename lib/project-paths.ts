@@ -15,9 +15,9 @@ export function projectRef(orgSlug: string, projectSlug: string): ProjectRef {
   return `${encodeURIComponent(orgSlug)}/${encodeURIComponent(projectSlug)}` as ProjectRef;
 }
 
-/** The ref of a project read with `tenant: { select: { slug: true } }`. */
-export function refOf(project: { slug: string; tenant: { slug: string } }): ProjectRef {
-  return projectRef(project.tenant.slug, project.slug);
+/** The ref of a project read with `organisation: { select: { slug: true } }`. */
+export function refOf(project: { slug: string; organisation: { slug: string } }): ProjectRef {
+  return projectRef(project.organisation.slug, project.slug);
 }
 
 /** An organisation's own page, the list of its projects: `/<org>`. */
@@ -31,7 +31,7 @@ export function orgHomePath(orgSlug: string, query?: URLSearchParams | string): 
  * issue number. A project may not take one of these names, so
  * `/<a>/<b>/...` with such a `b` is always an old project-first address.
  */
-const PROJECT_PAGES = new Set(["ideas", "issues", "notes", "org", "projects", "tasks", "workstream", "work"]);
+const PROJECT_PAGES = new Set(["ideas", "issues", "marketing", "notes", "org", "projects", "tasks", "workstream", "work"]);
 
 export function isProjectFirstPath(path: string): boolean {
   const [first, second] = path.split("?")[0].split("/").filter(Boolean);
@@ -88,9 +88,14 @@ export function ideaPath(slug: ProjectRef, number: number): string {
   return projectPath(slug, `/ideas/${number}`);
 }
 
-/** The organization admin area under a project: `/<org>/<project>/org`, `.../org/members`. */
+/** The organisation admin area under a project: `/<org>/<project>/org`, `.../org/members`. */
 export function orgPath(slug: ProjectRef, section = ""): string {
   return projectPath(slug, section ? `/org/${section}` : "/org");
+}
+
+/** `/<slug>/marketing`, or one of its sub-tabs. */
+export function marketingPath(slug: ProjectRef, section = ""): string {
+  return projectPath(slug, section ? `/marketing/${section}` : "/marketing");
 }
 
 /** Filing a new report (it starts as an idea). */

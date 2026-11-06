@@ -3,8 +3,10 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 
 /** Idle and abandoned work (#idle, #abandon, #owner-agents): a manager agent sends idle In progress work nobody holds back to Open, never held, freshly updated or stranded work. */
 const db = vi.hoisted(() => ({
-  bug: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+  bug: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
   bugActivity: { create: vi.fn() },
+  abandonVote: { findUnique: vi.fn(), upsert: vi.fn(), findMany: vi.fn() },
+  issueClaim: { update: vi.fn() },
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));
@@ -12,19 +14,22 @@ const mocks = vi.hoisted(() => ({
   staleHold: vi.fn(),
   idleInProgress: vi.fn(),
   strandedDelivery: vi.fn(),
+  inProgressWork: vi.fn(),
   publish: vi.fn(),
   audit: vi.fn(),
+  notifyLater: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/auth-helpers", () => ({ requireSuperAdmin: vi.fn() }));
 vi.mock("@/lib/agent-notifications", () => ({ notifyAgentQuestion: vi.fn() }));
 vi.mock("@/lib/agent-api/offer", () => ({ expireOffer: vi.fn() }));
 vi.mock("@/lib/agent-api/stale-hold", () => ({ staleHold: mocks.staleHold }));
-vi.mock("@/lib/agent-api/idle", () => ({ idleInProgress: mocks.idleInProgress }));
+vi.mock("@/lib/agent-api/idle", async (original) => ({ ...await original<typeof import("@/lib/agent-api/idle")>(), idleInProgress: mocks.idleInProgress, inProgressWork: mocks.inProgressWork }));
 vi.mock("@/lib/agent-api/stranded-delivery", () => ({ strandedDelivery: mocks.strandedDelivery }));
 vi.mock("@/lib/agent-api/events", () => ({ publish: mocks.publish }));
 vi.mock("@/lib/agents/audit", () => ({ audit: mocks.audit }));
-vi.mock("@/lib/workflow", () => ({ workflowFor: vi.fn(async () => ({ heartbeatMinutes: 240 })) }));
+vi.mock("@/lib/notify", () => ({ notifyLater: mocks.notifyLater }));
+vi.mock("@/lib/workflow", () => ({ workflowFor: vi.fn(async () => ({ heartbeatMinutes: 240, managerVoteWeight: 2, abandonThreshold: 2, abandonCheckMinutes: 120 })) }));
 vi.mock("@/lib/issue-ref", () => ({
   parseIssueRef: vi.fn((ref: string) => ref),
   resolveIssueRef: vi.fn(async () => ({ id: "b8" })),
@@ -32,14 +37,14 @@ vi.mock("@/lib/issue-ref", () => ({
 }));
 
 import { reclaimStaleIssue } from "@/lib/agent-api/availability";
-import { abandonVoteSchema } from "@/lib/agent-api/abandon";
+import { abandonVoteSchema, voteAbandoned } from "@/lib/agent-api/abandon";
 import { voteWeight } from "@/lib/governance";
 
 const manager = (ownerId = "owner-dana", level: AgentContext["level"] = "manager"): AgentContext => ({
   agentId: `agent-${ownerId}`,
   name: "Manager",
   ownerId,
-  tenantId: "t1",
+  organisationId: "t1",
   level,
   burst: false,
   keyId: "k1",
@@ -58,13 +63,14 @@ const reviewed = {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  db.bug.findFirst.mockResolvedValue({ id: "b8", number: 8, tenantId: "t1", projectId: "p1" });
+  db.bug.findFirst.mockResolvedValue({ id: "b8", number: 8, organisationId: "t1", projectId: "p1", title: "A sample issue", reporterId: "owner-reporter" });
   db.bug.findUnique.mockImplementation(async (args: { select: Record<string, unknown> }) => ("reporterId" in args.select ? reviewed : { assigneeId: "owner-cara", status: "open", substatus: "open" }));
   db.bug.updateMany.mockResolvedValue({ count: 1 });
   db.$queryRaw.mockResolvedValue([{ id: "b8" }]);
   db.$transaction.mockImplementation((run: (tx: typeof db) => unknown) => run(db));
   mocks.staleHold.mockResolvedValue(null);
   mocks.idleInProgress.mockResolvedValue(idleWork());
+  mocks.inProgressWork.mockResolvedValue(null);
   mocks.strandedDelivery.mockResolvedValue(null);
 });
 
@@ -133,5 +139,38 @@ describe("abandon votes (#abandon)", () => {
     expect(abandonVoteSchema.safeParse({ summary: "No commits since Monday." }).success).toBe(true);
     expect(abandonVoteSchema.safeParse({}).success).toBe(false);
     expect(abandonVoteSchema.safeParse({ summary: "Gone.", votes: 5 }).success).toBe(false);
+  });
+  it("refuses a vote on a paused agent's claim, so a pause can't lose the work", async () => {
+    mocks.inProgressWork.mockResolvedValue({
+      bug: { id: "b8", projectId: "p1", updatedAt: lastUpdate },
+      claim: { id: "claim-1", agentId: "agent-owner-cara", beneficiaryUserId: "owner-cara", agent: { ownerUserId: "owner-cara", pausedAt: new Date() } },
+      lastUpdate,
+    });
+    await expect(voteAbandoned(manager(), "p1", "b8", { summary: "No progress since the last check." })).rejects.toMatchObject({ status: 409 });
+    expect(db.abandonVote.upsert).not.toHaveBeenCalled();
+    expect(db.issueClaim.update).not.toHaveBeenCalled();
+  });
+
+  it("notifies issue watchers when the vote releases the claim and reopens bidding", async () => {
+    const heldClaim = {
+      id: "claim-1",
+      agentId: "agent-owner-cara",
+      beneficiaryUserId: "owner-cara",
+      agent: { ownerUserId: "owner-cara" },
+    };
+    mocks.inProgressWork.mockResolvedValue({
+      bug: { id: "b8", projectId: "p1", updatedAt: lastUpdate },
+      claim: heldClaim,
+      lastUpdate,
+    });
+    db.abandonVote.findUnique.mockResolvedValue(null);
+    db.abandonVote.findMany.mockResolvedValue([{ votes: 2, onBehalfOfUserId: "owner-dana" }]);
+
+    await expect(voteAbandoned(manager(), "p1", "b8", { summary: "No progress since the last check." })).resolves.toMatchObject({ abandoned: true, status: "open" });
+    expect(db.issueClaim.update).toHaveBeenCalledWith({ where: { id: "claim-1" }, data: expect.objectContaining({ status: "released", releaseReason: "abandoned" }) });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "b8" }, data: { status: "open", substatus: "open", assigneeId: null } });
+    expect(mocks.notifyLater).toHaveBeenCalledWith({
+      kind: "status_changed", actorId: "owner-dana", actorName: "Manager", bugId: "b8", bugTitle: "A sample issue", reporterId: "owner-reporter", from: "in_progress", to: "open",
+    });
   });
 });

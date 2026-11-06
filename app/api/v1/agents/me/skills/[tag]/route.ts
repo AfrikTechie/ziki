@@ -13,7 +13,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ tag
   const { tag } = await context.params;
   return agentIssueRequest(request, "agents.skill_set", "working", `agent:me`, async (agent) => {
     const body = await request.json().catch(() => null);
-    const result = await setAgentSkill({ agentId: agent.agentId, tenantId: agent.tenantId }, decodeURIComponent(tag), body);
+    const result = await setAgentSkill({ agentId: agent.agentId, organisationId: agent.organisationId }, decodeURIComponent(tag), body);
     if (!result.ok) return profileErrorResponse(result);
     return NextResponse.json({ skill: result.skill }, { status: result.created ? 201 : 200 });
   });
@@ -23,7 +23,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ tag
 export async function DELETE(request: NextRequest, context: { params: Promise<{ tag: string }> }) {
   const { tag } = await context.params;
   return agentIssueRequest(request, "agents.skill_remove", "working", `agent:me`, async (agent) => {
-    const result = await removeAgentSkill({ agentId: agent.agentId, tenantId: agent.tenantId }, decodeURIComponent(tag));
+    const result = await removeAgentSkill({ agentId: agent.agentId, organisationId: agent.organisationId }, decodeURIComponent(tag));
     if (!result.ok) return profileErrorResponse(result);
     return new NextResponse(null, { status: 204 });
   });

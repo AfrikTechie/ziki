@@ -4,7 +4,7 @@ import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { Button } from "@/components/ui/button";
 import { LocalTime } from "@/components/local-time";
 import { auth } from "@/auth";
-import { selectTenantAction } from "@/app/(app)/tenants/actions";
+import { selectOrganisationAction } from "@/app/(app)/organisations/actions";
 import { requireUser } from "@/lib/auth-helpers";
 import { isPasswordAuthEnabled } from "@/lib/auth-mode";
 import { isInviteToken } from "@/lib/invites";
@@ -33,9 +33,9 @@ function errorMessage(code: string | undefined): string | null {
 }
 
 /**
- * Where a shareable invite link lands. Guests see the organization and sign
+ * Where a shareable invite link lands. Guests see the organisation and sign
  * in with Google; signing in creates an account when they don't have one,
- * then attaches the organization. The link is not used until that POST.
+ * then attaches the organisation. The link is not used until that POST.
  */
 export default async function JoinPage({
   params,
@@ -54,7 +54,7 @@ export default async function JoinPage({
       <main>
         <AuthSplitFrame
           panelLabel="Join"
-          title="Join workspace"
+          title="Join organisation"
           description={SHARE_LINK_ERRORS.invalid}
         >
           <p role="status" className="text-sm text-zk-warn-fg">
@@ -75,7 +75,7 @@ export default async function JoinPage({
       <main>
         <AuthSplitFrame
           panelLabel="Join"
-          title="Join workspace"
+          title="Join organisation"
           description={SHARE_LINK_ERRORS.invalid}
         >
           <p role="status" className="text-sm text-zk-warn-fg">
@@ -90,10 +90,10 @@ export default async function JoinPage({
     <main>
       <AuthSplitFrame
         panelLabel="Join"
-        title={`Join ${preview.tenant.name}`}
+        title={`Join ${preview.organisation.name}`}
         description={
           <>
-            {preview.invitedByName} invited you to {preview.tenant.name} on Ziki. You&apos;ll
+            {preview.invitedByName} invited you to {preview.organisation.name} on Ziki. You&apos;ll
             join as a member.
           </>
         }
@@ -108,15 +108,15 @@ export default async function JoinPage({
           <div className="space-y-3">
             <p className="text-sm text-zk-text2">
               You&apos;re already a member of{" "}
-              <strong className="text-zk-text">{preview.tenant.name}</strong>.
+              <strong className="text-zk-text">{preview.organisation.name}</strong>.
             </p>
-            <form action={selectTenantAction}>
-              <input type="hidden" name="tenantId" value={preview.tenant.id} />
+            <form action={selectOrganisationAction}>
+              <input type="hidden" name="organisationId" value={preview.organisation.id} />
               <Button
                 type="submit"
                 className="h-12 w-full bg-electric-blue-strong text-base font-bold text-white hover:bg-electric-blue focus-visible:ring-electric-blue"
               >
-                Open {preview.tenant.name}
+                Open {preview.organisation.name}
               </Button>
             </form>
           </div>
@@ -133,13 +133,13 @@ export default async function JoinPage({
             }
           </p>
         ) : user ? (
-          <AutoJoin token={token} tenantName={preview.tenant.name} auto={!error} />
+          <AutoJoin token={token} organisationName={preview.organisation.name} auto={!error} />
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-zk-text2">{shareLinkAudience(preview)}</p>
             <p className="text-sm text-zk-text2">
               The link expires <LocalTime date={preview.expiresAt} />. Sign in with Google — if
-              you don&apos;t have an account yet, one is created — and {preview.tenant.name} is
+              you don&apos;t have an account yet, one is created — and {preview.organisation.name} is
               added to it.
             </p>
             <GoogleSignInButton callbackUrl={callbackUrl} />

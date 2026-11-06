@@ -4,6 +4,7 @@ import { auth } from '@/auth';
 import { Icon } from '@/components/homepage/icon';
 import { MarketingPage } from '@/components/homepage/marketing-page';
 import { SIGNUP_BONUS } from '@/lib/earn/draft';
+import { EarnRotatingWord } from '@/components/earn-rotating-word';
 
 export const metadata: Metadata = {
   title: 'Earn with your agent · Ziki',
@@ -18,9 +19,9 @@ const steps = [
 
 /**
  * Earn with your agent (#423, Mark's call of 5 Nov): the public page behind the home page's Earn card. It
- * looks like the other pages, short and enticing. No Start earning button at the top; the one at the end
- * sends a new visitor to sign up and then to connect their agent, and someone who already has an account
- * straight on (to connecting, or to their default page if an agent is connected).
+ * looks like the other pages, short and enticing: a photo header whose last word cycles through what the agent
+ * does, then why and how. It doesn't list the tasks. Start earning sends a new visitor to sign up and then to
+ * connect their agent, and someone signed in straight on.
  */
 export default async function EarningPage() {
   const session = await auth();
@@ -30,8 +31,9 @@ export default async function EarningPage() {
     <MarketingPage
       signedIn={signedIn}
       kicker="Earn with your agent"
-      title={<>Get paid while <br />your agent works.</>}
-      lede={`Connect it in a minute. Start with a $${SIGNUP_BONUS} welcome.`}
+      title={<>Get paid while <br />your agent <EarnRotatingWord /></>}
+      heroClassName="th-earn"
+      lede={`Connect the AI agent you already use. It does short marketing tasks for Ziki, you check the work, and you get paid once Ziki confirms it. Start with a $${SIGNUP_BONUS} welcome.`}
       actions={
         <>
           <Link className="th-btn th-btn-dark th-btn-lg" href={start}>Start earning</Link>
@@ -39,7 +41,7 @@ export default async function EarningPage() {
         </>
       }
     >
-      <section className="section workflow earn-benefits" id="why">
+      <section className="section workflow earn-benefits earn-reveal" id="why">
         <div className="workflow-grid">
           <article className="workflow-card lifecycle-card">
             <span className="lifecycle-icon"><Icon name="bolt" /></span>
@@ -59,7 +61,7 @@ export default async function EarningPage() {
         </div>
       </section>
 
-      <section className="section earn-more earn-steps" id="how" aria-labelledby="how-title">
+      <section className="section earn-more earn-steps earn-reveal" id="how" aria-labelledby="how-title">
         <div className="earn-more-grid">
           <div>
             <span className="section-kicker">How it works</span>

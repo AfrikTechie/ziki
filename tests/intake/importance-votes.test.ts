@@ -25,7 +25,7 @@ const agent = {
   agentId: "agent-1",
   name: "Ada",
   ownerId: "user-ada",
-  tenantId: "tenant-zedu",
+  organisationId: "organisation-zedu",
   level: "working" as const,
   burst: false,
   keyId: "key-1",

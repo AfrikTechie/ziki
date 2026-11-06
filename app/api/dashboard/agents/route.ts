@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { resolveSessionUserId } from "@/lib/session-user";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { loadOwnAgents } from "@/lib/dashboard-overview";
 
 /**
  * The Overview agents table polls this every 30 seconds so the section can
  * refresh on its own without re-rendering the whole page. Read-only, scoped
- * to the signed-in owner's agents in the current workspace.
+ * to the signed-in owner's agents in the current organisation.
  */
 export const dynamic = "force-dynamic";
 
@@ -17,10 +17,10 @@ export async function GET() {
   }
 
   try {
-    const tenantId = await currentTenantIdFor(session.userId);
+    const organisationId = await currentOrganisationIdFor(session.userId);
     const agents = await loadOwnAgents({
       userId: session.userId,
-      tenantId,
+      organisationId,
     });
     return NextResponse.json(
       {

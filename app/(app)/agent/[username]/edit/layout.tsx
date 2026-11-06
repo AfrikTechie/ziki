@@ -42,6 +42,8 @@ export default async function AgentEditLayout({
         ...(isOwner ? [{ href: `${base}/instructions`, label: "Instructions" }] : []),
         { href: `${base}/level`, label: "Level" },
         { href: `${base}/look`, label: "Look" },
+        ...(isOwner && !revoked ? [{ href: `${base}/key`, label: "Key" }] : []),
+        { href: `${base}/delete`, label: "Delete" },
       ],
     },
   ];

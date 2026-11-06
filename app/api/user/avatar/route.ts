@@ -66,7 +66,6 @@ export async function POST(req: NextRequest) {
 
   revalidatePath("/", "layout");
   revalidatePath("/settings");
-  revalidatePath("/settings/profile");
   revalidatePath(`/users/${user.id}`);
 
   return NextResponse.json({ ok: true, image: avatarUrl });
@@ -88,7 +87,6 @@ export async function DELETE() {
 
   revalidatePath("/", "layout");
   revalidatePath("/settings");
-  revalidatePath("/settings/profile");
   revalidatePath(`/users/${user.id}`);
 
   return NextResponse.json({ ok: true, image: null });

@@ -1,9 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "@/lib/agents/require-agent";
 
-vi.mock("@/lib/prisma", () => ({ prisma: {} }));
+type RecordedQuery = { model: string; method: string; args: { where?: Record<string, unknown> } | undefined };
+const queries = vi.hoisted(() => [] as RecordedQuery[]);
+vi.mock("@/lib/prisma", () => {
+  const delegate = (model: string) =>
+    new Proxy({}, {
+      get: (_target, method: string) => async (args: RecordedQuery["args"]) => {
+        queries.push({ model, method, args });
+        return method === "findMany" || method === "groupBy" ? [] : method === "count" ? 0 : null;
+      },
+    });
+  const prisma = new Proxy({}, {
+    get: (_target, model: string) => (model.startsWith("$") ? async () => [] : model === "then" ? undefined : delegate(model)),
+  });
+  return { prisma };
+});
 
-import { itemsFor, workEtag, type AgentWork, type ProjectWork, type WorkFeed } from "@/lib/agent-api/work";
+import { clearWorkCache, itemsFor, projectWork, workEtag, workFeed, type AgentWork, type ProjectWork, type WorkFeed } from "@/lib/agent-api/work";
+import { parseTrackFilter } from "@/lib/marketing/track";
+import { parseEventFilters } from "@/lib/agent-api/events";
+import { webhookBody } from "@/lib/webhooks/deliver";
 import { prGate } from "@/lib/agent-api/pr-gate";
 import type { StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
 
@@ -48,7 +65,7 @@ const agent = (level: AgentContext["level"], ownerId = "owner-bob"): AgentContex
   agentId: `agent-${ownerId}`,
   name: "bob",
   ownerId,
-  tenantId: "t1",
+  organisationId: "t1",
   level,
   burst: false,
   keyId: "k1",
@@ -73,7 +90,7 @@ const facts = (overrides: Partial<ProjectWork["facts"] extends Map<string, infer
 
 function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
   return {
-    tenantId: "t1",
+    organisationId: "t1",
     project: { id: "p1", slug: "ziki", name: "Ziki", orgSlug: "zedu" },
     importance: [],
     deployments: [],
@@ -276,5 +293,153 @@ describe("workEtag", () => {
     expect(workEtag(feed)).toBe(workEtag({ ...feed }));
     expect(workEtag(feed)).not.toBe(workEtag({ ...feed, ask: ["new"] }));
     expect(workEtag(feed)).toMatch(/^W\/"[\w-]+"$/);
+  });
+});
+
+describe("keeping marketing work out of the work feed", () => {
+  it("reads only product work into a project's feed", async () => {
+    clearWorkCache();
+    queries.length = 0;
+    await projectWork("t1", { id: "p1", slug: "acme", name: "Acme", orgSlug: "acme" });
+
+    const lists = queries.filter((q) => (q.model === "bug" || q.model === "idea") && q.method === "findMany" && q.args?.where?.projectId === "p1");
+    expect(lists.length).toBeGreaterThan(5);
+    for (const query of lists) expect(query.args?.where?.track, JSON.stringify(query.args?.where)).toBe("product");
+
+    const bids = queries.find((q) => q.model === "issueBid" && q.method === "findMany");
+    expect(bids?.args?.where?.bug).toMatchObject({ projectId: "p1", track: "product" });
+  });
+
+  it("reads marketing work when track is marketing", async () => {
+    clearWorkCache();
+    queries.length = 0;
+    const marketingWork = await projectWork("t1", { id: "p1", slug: "acme", name: "Acme", orgSlug: "acme" }, "marketing");
+
+    const lists = queries.filter((q) => (q.model === "bug" || q.model === "idea") && q.method === "findMany" && q.args?.where?.projectId === "p1");
+    expect(lists.length).toBeGreaterThan(0);
+    for (const query of lists) expect(query.args?.where?.track, JSON.stringify(query.args?.where)).toBe("marketing");
+
+    // Marketing feed excludes product-specific queries:
+    expect(marketingWork.toConfirm).toEqual([]);
+    expect(marketingWork.toMerge).toEqual([]);
+    expect(marketingWork.toDeliverStranded).toEqual([]);
+    expect(marketingWork.deployments).toEqual([]);
+    expect(marketingWork.jobs).toEqual([]);
+    expect(marketingWork.toReconcile).toEqual([]);
+    expect(marketingWork.toAwaitRelease).toEqual([]);
+    expect(marketingWork.toRepair).toEqual([]);
+    expect(marketingWork.toReportPr).toEqual([]);
+  });
+});
+
+describe("workFeed marketing track response shape and items", () => {
+  it("returns product work feed with track: product and no brief by default", async () => {
+    clearWorkCache();
+    const feed = await workFeed(agent("working"), { id: "p1", slug: "acme", name: "Acme", orgSlug: "acme" }, "product");
+    expect(feed.track).toBe("product");
+    expect(feed.brief).toBeUndefined();
+    expect(feed.workUrl).not.toContain("track=marketing");
+  });
+
+  it("returns marketing work feed with track: marketing, no brief until one is written, and marketing workUrl", async () => {
+    clearWorkCache();
+    const feed = await workFeed(agent("working"), { id: "p1", slug: "acme", name: "Acme", orgSlug: "acme" }, "marketing");
+    expect(feed.track).toBe("marketing");
+    expect(feed.brief).toBeNull();
+    expect(feed.workUrl).toContain("?track=marketing");
+  });
+
+  it("excludes product-only items from marketing feed", () => {
+    const marketingWork = work({
+      toConfirm: [],
+      toMerge: [],
+      toDeliverStranded: [],
+      deployments: [],
+      jobs: [],
+      toReconcile: [],
+      toAwaitRelease: [],
+      toRepair: [],
+      toReportPr: [],
+    });
+    const items = itemsFor(agent("working"), marketingWork, nothingMine);
+    const kinds = items.map((i) => i.kind);
+    expect(kinds).not.toContain("confirm_issue");
+    expect(kinds).not.toContain("open_issue");
+    expect(kinds).not.toContain("report_pr_status");
+    expect(kinds).not.toContain("merge_fix");
+    expect(kinds).not.toContain("reconcile_merged");
+    expect(kinds).not.toContain("await_release");
+    expect(kinds).not.toContain("repair_pull_request");
+    expect(kinds).not.toContain("report_deployment");
+    expect(kinds).not.toContain("deliver_stranded");
+    expect(kinds).not.toContain("research_job");
+    expect(kinds).not.toContain("job_review_offer");
+  });
+
+  it("includes marketing items with correct roles and actions", () => {
+    const marketingWork = work({
+      ideas: [{ id: "i1", number: 1, title: "Marketing Idea", score: 1 }],
+      toConvert: [{ id: "i2", number: 2, title: "Convertible Idea", score: 3 }],
+      toReject: [{ id: "i3", number: 3, title: "Bad Idea", totalVotes: 5, goodVotes: 0 }],
+      ready: [{ id: "b1", number: 1, title: "Ready Marketing Task", importance: 2 }],
+      tests: [{ id: "b2", number: 2, title: "Test Fix", pullRequestUrl: null }],
+      toAccept: [{ id: "b3", number: 3, title: "Accept Fix" }],
+      facts: new Map([["b2", facts()], ["b3", facts()]]),
+    });
+    const items = itemsFor(agent("manager"), marketingWork, nothingMine);
+    const byKind = Object.fromEntries(items.map((i) => [i.kind, i]));
+
+    expect(byKind.idea).toMatchObject({ minimumRole: "working", canAct: true });
+    expect(byKind.convert_idea).toMatchObject({ minimumRole: "working", canAct: true });
+    expect(byKind.reject_idea).toMatchObject({ minimumRole: "manager", canAct: true });
+    expect(byKind.ready_issue).toMatchObject({ minimumRole: "working", canAct: true });
+    expect(byKind.test_fix).toMatchObject({ minimumRole: "working", canAct: true });
+    expect(byKind.accept_fix).toMatchObject({ minimumRole: "manager", canAct: true });
+  });
+});
+
+describe("track parameter parsing and event/webhook payloads", () => {
+  it("parses valid and invalid track filters", () => {
+    expect(parseTrackFilter(null)).toEqual({ ok: true, track: "product" });
+    expect(parseTrackFilter(undefined)).toEqual({ ok: true, track: "product" });
+    expect(parseTrackFilter("")).toEqual({ ok: true, track: "product" });
+    expect(parseTrackFilter("product")).toEqual({ ok: true, track: "product" });
+    expect(parseTrackFilter("marketing")).toEqual({ ok: true, track: "marketing" });
+    expect(parseTrackFilter("other")).toEqual({ ok: false, message: "track must be product or marketing." });
+  });
+
+  it("parses track in event filters", () => {
+    const marketing = parseEventFilters(new URLSearchParams("track=marketing"));
+    expect("error" in marketing).toBe(false);
+    if (!("error" in marketing)) {
+      expect(marketing.track).toBe("marketing");
+    }
+
+    const product = parseEventFilters(new URLSearchParams("track=product"));
+    expect("error" in product).toBe(false);
+    if (!("error" in product)) {
+      expect(product.track).toBe("product");
+    }
+
+    const empty = parseEventFilters(new URLSearchParams());
+    expect("error" in empty).toBe(false);
+    if (!("error" in empty)) {
+      expect(empty.track).toBeUndefined();
+    }
+  });
+
+  it("includes track in webhook delivery payloads", () => {
+    const event = {
+      id: "ev1",
+      type: "issue.created",
+      organisationId: "t1",
+      projectId: "p1",
+      actorAgentId: null,
+      bugId: "b1",
+      createdAt: new Date(),
+      payload: { bugId: "b1", title: "Marketing Campaign", track: "marketing" },
+    };
+    const body = webhookBody(event);
+    expect(body.track).toBe("marketing");
   });
 });

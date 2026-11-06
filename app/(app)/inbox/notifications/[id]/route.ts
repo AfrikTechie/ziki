@@ -4,7 +4,7 @@ import { resolveSessionUserId } from "@/lib/session-user";
 import { BASE_PATH } from "@/lib/base-path";
 import { safeNotificationPath } from "@/lib/notification-links";
 import { expireTag, TAGS } from "@/lib/cache-tags";
-import { memberTenantById, readActiveTenantCookie, setActiveTenantCookie } from "@/lib/tenants";
+import { memberOrganisationById, readActiveOrganisationCookie, setActiveOrganisationCookie } from "@/lib/organisations";
 
 /**
  * A relative Location, so the browser stays on the host it asked. Behind the
@@ -33,18 +33,18 @@ export async function GET(
 
   const notification = await prisma.notification.findUnique({
     where: { id },
-    select: { userId: true, tenantId: true, url: true, readAt: true },
+    select: { userId: true, organisationId: true, url: true, readAt: true },
   });
   // Someone else's notification (or none): don't reveal or touch it.
   if (!notification || notification.userId !== resolved.userId) {
     return redirectTo("/inbox");
   }
 
-  if (notification.tenantId) {
-    const tenant = await memberTenantById(prisma, resolved.userId, notification.tenantId);
-    if (!tenant) return redirectTo("/inbox");
-    if ((await readActiveTenantCookie()) !== tenant.id) {
-      await setActiveTenantCookie(tenant.id);
+  if (notification.organisationId) {
+    const organisation = await memberOrganisationById(prisma, resolved.userId, notification.organisationId);
+    if (!organisation) return redirectTo("/inbox");
+    if ((await readActiveOrganisationCookie()) !== organisation.id) {
+      await setActiveOrganisationCookie(organisation.id);
     }
   }
 

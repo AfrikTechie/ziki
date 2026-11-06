@@ -24,10 +24,10 @@ function usernameFrom(raw: string): string {
 }
 
 /** The agent this address names, by its username, which is unique across the platform (#agent-profile). */
-export async function findAgentByUsername(raw: string): Promise<{ id: string; tenantId: string; ownerUserId: string; username: string } | null> {
+export async function findAgentByUsername(raw: string): Promise<{ id: string; organisationId: string; ownerUserId: string; username: string } | null> {
   return prisma.agent.findUnique({
     where: { username: usernameFrom(raw) },
-    select: { id: true, tenantId: true, ownerUserId: true, username: true },
+    select: { id: true, organisationId: true, ownerUserId: true, username: true },
   });
 }
 
@@ -39,12 +39,12 @@ export async function findAgentByUsername(raw: string): Promise<{ id: string; te
 export async function loadAgentProfile(
   agentId: string,
   viewerId: string | null,
-): Promise<{ agent: AgentProfileData; activity: AgentActivityItem[]; tenantId: string; deliveredBugIds: string[] } | null> {
+): Promise<{ agent: AgentProfileData; activity: AgentActivityItem[]; organisationId: string; deliveredBugIds: string[] } | null> {
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
     select: {
       id: true,
-      tenantId: true,
+      organisationId: true,
       name: true,
       model: true,
       avatar: true,
@@ -65,7 +65,7 @@ export async function loadAgentProfile(
     prisma.comment.count({ where: { agentId } }),
     prisma.delivery.findMany({ where: { agentId }, select: { bugId: true } }),
     prisma.agentAuditEvent.findMany({
-      where: auditWhere({ kind: "own-agents", tenantId: agent.tenantId, agentIds: [agentId] }, { agentId }),
+      where: auditWhere({ kind: "own-agents", organisationId: agent.organisationId, agentIds: [agentId] }, { agentId }),
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: ACTIVITY_LIMIT,
       select: {
@@ -74,7 +74,7 @@ export async function loadAgentProfile(
         action: true,
         target: true,
         undoneAt: true,
-        bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+        bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
       },
     }),
     readAgentProfile(agentId, "web"),
@@ -88,7 +88,7 @@ export async function loadAgentProfile(
   ];
 
   return {
-    tenantId: agent.tenantId,
+    organisationId: agent.organisationId,
     deliveredBugIds: deliveries.map((delivery) => delivery.bugId),
     agent: {
       id: agent.id,
@@ -136,7 +136,7 @@ export async function loadReviews(agentId: string, bugIds: string[]): Promise<Ag
   const where = { bugId: { in: bugIds }, NOT: { agentId } };
   const reviewer = { select: { id: true, name: true, avatar: true, username: true, picture: { select: { updatedAt: true } } } };
   const owner = { select: { name: true, email: true } };
-  const bug = { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } };
+  const bug = { select: { id: true, number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } };
   const [verdicts, merges] = await Promise.all([
     prisma.testVerdict.findMany({
       where,
@@ -189,10 +189,10 @@ function reviewerView(
   };
 }
 
-/** The viewer's own agents in this workspace, for the tabs: active ones, plus this one if it is theirs. */
-export async function loadOwnAgents(viewerId: string, tenantId: string, currentId: string): Promise<AgentTab[]> {
+/** The viewer's own agents in this organisation, for the tabs: active ones, plus this one if it is theirs. */
+export async function loadOwnAgents(viewerId: string, organisationId: string, currentId: string): Promise<AgentTab[]> {
   const agents = await prisma.agent.findMany({
-    where: { tenantId, ownerUserId: viewerId, OR: [{ revokedAt: null }, { id: currentId }] },
+    where: { organisationId, ownerUserId: viewerId, OR: [{ revokedAt: null }, { id: currentId }] },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, avatar: true, revokedAt: true, username: true, picture: { select: { updatedAt: true } } },
   });

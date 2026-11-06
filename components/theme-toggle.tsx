@@ -175,16 +175,24 @@ export function ThemeToggle({
   );
 }
 
+/** Small icons for the theme buttons: a screen for System, a sun for Light, a moon for Dark. */
+const THEME_ICONS: Record<(typeof THEMES)[number], string> = {
+  system: "M3 4h18v12H3zM8 20h8M12 16v4",
+  light: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42",
+  dark: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z",
+};
+
 /**
- * Compact theme selector for the account menu and mobile menu (#659).
+ * Compact theme selector for the account menu and mobile menu (#659): one row,
+ * "Theme" and three small icon buttons, each named for screen readers.
  */
 export function AccountThemeSelector() {
   const [theme, setTheme, pending] = useTheme();
 
   return (
-    <div className="flex flex-col gap-2 px-3 py-2.5" role="group" aria-label="Theme preference">
-      <span className="text-xs font-bold uppercase tracking-[0.06em] text-zk-muted">Theme</span>
-      <div className="grid grid-cols-3 gap-0.5 rounded-xl bg-zk-seg p-1">
+    <div className="flex items-center justify-between gap-3 px-3 py-2" role="group" aria-label="Theme preference">
+      <span className="text-sm font-medium text-zk-text2">Theme</span>
+      <div className="flex gap-0.5 rounded-lg bg-zk-seg p-0.5">
         {THEMES.map((opt) => (
           <button
             key={opt}
@@ -192,11 +200,15 @@ export function AccountThemeSelector() {
             disabled={pending}
             onClick={() => setTheme(opt)}
             aria-pressed={theme === opt}
-            className={`inline-flex h-9 items-center justify-center rounded-lg text-xs font-semibold ${
-              theme === opt ? "bg-zk-surface text-zk-text" : "text-zk-text2 hover:text-zk-text"
+            aria-label={themeLabels[opt]}
+            title={themeLabels[opt]}
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-md ${
+              theme === opt ? "bg-zk-surface text-zk-text shadow-sm" : "text-zk-muted hover:text-zk-text"
             }`}
           >
-            {themeLabels[opt]}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d={THEME_ICONS[opt]} />
+            </svg>
           </button>
         ))}
       </div>

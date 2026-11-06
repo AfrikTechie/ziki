@@ -16,12 +16,12 @@ export class DuplicateLinkRefused extends Error {}
  */
 export async function linkDuplicate(
   tx: Prisma.TransactionClient,
-  input: { tenantId: string; bugId: string; targetId: string; actorId: string },
+  input: { organisationId: string; bugId: string; targetId: string; actorId: string },
 ): Promise<{ previous: string | null; unchanged: boolean; target: { id: string; number: number } }> {
-  const { tenantId, bugId, targetId, actorId } = input;
+  const { organisationId, bugId, targetId, actorId } = input;
   const rows = await tx.$queryRaw<LinkSide[]>`
     SELECT "id", "number", "isDeleted", "duplicateOfId" FROM "Bug"
-    WHERE "id" IN (${bugId}, ${targetId}) AND "tenantId" = ${tenantId}
+    WHERE "id" IN (${bugId}, ${targetId}) AND "organisationId" = ${organisationId}
     ORDER BY "id"
     FOR UPDATE`;
   const bug = rows.find((r) => r.id === bugId);

@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const projectId = typeof (body as { projectId?: unknown }).projectId === "string" ? (body as { projectId: string }).projectId : undefined;
     const scope = await issueProject(agent, request.nextUrl.searchParams, projectId);
     const result = await giveConfirmation(
-      { tenantId: agent.tenantId, userId: agent.ownerId, agent: { id: agent.agentId, level: agent.level } },
+      { organisationId: agent.organisationId, userId: agent.ownerId, agent: { id: agent.agentId, level: agent.level } },
       scope,
       id,
       body,

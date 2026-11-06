@@ -37,7 +37,8 @@ export type LiveCheck = {
 };
 
 type Report = Pick<StoredPullRequestReport, "pullRequestUrl" | "state" | "mergedInto" | "inDefaultBranch"> & {
-  agent: { name: string };
+  /** Null for Ziki's own reads of GitHub (#github-status). */
+  agent: { name: string } | null;
 };
 
 /** What the latest report on the issue's current pull request says about it reaching users. */
@@ -54,7 +55,7 @@ export function liveCheck(
     fact,
     branch: current?.mergedInto ?? null,
     repo: pr ? `${pr.owner}/${pr.repo}` : null,
-    checkedBy: current?.agent.name ?? null,
+    checkedBy: current ? (current.agent?.name ?? "Ziki (read on GitHub)") : null,
     confirmedBy: [...confirmedBy],
   });
   const link = linkStateFromUrl(pullRequestUrl, projectRepo);

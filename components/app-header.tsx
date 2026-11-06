@@ -3,25 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMarketingArea } from "@/components/marketing/marketing-area";
 import { ideasPath, orgPath, type ProjectRef } from "@/lib/project-paths";
 import { useProjectRef } from "@/lib/use-project-ref";
 import { SignOutButton } from "@/components/sign-out-button";
-import { WorkspaceSwitcher, type WorkspaceChoice } from "@/components/workspace-switcher";
+import { OrganisationSwitcher, type OrganisationOption } from "@/components/organisation-switcher";
 import {
   MANAGE_AGENTS_HREF,
-  AGENTS_DIRECTORY_HREF,
-  LEADERBOARD_HREF,
-  SITE_ADMIN_HREF,
   isNavItemActive,
+  marketingTabHref,
   realRoleOf,
   roleViewLabels,
 } from "@/lib/header-nav";
-import { isSuperAdmin, type AppRole } from "@/lib/roles";
+import { type AppRole } from "@/lib/roles";
 import { Avatar } from "@/components/avatar";
 import { AccountThemeSelector } from "@/components/theme-toggle";
 import { CookieSettingsLink } from "@/components/consent-banner";
 import { VersionCredits } from "@/components/credits-dialog";
-import { leaderboardInMenu } from "@/lib/agents-dock";
 import { recentNotificationsAction } from "@/app/actions/notifications";
 import { LocalTime } from "@/components/local-time";
 import { BASE_PATH } from "@/lib/base-path";
@@ -121,26 +119,30 @@ function TopNavLink({
 }
 
 /**
- * The workspace areas: Product (the issue tracker), Marketing and Security.
+ * The organisation areas: Product (the issue tracker), Marketing and Security.
  * The logo goes to the project's Ideas.
  */
 function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: ProjectRef | null }) {
   // Product opens the project the page is in, or the first one (#project-urls).
-  const productHref = projectSlug ? ideasPath(projectSlug) : "/tenants";
+  const productHref = projectSlug ? ideasPath(projectSlug) : "/organisations";
+  const marketingHref = marketingTabHref(projectSlug);
+  // The section's address starts with the project's slug, but it isn't Your App.
+  const onMarketingWork = useMarketingArea();
+  const inMarketing = isNavItemActive(pathname, marketingHref) || onMarketingWork;
   return (
     <nav
-      aria-label="Workspace"
+      aria-label="Organisation"
       // Phones and tablets: a tab strip fixed to the bottom of the screen,
       // clear of the home indicator. From lg it sits inline in the top bar.
       className="flex items-center max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:justify-around max-lg:border-t max-lg:border-zk-border max-lg:bg-zk-surface max-lg:px-2 max-lg:pt-1.5 max-lg:pb-[max(0.375rem,env(safe-area-inset-bottom))] max-lg:shadow-[0_-1px_3px_rgba(0,0,0,0.04)] lg:ml-6 lg:gap-1"
     >
-      <TopNavLink href={productHref} active={Boolean(projectSlug && pathname?.startsWith(`/${projectSlug}`))} label="Your App">
+      <TopNavLink href={productHref} active={Boolean(projectSlug && pathname?.startsWith(`/${projectSlug}`) && !inMarketing)} label="Your App">
         <NavIcon>
           <circle cx="12" cy="12" r="9" />
           <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
         </NavIcon>
       </TopNavLink>
-      <TopNavLink href="https://amp.ziki.dev" active={isNavItemActive(pathname, "/marketing")} label="Marketing">
+      <TopNavLink href={marketingHref} active={inMarketing} label="Marketing">
         <NavIcon>
           <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
           <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
@@ -273,28 +275,23 @@ export function AppHeader({
   unreadCount = 0,
   pendingEscalationsCount = 0,
   userId,
-  workspaces = [],
-  activeTenantId = null,
-  reportFormUrl,
-  organizationAdmin = false,
+  organisationOptions = [],
+  activeOrganisationId = null,
   defaultProjectSlug = null,
   earned = null,
+  inEarnOrganisation = false,
   withdraw = null,
   version,
-  memberCount = null,
-  agentCount = 0,
 }: {
   /** The running version (package version), shown with Cookie settings at the foot of the account menu. */
   version?: string;
-  /** Members of the current workspace: the Leaderboard entry needs more than one. Null when unknown. */
-  memberCount?: number | null;
-  /** How many agents the person has here: with any, the agents bar shows Leaderboard on the pages it is drawn on. */
-  agentCount?: number;
   /** Earn (#earn-drafts): what the Withdraw window shows; null for everyone else. */
   withdraw?: WithdrawInfo | null;
   /** Earn (#earn-drafts): an earner's dollars, shown with Withdraw in the header; null for everyone else. */
   earned?: number | null;
-  /** The first project in the current workspace, for pages whose URL names none yet. */
+  /** The person is working in the Earn organisation: the header is Earn's on every page there. */
+  inEarnOrganisation?: boolean;
+  /** The first project in the current organisation, for pages whose URL names none yet. */
   defaultProjectSlug?: ProjectRef | null;
   userName?: string | null;
   userImage?: string | null;
@@ -304,11 +301,8 @@ export function AppHeader({
   unreadCount?: number;
   pendingEscalationsCount?: number;
   userId?: string | null;
-  workspaces?: WorkspaceChoice[];
-  activeTenantId?: string | null;
-  reportFormUrl?: string;
-  /** Owner or admin of the current organization, or the site super admin: shows /org in the menus. */
-  organizationAdmin?: boolean;
+  organisationOptions?: OrganisationOption[];
+  activeOrganisationId?: string | null;
 }) {
   const pathname = usePathname();
   const projectSlug = useProjectRef() ?? defaultProjectSlug;
@@ -325,8 +319,8 @@ export function AppHeader({
   }
 
   const realRole = realRoleOf({ isRealSuperAdmin, isRealAdmin });
-  // Earn (#earn-drafts): an earner on the earn pages sees only what they came for.
-  const earnQuiet = earned !== null && isEarnPath(pathname);
+  // Earn (#earn-drafts): an earner on the earn pages, or anywhere in the Earn organisation, sees only what they came for.
+  const earnQuiet = earned !== null && (isEarnPath(pathname) || inEarnOrganisation);
 
   return (
     // Sticky only from lg: on phones and tablets the toolbar wraps onto rows,
@@ -336,12 +330,12 @@ export function AppHeader({
         {/* Below lg the nav lives in the bottom strip, leaving one row here.
             The logo (the mark alone) is the way to the Dashboard. */}
         <div className="flex min-w-0 items-center gap-2">
-          <Link href={projectSlug ? ideasPath(projectSlug) : "/home"} aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
+          <Link href={earnQuiet ? "/earn/home" : projectSlug ? ideasPath(projectSlug) : "/home"} aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
             {/* The mark alone; the link's name says Ziki. */}
             <ZikiMark className="h-8 w-auto text-zk-text max-sm:h-7" />
           </Link>
           <span aria-hidden="true" className="h-[18px] w-px shrink-0 bg-zk-border max-sm:hidden" />
-          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className={`min-w-0 max-sm:max-w-44 ${earnQuiet ? "max-sm:hidden" : ""}`} />
+          <OrganisationSwitcher organisationOptions={organisationOptions} activeOrganisationId={activeOrganisationId} tone="bar" className={`min-w-0 max-sm:max-w-44 ${earnQuiet ? "max-sm:hidden" : ""}`} />
         </div>
 
         {/* Earn (#earn-drafts): an earner on the earn pages sees none of the builders' links. */}
@@ -389,47 +383,17 @@ export function AppHeader({
                   userImage={userImage}
                   realRole={realRole}
                 />
-                <MenuLink href="/settings/profile" active={isNavItemActive(pathname, "/settings/profile")}>
-                  Profile
-                </MenuLink>
                 <AccountThemeSelector />
                 <div className="mx-2 h-px bg-zk-divider" />
-                <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
-                  Activity
-                </MenuLink>
-                {/* Every member can open the organization area; only owners and admins see its controls. */}
-                {projectSlug ? (
-                  <MenuLink href={orgPath(projectSlug)} active={Boolean(pathname?.startsWith(orgPath(projectSlug)))}>
-                    Organization settings
-                  </MenuLink>
-                ) : null}
                 <MenuLink href={MANAGE_AGENTS_HREF} active={Boolean(pathname?.startsWith(MANAGE_AGENTS_HREF))}>
                   Manage agents
                 </MenuLink>
-                <MenuLink href={AGENTS_DIRECTORY_HREF} active={pathname === AGENTS_DIRECTORY_HREF}>
-                  All agents
-                </MenuLink>
-                {/* The agents bar carries Leaderboard wherever it is drawn, so the menu offers it only elsewhere. And you
-                    can't be the only person on a leaderboard: a workspace of one has none. */}
-                {leaderboardInMenu(pathname, agentCount, memberCount) && !earnQuiet ? (
-                  <MenuLink href={LEADERBOARD_HREF} active={isNavItemActive(pathname, LEADERBOARD_HREF)}>
-                    Leaderboard
-                  </MenuLink>
-                ) : null}
-                {isSuperAdmin(role) ? (
-                  <MenuLink href={SITE_ADMIN_HREF} active={isNavItemActive(pathname, SITE_ADMIN_HREF)}>
-                    Site admin
-                  </MenuLink>
-                ) : null}
                 <MenuLink href="/settings" active={isNavItemActive(pathname, "/settings")}>
                   Settings
                 </MenuLink>
                 <MenuLink href="/docs" active={isNavItemActive(pathname, "/docs")}>
                   Documentation
                 </MenuLink>
-                {reportFormUrl ? (
-                  <MenuLink href={reportFormUrl}>Report issue</MenuLink>
-                ) : null}
                 <div className="mx-2 h-px bg-zk-divider" />
                 <SignOutButton
                   userId={userId}
@@ -448,7 +412,7 @@ export function AppHeader({
           </div>
 
           {/* Escalations, as an envelope, then the bell last. */}
-          {earnQuiet ? null : <InboxEnvelope key={`${userId}:${activeTenantId}:${pathname}`} unreadCount={unreadCount} pendingEscalations={pendingEscalationsCount} active={isNavItemActive(pathname, "/inbox")} />}
+          {earnQuiet ? null : <InboxEnvelope key={`${userId}:${activeOrganisationId}:${pathname}`} unreadCount={unreadCount} pendingEscalations={pendingEscalationsCount} active={isNavItemActive(pathname, "/inbox")} />}
         </div>
       </div>
     </header>

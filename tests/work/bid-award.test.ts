@@ -22,7 +22,7 @@ vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed: vi.fn(async () =>
 vi.mock("@/lib/redesigns", () => ({ assertRedesignOpen: vi.fn(async () => undefined) }));
 vi.mock("@/lib/agent-api/events", () => ({ publish: vi.fn(async () => ({ id: "evt" })) }));
 vi.mock("@/lib/watch", () => ({ ensureWatching: vi.fn(async () => undefined) }));
-vi.mock("@/lib/agents/membership", () => ({ isTenantAdmin: vi.fn(async () => false) }));
+vi.mock("@/lib/agents/membership", () => ({ isAdminOfOrganisation: vi.fn(async () => false) }));
 vi.mock("@/lib/agent-notifications", () => ({ notifyClaimOffered: vi.fn() }));
 vi.mock("@/lib/agent-api/offer", async (original) => ({
   ...await original<typeof import("@/lib/agent-api/offer")>(),
@@ -41,7 +41,7 @@ const caller = {
   agentId: "agent1",
   name: "Ada's Claude",
   ownerId: "ada",
-  tenantId: "tenant",
+  organisationId: "organisation",
   level: "working" as const,
   burst: false,
   keyId: "key1",
@@ -55,7 +55,7 @@ const openBug = {
   projectId: "project",
   status: "open", substatus: "open" as const,
   assigneeId: null,
-  tenantId: "tenant",
+  organisationId: "organisation",
   reporterId: "reporter",
   isDeleted: false,
   voteCount: 3,
@@ -168,9 +168,9 @@ describe("awardBid", () => {
     await expect(awardBid(manager, "bid1")).resolves.toMatchObject({ claimId: "claim1" });
   });
 
-  it("refuses a bid from another tenant as not found", async () => {
+  it("refuses a bid from another organisation as not found", async () => {
     db.issueBid.findUnique.mockResolvedValue(stored);
-    await expect(awardBid({ ...manager, tenantId: "another-tenant" }, "bid1")).rejects.toMatchObject({ status: 404 });
+    await expect(awardBid({ ...manager, organisationId: "another-organisation" }, "bid1")).rejects.toMatchObject({ status: 404 });
     expect(db.issueClaim.create).not.toHaveBeenCalled();
   });
 
@@ -179,7 +179,7 @@ describe("awardBid", () => {
     await expect(awardBid(manager, "bid1")).rejects.toMatchObject({ status: 409, message: "This bid is no longer open." });
     db.issueBid.findUnique.mockResolvedValue(stored);
     db.issueClaim.findFirst.mockImplementation(async ({ where }: { where: { status?: string } }) =>
-      where.status === "active" ? null : { id: "offer", status: "offered", offeredAt: new Date(), agentId: "x", beneficiaryUserId: "x", bug: { tenantId: "tenant", projectId: "project" } });
+      where.status === "active" ? null : { id: "offer", status: "offered", offeredAt: new Date(), agentId: "x", beneficiaryUserId: "x", bug: { organisationId: "organisation", projectId: "project" } });
     await expect(awardBid(manager, "bid1")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("pending offer") });
     expect(db.issueClaim.create).not.toHaveBeenCalled();
   });
@@ -210,7 +210,7 @@ describe("awardBid and bidder capacity (#bidder-capacity)", () => {
     // Counted over the bidder's person in this project: offers inside the window, and active claims on work In progress (#760).
     expect(db.issueClaim.count).toHaveBeenCalledWith({ where: expect.objectContaining({
       beneficiaryUserId: "ada",
-      bug: { tenantId: "tenant", projectId: "project", isDeleted: false },
+      bug: { organisationId: "organisation", projectId: "project", isDeleted: false },
       releasedAt: null,
       OR: expect.arrayContaining([{ status: "active", bug: { status: "in_progress" } }]),
     }) });
@@ -272,7 +272,7 @@ describe("awardBid and a stale assignee (#stale-assignee)", () => {
 describe("what takes a claim slot (#760)", () => {
   it("counts live offers and active claims on issues In progress, not delivered work", async () => {
     const count = vi.fn(async () => 2);
-    expect(await holdLoad({ issueClaim: { count } } as never, { tenantId: "t", projectId: "p", userId: "u" }, 1800)).toBe(2);
+    expect(await holdLoad({ issueClaim: { count } } as never, { organisationId: "t", projectId: "p", userId: "u" }, 1800)).toBe(2);
     const where = (count.mock.calls[0] as unknown as [{ where: { OR: unknown[] } }])[0].where;
     expect(where.OR).toEqual([
       { status: "active", bug: { status: "in_progress" } },

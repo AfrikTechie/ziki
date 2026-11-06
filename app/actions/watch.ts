@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { prisma } from "@/lib/prisma";
-import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
+import { bugInOrganisation, currentOrganisationIdFor } from "@/lib/organisation-context";
 import { requireUser } from "@/lib/auth-helpers";
 import { finishedWatchedWhere } from "@/lib/watching";
 
@@ -14,7 +14,7 @@ export async function setWatchingAction(
 ): Promise<{ ok?: boolean; error?: string }> {
   const user = await requireUser();
   const bug = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(user.id)) },
+    where: { id: bugId, ...bugInOrganisation(await currentOrganisationIdFor(user.id)) },
     select: { id: true, isDeleted: true },
   });
   if (!bug || bug.isDeleted) return { error: "Issue not found" };
@@ -47,7 +47,7 @@ export async function unwatchFinishedAction(): Promise<{
 }> {
   const user = await requireUser();
   const bugs = await prisma.bug.findMany({
-    where: { ...finishedWatchedWhere(user.id), ...bugInTenant(await currentTenantIdFor(user.id)) },
+    where: { ...finishedWatchedWhere(user.id), ...bugInOrganisation(await currentOrganisationIdFor(user.id)) },
     select: { id: true },
   });
   const ids = bugs.map((b) => b.id);

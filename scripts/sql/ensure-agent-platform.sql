@@ -1,5 +1,5 @@
 -- Additive repair for 20261021000000_agent_platform:
--- Ensures tenants, projects, memberships, agent platform schema, and Bug/Comment columns exist.
+-- Ensures organisations, projects, memberships, agent platform schema, and Bug/Comment columns exist.
 -- Safe, additive, idempotent: no data loss, no drops.
 
 -- 1. Create Enums safely
@@ -14,7 +14,7 @@ DO $$ BEGIN CREATE TYPE "DisputeStatus" AS ENUM ('open', 'granted', 'rejected');
 DO $$ BEGIN CREATE TYPE "WebhookDeliveryStatus" AS ENUM ('pending', 'delivered', 'failed', 'dead'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 2. Alter Bug and Comment with nullable columns first
-ALTER TABLE "Bug" ADD COLUMN IF NOT EXISTS "tenantId" TEXT;
+ALTER TABLE "Bug" ADD COLUMN IF NOT EXISTS "organisationId" TEXT;
 ALTER TABLE "Bug" ADD COLUMN IF NOT EXISTS "projectId" TEXT;
 ALTER TABLE "Bug" ADD COLUMN IF NOT EXISTS "beneficiaryUserId" TEXT;
 ALTER TABLE "Bug" ADD COLUMN IF NOT EXISTS "createdByAgentId" TEXT;
@@ -23,19 +23,19 @@ ALTER TABLE "Bug" ADD COLUMN IF NOT EXISTS "pullRequestUrl" TEXT;
 ALTER TABLE "Comment" ADD COLUMN IF NOT EXISTS "agentId" TEXT;
 
 -- 3. Create Tables IF NOT EXISTS
-CREATE TABLE IF NOT EXISTS "Tenant" (
+CREATE TABLE IF NOT EXISTS "Organisation" (
     "id" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "Tenant_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Organisation_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE IF NOT EXISTS "Project" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "goal" TEXT,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS "Project" (
 
 CREATE TABLE IF NOT EXISTS "Membership" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "role" "MembershipRole" NOT NULL DEFAULT 'member',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS "Membership" (
 
 CREATE TABLE IF NOT EXISTS "Agent" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "ownerUserId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "model" TEXT,
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS "AgentPairing" (
     "proposedName" TEXT NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "ownerUserId" TEXT,
-    "tenantId" TEXT,
+    "organisationId" TEXT,
     "agentId" TEXT,
     "deviceCodeHash" TEXT NOT NULL,
     "proposedModel" TEXT,
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS "AgentPairing" (
 
 CREATE TABLE IF NOT EXISTS "AgentAuditEvent" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "agentId" TEXT NOT NULL,
     "action" TEXT NOT NULL,
     "target" TEXT,
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS "TestVerdict" (
 
 CREATE TABLE IF NOT EXISTS "RedesignProposal" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
     "bugId" TEXT,
     "authorAgentId" TEXT NOT NULL,
@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS "RedesignProposal" (
 
 CREATE TABLE IF NOT EXISTS "PointEntry" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "bugId" TEXT,
     "role" "PointRole" NOT NULL,
@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS "PointEntry" (
 
 CREATE TABLE IF NOT EXISTS "PointDispute" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "pointEntryId" TEXT,
     "bugId" TEXT NOT NULL,
@@ -220,9 +220,9 @@ CREATE TABLE IF NOT EXISTS "AgentQuestion" (
     CONSTRAINT "AgentQuestion_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE IF NOT EXISTS "TenantInvite" (
+CREATE TABLE IF NOT EXISTS "OrganisationInvite" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "role" "MembershipRole" NOT NULL DEFAULT 'member',
     "tokenHash" TEXT NOT NULL,
@@ -231,7 +231,7 @@ CREATE TABLE IF NOT EXISTS "TenantInvite" (
     "acceptedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "TenantInvite_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "OrganisationInvite_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE IF NOT EXISTS "IdempotencyKey" (
@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS "IdempotencyKey" (
 
 CREATE TABLE IF NOT EXISTS "AgentEvent" (
     "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
+    "organisationId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
     "payload" JSONB NOT NULL,
     "actorAgentId" TEXT,
@@ -286,17 +286,17 @@ CREATE TABLE IF NOT EXISTS "WebhookDelivery" (
 );
 
 -- 4. Create Indexes safely
-CREATE UNIQUE INDEX IF NOT EXISTS "Tenant_slug_key" ON "Tenant"("slug");
-CREATE UNIQUE INDEX IF NOT EXISTS "Project_tenantId_slug_key" ON "Project"("tenantId", "slug");
+CREATE UNIQUE INDEX IF NOT EXISTS "Organisation_slug_key" ON "Organisation"("slug");
+CREATE UNIQUE INDEX IF NOT EXISTS "Project_organisationId_slug_key" ON "Project"("organisationId", "slug");
 CREATE INDEX IF NOT EXISTS "Membership_userId_idx" ON "Membership"("userId");
-CREATE UNIQUE INDEX IF NOT EXISTS "Membership_tenantId_userId_key" ON "Membership"("tenantId", "userId");
-CREATE INDEX IF NOT EXISTS "Agent_tenantId_idx" ON "Agent"("tenantId");
+CREATE UNIQUE INDEX IF NOT EXISTS "Membership_organisationId_userId_key" ON "Membership"("organisationId", "userId");
+CREATE INDEX IF NOT EXISTS "Agent_organisationId_idx" ON "Agent"("organisationId");
 CREATE INDEX IF NOT EXISTS "Agent_ownerUserId_idx" ON "Agent"("ownerUserId");
 CREATE UNIQUE INDEX IF NOT EXISTS "AgentApiKey_keyHash_key" ON "AgentApiKey"("keyHash");
 CREATE INDEX IF NOT EXISTS "AgentApiKey_agentId_idx" ON "AgentApiKey"("agentId");
 CREATE UNIQUE INDEX IF NOT EXISTS "AgentPairing_codeHash_key" ON "AgentPairing"("codeHash");
 CREATE UNIQUE INDEX IF NOT EXISTS "AgentPairing_deviceCodeHash_key" ON "AgentPairing"("deviceCodeHash");
-CREATE INDEX IF NOT EXISTS "AgentAuditEvent_tenantId_createdAt_idx" ON "AgentAuditEvent"("tenantId", "createdAt");
+CREATE INDEX IF NOT EXISTS "AgentAuditEvent_organisationId_createdAt_idx" ON "AgentAuditEvent"("organisationId", "createdAt");
 CREATE INDEX IF NOT EXISTS "AgentAuditEvent_agentId_createdAt_idx" ON "AgentAuditEvent"("agentId", "createdAt");
 CREATE INDEX IF NOT EXISTS "AgentAuditEvent_bugId_createdAt_idx" ON "AgentAuditEvent"("bugId", "createdAt");
 CREATE INDEX IF NOT EXISTS "IssueClaim_bugId_releasedAt_idx" ON "IssueClaim"("bugId", "releasedAt");
@@ -307,69 +307,69 @@ CREATE UNIQUE INDEX IF NOT EXISTS "IssueValidation_bugId_agentId_kind_key" ON "I
 CREATE INDEX IF NOT EXISTS "TestVerdict_bugId_idx" ON "TestVerdict"("bugId");
 CREATE INDEX IF NOT EXISTS "TestVerdict_agentId_idx" ON "TestVerdict"("agentId");
 CREATE UNIQUE INDEX IF NOT EXISTS "TestVerdict_bugId_agentId_key" ON "TestVerdict"("bugId", "agentId");
-CREATE INDEX IF NOT EXISTS "RedesignProposal_tenantId_status_idx" ON "RedesignProposal"("tenantId", "status");
+CREATE INDEX IF NOT EXISTS "RedesignProposal_organisationId_status_idx" ON "RedesignProposal"("organisationId", "status");
 CREATE INDEX IF NOT EXISTS "RedesignProposal_bugId_idx" ON "RedesignProposal"("bugId");
 CREATE UNIQUE INDEX IF NOT EXISTS "PointEntry_sourceKey_key" ON "PointEntry"("sourceKey");
-CREATE INDEX IF NOT EXISTS "PointEntry_tenantId_userId_idx" ON "PointEntry"("tenantId", "userId");
+CREATE INDEX IF NOT EXISTS "PointEntry_organisationId_userId_idx" ON "PointEntry"("organisationId", "userId");
 CREATE INDEX IF NOT EXISTS "PointEntry_bugId_idx" ON "PointEntry"("bugId");
-CREATE INDEX IF NOT EXISTS "PointDispute_tenantId_status_idx" ON "PointDispute"("tenantId", "status");
+CREATE INDEX IF NOT EXISTS "PointDispute_organisationId_status_idx" ON "PointDispute"("organisationId", "status");
 CREATE INDEX IF NOT EXISTS "PointDispute_userId_idx" ON "PointDispute"("userId");
 CREATE INDEX IF NOT EXISTS "AgentQuestion_ownerUserId_answeredAt_idx" ON "AgentQuestion"("ownerUserId", "answeredAt");
 CREATE INDEX IF NOT EXISTS "AgentQuestion_agentId_idx" ON "AgentQuestion"("agentId");
-CREATE UNIQUE INDEX IF NOT EXISTS "TenantInvite_tokenHash_key" ON "TenantInvite"("tokenHash");
-CREATE INDEX IF NOT EXISTS "TenantInvite_tenantId_idx" ON "TenantInvite"("tenantId");
-CREATE INDEX IF NOT EXISTS "TenantInvite_email_idx" ON "TenantInvite"("email");
+CREATE UNIQUE INDEX IF NOT EXISTS "OrganisationInvite_tokenHash_key" ON "OrganisationInvite"("tokenHash");
+CREATE INDEX IF NOT EXISTS "OrganisationInvite_organisationId_idx" ON "OrganisationInvite"("organisationId");
+CREATE INDEX IF NOT EXISTS "OrganisationInvite_email_idx" ON "OrganisationInvite"("email");
 CREATE INDEX IF NOT EXISTS "IdempotencyKey_createdAt_idx" ON "IdempotencyKey"("createdAt");
 CREATE UNIQUE INDEX IF NOT EXISTS "IdempotencyKey_agentId_key_key" ON "IdempotencyKey"("agentId", "key");
-CREATE INDEX IF NOT EXISTS "AgentEvent_tenantId_createdAt_id_idx" ON "AgentEvent"("tenantId", "createdAt", "id");
+CREATE INDEX IF NOT EXISTS "AgentEvent_organisationId_createdAt_id_idx" ON "AgentEvent"("organisationId", "createdAt", "id");
 CREATE INDEX IF NOT EXISTS "WebhookSubscription_agentId_idx" ON "WebhookSubscription"("agentId");
 CREATE INDEX IF NOT EXISTS "WebhookDelivery_status_nextAttemptAt_idx" ON "WebhookDelivery"("status", "nextAttemptAt");
 CREATE UNIQUE INDEX IF NOT EXISTS "WebhookDelivery_subscriptionId_eventId_key" ON "WebhookDelivery"("subscriptionId", "eventId");
-CREATE INDEX IF NOT EXISTS "Bug_tenantId_projectId_idx" ON "Bug"("tenantId", "projectId");
+CREATE INDEX IF NOT EXISTS "Bug_organisationId_projectId_idx" ON "Bug"("organisationId", "projectId");
 CREATE INDEX IF NOT EXISTS "Bug_beneficiaryUserId_idx" ON "Bug"("beneficiaryUserId");
 CREATE INDEX IF NOT EXISTS "Bug_createdByAgentId_idx" ON "Bug"("createdByAgentId");
 
--- 5. Seed default Zedu tenant, project, and memberships
-INSERT INTO "Tenant" ("id", "slug", "name", "createdAt", "updatedAt")
-VALUES ('tenant_zedu', 'zedu', 'Zedu', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+-- 5. Seed default Zedu organisation, project, and memberships
+INSERT INTO "Organisation" ("id", "slug", "name", "createdAt", "updatedAt")
+VALUES ('organisation_zedu', 'zedu', 'Zedu', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT ("slug") DO NOTHING;
 
-INSERT INTO "Project" ("id", "tenantId", "slug", "name", "createdAt", "updatedAt")
+INSERT INTO "Project" ("id", "organisationId", "slug", "name", "createdAt", "updatedAt")
 SELECT 'project_zedu', t."id", 'zedu', 'Zedu', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-FROM "Tenant" t WHERE t."slug" = 'zedu'
-ON CONFLICT ("tenantId", "slug") DO NOTHING;
+FROM "Organisation" t WHERE t."slug" = 'zedu'
+ON CONFLICT ("organisationId", "slug") DO NOTHING;
 
-INSERT INTO "Membership" ("id", "tenantId", "userId", "role", "createdAt")
+INSERT INTO "Membership" ("id", "organisationId", "userId", "role", "createdAt")
 SELECT 'mem_zedu_' || u."id", t."id", u."id", 'member'::"MembershipRole", CURRENT_TIMESTAMP
-FROM "User" u CROSS JOIN "Tenant" t
+FROM "User" u CROSS JOIN "Organisation" t
 WHERE t."slug" = 'zedu'
-ON CONFLICT ("tenantId", "userId") DO NOTHING;
+ON CONFLICT ("organisationId", "userId") DO NOTHING;
 
--- Backfill any existing Bug rows that don't have tenantId / projectId / beneficiaryUserId
+-- Backfill any existing Bug rows that don't have organisationId / projectId / beneficiaryUserId
 UPDATE "Bug" b
-SET "tenantId" = p."tenantId",
+SET "organisationId" = p."organisationId",
     "projectId" = p."id",
     "beneficiaryUserId" = COALESCE(b."reporterId", u."id")
 FROM "Project" p
-JOIN "Tenant" t ON t."id" = p."tenantId"
+JOIN "Organisation" t ON t."id" = p."organisationId"
 CROSS JOIN LATERAL (SELECT "id" FROM "User" ORDER BY "createdAt" ASC LIMIT 1) u
 WHERE t."slug" = 'zedu' AND p."slug" = 'zedu'
-  AND (b."tenantId" IS NULL OR b."projectId" IS NULL OR b."beneficiaryUserId" IS NULL);
+  AND (b."organisationId" IS NULL OR b."projectId" IS NULL OR b."beneficiaryUserId" IS NULL);
 
 -- 6. Add Foreign Keys safely
-DO $$ BEGIN ALTER TABLE "Bug" ADD CONSTRAINT "Bug_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "Bug" ADD CONSTRAINT "Bug_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE RESTRICT ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "Bug" ADD CONSTRAINT "Bug_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE RESTRICT ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "Bug" ADD CONSTRAINT "Bug_beneficiaryUserId_fkey" FOREIGN KEY ("beneficiaryUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "Bug" ADD CONSTRAINT "Bug_createdByAgentId_fkey" FOREIGN KEY ("createdByAgentId") REFERENCES "Agent"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "Comment" ADD CONSTRAINT "Comment_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "Project" ADD CONSTRAINT "Project_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "Membership" ADD CONSTRAINT "Membership_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "Project" ADD CONSTRAINT "Project_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "Membership" ADD CONSTRAINT "Membership_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "Membership" ADD CONSTRAINT "Membership_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "Agent" ADD CONSTRAINT "Agent_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "Agent" ADD CONSTRAINT "Agent_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "Agent" ADD CONSTRAINT "Agent_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentApiKey" ADD CONSTRAINT "AgentApiKey_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentPairing" ADD CONSTRAINT "AgentPairing_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "AgentAuditEvent" ADD CONSTRAINT "AgentAuditEvent_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "AgentAuditEvent" ADD CONSTRAINT "AgentAuditEvent_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentAuditEvent" ADD CONSTRAINT "AgentAuditEvent_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentAuditEvent" ADD CONSTRAINT "AgentAuditEvent_bugId_fkey" FOREIGN KEY ("bugId") REFERENCES "Bug"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentAuditEvent" ADD CONSTRAINT "AgentAuditEvent_actorUserId_fkey" FOREIGN KEY ("actorUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -382,16 +382,16 @@ DO $$ BEGIN ALTER TABLE "IssueValidation" ADD CONSTRAINT "IssueValidation_onBeha
 DO $$ BEGIN ALTER TABLE "TestVerdict" ADD CONSTRAINT "TestVerdict_bugId_fkey" FOREIGN KEY ("bugId") REFERENCES "Bug"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "TestVerdict" ADD CONSTRAINT "TestVerdict_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "TestVerdict" ADD CONSTRAINT "TestVerdict_onBehalfOfUserId_fkey" FOREIGN KEY ("onBehalfOfUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "RedesignProposal" ADD CONSTRAINT "RedesignProposal_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "RedesignProposal" ADD CONSTRAINT "RedesignProposal_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "RedesignProposal" ADD CONSTRAINT "RedesignProposal_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "RedesignProposal" ADD CONSTRAINT "RedesignProposal_bugId_fkey" FOREIGN KEY ("bugId") REFERENCES "Bug"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "RedesignProposal" ADD CONSTRAINT "RedesignProposal_authorAgentId_fkey" FOREIGN KEY ("authorAgentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "RedesignProposal" ADD CONSTRAINT "RedesignProposal_onBehalfOfUserId_fkey" FOREIGN KEY ("onBehalfOfUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "RedesignProposal" ADD CONSTRAINT "RedesignProposal_approverId_fkey" FOREIGN KEY ("approverId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "PointEntry" ADD CONSTRAINT "PointEntry_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "PointEntry" ADD CONSTRAINT "PointEntry_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "PointEntry" ADD CONSTRAINT "PointEntry_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "PointEntry" ADD CONSTRAINT "PointEntry_bugId_fkey" FOREIGN KEY ("bugId") REFERENCES "Bug"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "PointDispute" ADD CONSTRAINT "PointDispute_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "PointDispute" ADD CONSTRAINT "PointDispute_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "PointDispute" ADD CONSTRAINT "PointDispute_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "PointDispute" ADD CONSTRAINT "PointDispute_pointEntryId_fkey" FOREIGN KEY ("pointEntryId") REFERENCES "PointEntry"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "PointDispute" ADD CONSTRAINT "PointDispute_resolvedById_fkey" FOREIGN KEY ("resolvedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -399,11 +399,11 @@ DO $$ BEGIN ALTER TABLE "PointDispute" ADD CONSTRAINT "PointDispute_bugId_fkey" 
 DO $$ BEGIN ALTER TABLE "AgentQuestion" ADD CONSTRAINT "AgentQuestion_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentQuestion" ADD CONSTRAINT "AgentQuestion_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentQuestion" ADD CONSTRAINT "AgentQuestion_bugId_fkey" FOREIGN KEY ("bugId") REFERENCES "Bug"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "TenantInvite" ADD CONSTRAINT "TenantInvite_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "TenantInvite" ADD CONSTRAINT "TenantInvite_invitedById_fkey" FOREIGN KEY ("invitedById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "OrganisationInvite" ADD CONSTRAINT "OrganisationInvite_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "OrganisationInvite" ADD CONSTRAINT "OrganisationInvite_invitedById_fkey" FOREIGN KEY ("invitedById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "IdempotencyKey" ADD CONSTRAINT "IdempotencyKey_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "IdempotencyKey" ADD CONSTRAINT "IdempotencyKey_bugId_fkey" FOREIGN KEY ("bugId") REFERENCES "Bug"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE "AgentEvent" ADD CONSTRAINT "AgentEvent_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE "AgentEvent" ADD CONSTRAINT "AgentEvent_organisationId_fkey" FOREIGN KEY ("organisationId") REFERENCES "Organisation"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentEvent" ADD CONSTRAINT "AgentEvent_actorAgentId_fkey" FOREIGN KEY ("actorAgentId") REFERENCES "Agent"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "AgentEvent" ADD CONSTRAINT "AgentEvent_bugId_fkey" FOREIGN KEY ("bugId") REFERENCES "Bug"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "WebhookSubscription" ADD CONSTRAINT "WebhookSubscription_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;

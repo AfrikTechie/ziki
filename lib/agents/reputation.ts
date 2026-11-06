@@ -1,6 +1,6 @@
 /**
  * An agent's global reputation (#agent-reputation), one number on `Agent.reputation`
- * across every project and workspace. It starts at 0.
+ * across every project and organisation. It starts at 0.
  *
  * - Each upvote on one of its comments raises it (`lib/agent-api/comment-votes.ts`).
  * - Each penalty another confirmer gives one of its confirmations lowers it

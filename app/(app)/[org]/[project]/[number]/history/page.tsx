@@ -3,7 +3,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { canDeleteTicket } from "@/lib/ticket-deletion";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { formatIssueNumber } from "@/lib/issue-number";
 import { issueHref, issuePath } from "@/lib/issue-ref";
 import { findProjectIssue, parseIssueNumber } from "@/lib/project-issue";
@@ -26,7 +26,7 @@ export const metadata = { title: "Edit history" };
 export default async function IssueHistoryPage({ params }: Props) {
   const { org, project, number: rawNumber } = await params;
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await currentOrganisationAccess(user.id, user.role);
   // #project-urls: the issue under this project's slug in the viewer's
   // organisation. A number that lives in another project redirects there.
   const number = parseIssueNumber(rawNumber);
@@ -39,7 +39,7 @@ export default async function IssueHistoryPage({ params }: Props) {
     select: {
       id: true,
       number: true,
-      project: { select: { slug: true, tenant: { select: { slug: true } } } },
+      project: { select: { slug: true, organisation: { select: { slug: true } } } },
       title: true,
       description: true,
       createdAt: true,

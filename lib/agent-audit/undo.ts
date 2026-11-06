@@ -2,7 +2,7 @@ import type { PrismaClient, Prisma } from "@prisma/client";
 import { audit } from "@/lib/agents/audit";
 import { correct } from "@/lib/points/correct";
 import { pointSourceKey } from "@/lib/points/rules";
-import { isTenantAdminRole } from "@/lib/agents/membership";
+import { isOrganisationAdminRole } from "@/lib/agents/membership";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { moveTo } from "@/lib/issue-substatus";
 
@@ -26,7 +26,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 type AuditEvent = {
   id: string;
-  tenantId: string;
+  organisationId: string;
   agentId: string | null;
   action: string;
   target: string | null;
@@ -53,15 +53,15 @@ export type UndoResult =
  */
 export async function undoAuditEvent(
   db: PrismaClient,
-  args: { auditEventId: string; actorUserId: string; tenantId: string },
+  args: { auditEventId: string; actorUserId: string; organisationId: string },
 ): Promise<UndoResult> {
-  const { auditEventId, actorUserId, tenantId } = args;
+  const { auditEventId, actorUserId, organisationId } = args;
 
   const event = await db.agentAuditEvent.findUnique({
     where: { id: auditEventId },
     select: {
       id: true,
-      tenantId: true,
+      organisationId: true,
       agentId: true,
       action: true,
       target: true,
@@ -74,27 +74,27 @@ export async function undoAuditEvent(
   if (!event) {
     return { ok: false, error: "not_found", message: "No such audit event." };
   }
-  if (event.tenantId !== tenantId) {
-    return { ok: false, error: "not_found", message: "No such audit event in this workspace." };
+  if (event.organisationId !== organisationId) {
+    return { ok: false, error: "not_found", message: "No such audit event in this organisation." };
   }
   if (event.undoneAt) {
     return { ok: true, alreadyUndone: true };
   }
 
-  // Only a workspace admin (owner/admin membership, or the site super admin)
+  // Only an organisation admin (owner/admin membership, or the site super admin)
   // may reverse another agent's action.
   const [membership, user] = await Promise.all([
     db.membership.findUnique({
-      where: { tenantId_userId: { tenantId, userId: actorUserId } },
+      where: { organisationId_userId: { organisationId, userId: actorUserId } },
       select: { role: true },
     }),
     db.user.findUnique({ where: { id: actorUserId }, select: { role: true } }),
   ]);
-  if (!isTenantAdminRole(membership?.role, user?.role)) {
+  if (!isOrganisationAdminRole(membership?.role, user?.role)) {
     return {
       ok: false,
       error: "not_admin",
-      message: "Only a workspace admin can undo actions.",
+      message: "Only an organisation admin can undo actions.",
     };
   }
 
@@ -117,15 +117,15 @@ export async function undoAuditEvent(
     // Record the undo itself as a new audit row, so the admin's action is
     // audited and published like any other agent action. The undo is
     // performed by a person, so it is recorded under the actor's own agent
-    // when they own one in this tenant; otherwise the `undoneAt` stamp on the
+    // when they own one in this organisation; otherwise the `undoneAt` stamp on the
     // original row is the audit record.
     const actorAgent = await tx.agent.findFirst({
-      where: { ownerUserId: actorUserId, tenantId },
+      where: { ownerUserId: actorUserId, organisationId },
       select: { id: true },
     });
     if (actorAgent) {
       await audit(
-        { agentId: actorAgent.id, tenantId },
+        { agentId: actorAgent.id, organisationId },
         "agent.undone",
         `audit:${auditEventId}`,
         {
@@ -191,16 +191,16 @@ async function undoConfirmation(tx: Db, event: AuditEvent): Promise<UndoResult> 
   if (payload.confirmed === true && confirmation.verdict === "confirm") {
     const bug = await tx.bug.findUnique({
       where: { id: confirmation.bugId },
-      select: { id: true, tenantId: true, beneficiaryUserId: true, reporterId: true },
+      select: { id: true, organisationId: true, beneficiaryUserId: true, reporterId: true },
     });
     if (bug) {
       const userId = bug.beneficiaryUserId ?? bug.reporterId;
       const entry = await tx.pointEntry.findFirst({
         where: {
-          tenantId: bug.tenantId,
+          organisationId: bug.organisationId,
           sourceKey: pointSourceKey("reporter", bug.id, userId),
         },
-        select: { id: true, tenantId: true, userId: true, bugId: true, role: true, points: true },
+        select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true },
       });
       if (entry) {
         await correct(tx, { entry });

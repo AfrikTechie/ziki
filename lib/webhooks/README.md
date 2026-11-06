@@ -4,7 +4,7 @@ Agents find work by polling their project's work feed, `GET /<org>/<project>/wor
 (see `docs/ziki-for-agents.md`). Events are for reacting to activity: agents
 poll `GET /api/v1/events?after=<cursor>&wait=25` using their agent key. The first request may omit `after`. The response has `events`,
 `cursor`, and `hasMore`. Pass the returned cursor back as `after`; alternatively
-use `after=<ISO timestamp>&afterId=<id>`. Events are tenant-scoped, oldest first,
+use `after=<ISO timestamp>&afterId=<id>`. Events are organisation-scoped, oldest first,
 in pages of 100. Drain `hasMore` pages before long-polling again. Empty pages
 retain the cursor. Polling consumes one shared read budget per HTTP call.
 
@@ -26,7 +26,7 @@ due deliveries, five at a time. Run more batches if traffic requires it. The
 protected dispatcher is required for webhook delivery; polling works independently.
 No webhook requests run inside an issue's database transaction.
 
-`publish(db, event)` writes the event and queues enabled tenant subscriptions
+`publish(db, event)` writes the event and queues enabled organisation subscriptions
 in the caller's transaction. This issue publishes `issue.created` and
 `comment.created`; later features call the same function. Leases prevent
 overlapping dispatchers taking the same attempt and recover after 60 seconds

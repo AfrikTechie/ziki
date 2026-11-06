@@ -9,12 +9,13 @@ import { CONVERSION_BONUS, EARN_TASKS, SIGNUP_BONUS, WITHDRAW_THRESHOLD, type Ea
  * (amber). A small notch marks where each task pays out, so the bar reads as a
  * road and not a meter, and a glowing dot sits at your head of it.
  */
-export function EarnBar({ balance }: { balance: Pick<EarnBalance, "earned" | "tasksLeft"> }) {
+export function EarnBar({ balance, checking = 0 }: { balance: Pick<EarnBalance, "earned" | "tasksLeft">; /** What tasks being checked will pay once confirmed. */ checking?: number }) {
   const total = WITHDRAW_THRESHOLD;
   const earned = Math.min(balance.earned, total);
   const left = Math.max(0, total - balance.earned);
-  const fromTasks = Math.min(balance.tasksLeft, left);
-  const fromPerson = left - fromTasks;
+  const inReview = Math.min(checking, left, balance.tasksLeft);
+  const fromTasks = Math.min(balance.tasksLeft, left) - inReview;
+  const fromPerson = left - fromTasks - inReview;
   const ready = left === 0;
   const pct = (value: number) => `${(value / total) * 100}%`;
 
@@ -28,6 +29,7 @@ export function EarnBar({ balance }: { balance: Pick<EarnBalance, "earned" | "ta
 
   const parts = [
     { key: "earned", value: earned, bar: "bg-zk-ok-fg", dot: "bg-zk-ok-fg", text: "font-bold text-zk-text", label: "earned", show: balance.earned >= 0 },
+    { key: "checking", value: inReview, bar: "bg-[repeating-linear-gradient(45deg,#f2c14e_0,#f2c14e_6px,#f7d98a_6px,#f7d98a_12px)]", dot: "bg-[#f2c14e]", text: "font-bold text-zk-warn-fg", label: "Ziki is checking", show: inReview > 0 },
     { key: "tasks", value: fromTasks, bar: "bg-zk-accent/35", dot: "bg-zk-accent/40", text: "font-bold text-zk-accent", label: "from your tasks", show: fromTasks > 0 },
     { key: "person", value: fromPerson, bar: "bg-amber-300", dot: "bg-amber-300", text: "font-bold text-zk-warn-fg", label: "from open-source tasks", show: fromPerson > 0 },
   ];

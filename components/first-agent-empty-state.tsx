@@ -1,31 +1,48 @@
 /**
- * Prominent first-time empty state (#434): shown where a person's agent list
- * is empty, guiding them into connecting their first agent instead of a bare
- * "No agents yet" line.
+ * Prominent first-time setup panel (#434): shown on My agents until one of the
+ * person's agents has connected (called Ziki with its key), guiding them into
+ * connecting it instead of a bare list. Every person gets an agent row of their
+ * own before any agent connects, so an empty list alone can't be the signal.
+ * Plain words only: no API routes, approval pages or docs links here.
  */
 import Link from "next/link";
 
-const STEPS: { title: string; body: string }[] = [
-  {
-    title: "Start working",
-    body: "Every agent is a working agent: it files, claims, delivers and reviews work. A team admin can make an agent a manager or merger later.",
-  },
-  {
-    title: "Let your agent pair itself",
-    body: "Ask your agent to register via POST /api/v1/agents/pairing and open the approval link, or create one from the Create agent page.",
-  },
-  {
-    title: "Approve while signed in",
-    body: "Your agent's request waits at the approval page - approve it and the key is returned to the agent automatically.",
-  },
-  {
-    title: "Verify the connection",
-    body: "Use the connect flow to confirm the agent's key actually called /agents/me before handing it work.",
-  },
+type Step = { title: string; body: string };
+
+/** Someone with an agent that isn't linked yet: link it to the AI they already use. */
+const LINK_STEPS: Step[] = [
+  { title: "Copy its key", body: "Click Copy key on your agent below." },
+  { title: "Paste it into your AI", body: "Paste it into your AI coding assistant, such as Claude Code or Cursor." },
+  { title: "It starts working", body: "It picks up work on its own, and shows as active here." },
 ];
 
-/** The four-step guided panel for a person with no agents yet, rendered by the Agents settings page. */
-export function FirstAgentEmptyState() {
+/** Someone with no agent at all: add one first. */
+const ADD_STEPS: Step[] = [
+  { title: "Add an agent", body: "Click Add agent and give it a name." },
+  { title: "Paste its key into your AI", body: "Copy its key into your AI coding assistant, such as Claude Code or Cursor." },
+  { title: "It starts working", body: "It picks up work on its own, and shows as active here." },
+];
+
+/**
+ * The three-step panel on My agents for a person whose agents haven't connected yet. With an agent it says
+ * to link that agent to their own AI (the row below has Copy key); with none, to add one.
+ */
+export function FirstAgentEmptyState({
+  hasAgents = false,
+  hasKey = false,
+  addHref = "/settings/connect",
+}: {
+  hasAgents?: boolean;
+  /** Its agent has a key to copy; without one, its row offers Connect agent, which gets one. */
+  hasKey?: boolean;
+  /** Where Add agent goes. */
+  addHref?: string;
+}) {
+  const steps = !hasAgents
+    ? ADD_STEPS
+    : hasKey
+      ? LINK_STEPS
+      : [{ title: "Get its key", body: "Click Connect agent on your agent below, then Get a key." }, ...LINK_STEPS.slice(1)];
   return (
     <section
       aria-labelledby="first-agent-heading"
@@ -47,16 +64,17 @@ export function FirstAgentEmptyState() {
         </span>
         <div>
           <h3 id="first-agent-heading" className="text-lg font-extrabold text-zk-text sm:text-xl">
-            Connect your first agent
+            {hasAgents ? "Link your agent to your AI" : "Add your first agent"}
           </h3>
           <p className="mt-1 text-sm text-zk-text2">
-            You have no agents yet. An agent files issues, bids for work, and delivers fixes on your behalf - four
-            quick steps to get there.
+            {hasAgents
+              ? "You have an agent, but it isn't linked to your AI coding assistant yet. It takes a minute."
+              : "You don't have an agent yet. An agent is an AI that finds and fixes issues for you. It takes a minute."}
           </p>
         </div>
       </div>
-      <ol className="mt-5 grid gap-3 sm:grid-cols-2">
-        {STEPS.map((step, index) => (
+      <ol className="mt-5 grid gap-3 sm:grid-cols-3">
+        {steps.map((step, index) => (
           <li
             key={step.title}
             className="rounded-[16px] border border-zk-border bg-zk-chip/40 p-3.5"
@@ -69,31 +87,18 @@ export function FirstAgentEmptyState() {
           </li>
         ))}
       </ol>
-      <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Link
-          href="/settings/agents/connect"
-          data-testid="first-agent-cta"
-          className="inline-flex min-h-11 items-center justify-center rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(46,111,239,0.30)] transition hover:bg-[#2552af] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2"
-        >
-          Connect your first agent →
-        </Link>
-        <Link
-          href="/settings/agents/pair"
-          data-testid="first-agent-approvals"
-          className="inline-flex min-h-11 items-center justify-center rounded-full border border-zk-border bg-zk-surface px-5 text-sm font-bold text-zk-text transition hover:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2"
-        >
-          Approval page
-        </Link>
-        <a
-          href="/llms.txt"
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="first-agent-docs"
-          className="inline-flex min-h-11 items-center justify-center text-sm font-bold text-zk-accent hover:underline"
-        >
-          Agent API docs (/llms.txt) ↗
-        </a>
-      </div>
+      {/* With an agent, its row below holds Copy key and Connect agent: no second button here. */}
+      {hasAgents ? null : (
+        <div className="mt-5">
+          <Link
+            href={addHref}
+            data-testid="first-agent-cta"
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(46,111,239,0.30)] transition hover:bg-[#2552af] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2"
+          >
+            Add agent →
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

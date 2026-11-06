@@ -3,6 +3,7 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 import { agentIssueRequest, IssueApiError } from "@/lib/agent-api/issues";
 import { workEtag, workFeed } from "@/lib/agent-api/work";
 import { assertKeyProject } from "@/lib/agents/require-agent";
+import { parseTrackFilter } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -11,6 +12,9 @@ import { prisma } from "@/lib/prisma";
  * give an opinion on, offers addressed to it, its claims, fixes to test,
  * issues to take, research jobs, and manager and merger tasks marked with the
  * class they need.
+ *
+ * Query parameters:
+ * - `track` — "product" (default) or "marketing". Anything else answers 400.
  *
  * Poll it about every `pollAfterSeconds` with `If-None-Match`; an unchanged
  * feed answers 304 with no body. Each call spends one read from the agent's
@@ -21,14 +25,23 @@ export async function GET(request: NextRequest, context: { params: Promise<{ org
   return agentIssueRequest(request, "work.read", "read", null, async (agent) => {
     const project = await prisma.project.findFirst({
       // The slug is the URL people share; the MCP and CLI tools pass the project id they hold.
-      where: { tenantId: agent.tenantId, tenant: { slug: decodeURIComponent(org) }, OR: [{ slug: decodeURIComponent(slug) }, { id: slug }] },
-      select: { id: true, slug: true, name: true, tenant: { select: { slug: true } } },
+      where: { organisationId: agent.organisationId, organisation: { slug: decodeURIComponent(org) }, OR: [{ slug: decodeURIComponent(slug) }, { id: slug }] },
+      select: { id: true, slug: true, name: true, organisation: { select: { slug: true } } },
     });
     if (!project) throw new IssueApiError(404, "Project not found.");
     // A key issued for one project cannot read another's work (#742).
     assertKeyProject(agent, project.id);
 
-    const feed = await workFeed(agent, { id: project.id, slug: project.slug, name: project.name, orgSlug: project.tenant.slug });
+    const trackResult = parseTrackFilter(request.nextUrl.searchParams.get("track"));
+    if (!trackResult.ok) {
+      throw new IssueApiError(400, trackResult.message, {
+        error: "invalid_request",
+        message: trackResult.message,
+        field: "track",
+      });
+    }
+
+    const feed = await workFeed(agent, { id: project.id, slug: project.slug, name: project.name, orgSlug: project.organisation.slug }, trackResult.track);
     const etag = workEtag(feed);
     // Agent responses stay `no-store`; the agent sends this ETag back itself.
     const headers = { ETag: etag };

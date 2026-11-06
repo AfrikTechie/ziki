@@ -12,10 +12,10 @@ import { prisma } from "@/lib/prisma";
 
 export type MembershipActionResult = { error?: string; ok?: boolean };
 
-/** Members are listed in /org; a person's own organizations in /tenants. */
-function revalidateTenant() {
+/** Members are listed in /org; a person's own organisations in /organisations. */
+function revalidateOrganisation() {
   revalidatePath("/[org]/[project]/org", "layout");
-  revalidatePath("/tenants");
+  revalidatePath("/organisations");
 }
 
 function cleanId(value: string): string | null {
@@ -24,54 +24,54 @@ function cleanId(value: string): string | null {
   return id.length > 0 ? id : null;
 }
 
-/** Promote or demote someone inside one organization. Does not change their site-wide role. */
+/** Promote or demote someone inside one organisation. Does not change their site-wide role. */
 export async function setMemberRoleAction(
-  tenantId: string,
+  organisationId: string,
   userId: string,
   nextRole: MembershipRole,
 ): Promise<MembershipActionResult> {
   const actor = await requireUser();
-  const tenant = cleanId(tenantId);
+  const organisation = cleanId(organisationId);
   const target = cleanId(userId);
-  if (!tenant || !target) return { error: "That person isn't in this organization." };
+  if (!organisation || !target) return { error: "That person isn't in this organisation." };
   if (nextRole !== "admin" && nextRole !== "member") {
-    return { error: "Only an owner of this organization can change roles." };
+    return { error: "Only an owner of this organisation can change roles." };
   }
 
   const result = await changeMembershipRole(prisma, actor, {
-    tenantId: tenant,
+    organisationId: organisation,
     targetUserId: target,
     nextRole,
   });
   if (!result.ok) return { error: result.error };
-  revalidateTenant();
+  revalidateOrganisation();
   return { ok: true };
 }
 
-/** Remove someone from one organization. They keep their account. */
+/** Remove someone from one organisation. They keep their account. */
 export async function removeMemberAction(
-  tenantId: string,
+  organisationId: string,
   userId: string,
 ): Promise<MembershipActionResult> {
   const actor = await requireUser();
-  const tenant = cleanId(tenantId);
+  const organisation = cleanId(organisationId);
   const target = cleanId(userId);
-  if (!tenant || !target) return { error: "That person isn't in this organization." };
+  if (!organisation || !target) return { error: "That person isn't in this organisation." };
 
-  const result = await removeMembership(prisma, actor, { tenantId: tenant, targetUserId: target });
+  const result = await removeMembership(prisma, actor, { organisationId: organisation, targetUserId: target });
   if (!result.ok) return { error: result.error };
-  revalidateTenant();
+  revalidateOrganisation();
   return { ok: true };
 }
 
-/** Leave an organization. The last owner has to choose someone else first. */
-export async function leaveTenantAction(tenantId: string): Promise<MembershipActionResult> {
+/** Leave an organisation. The last owner has to choose someone else first. */
+export async function leaveOrganisationAction(organisationId: string): Promise<MembershipActionResult> {
   const actor = await requireUser();
-  const tenant = cleanId(tenantId);
-  if (!tenant) return { error: "That person isn't in this organization." };
+  const organisation = cleanId(organisationId);
+  if (!organisation) return { error: "That person isn't in this organisation." };
 
-  const result = await leaveMembership(prisma, actor, tenant);
+  const result = await leaveMembership(prisma, actor, organisation);
   if (!result.ok) return { error: result.error };
-  revalidateTenant();
+  revalidateOrganisation();
   return { ok: true };
 }

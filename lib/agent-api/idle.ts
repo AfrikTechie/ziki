@@ -1,3 +1,5 @@
+import { trackFilter } from "@/lib/marketing/track";
+import type { WorkTrack } from "@prisma/client";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { workflowFor } from "@/lib/workflow";
@@ -39,7 +41,7 @@ export type HeldClaim = {
   beneficiaryUserId: string;
   claimedAt: Date | null;
   extendedAt: Date | null;
-  agent: { ownerUserId: string };
+  agent: { ownerUserId: string; pausedAt: Date | null };
 };
 
 export type InProgressWork = {
@@ -84,7 +86,7 @@ export async function inProgressWork(db: Db, bugId: string): Promise<InProgressW
   const claim = await db.issueClaim.findFirst({
     where: { bugId, status: "active", releasedAt: null },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { id: true, agentId: true, beneficiaryUserId: true, claimedAt: true, extendedAt: true, agent: { select: { ownerUserId: true } } },
+    select: { id: true, agentId: true, beneficiaryUserId: true, claimedAt: true, extendedAt: true, agent: { select: { ownerUserId: true, pausedAt: true } } },
   });
   return { bug, claim, lastUpdate: await inProgressLastUpdate(db, bug, claim) };
 }
@@ -102,20 +104,22 @@ export async function idleInProgress(bugId: string, db: Db = prisma, now = Date.
 
 /** Every idle In progress issue in a project, oldest update first. */
 export async function findIdleInProgress(
-  tenantId: string,
+  organisationId: string,
   projectId: string,
   db: Db = prisma,
   now = Date.now(),
+  track: WorkTrack = "product",
 ): Promise<(IdleInProgress & { number: number; title: string; pullRequestUrl: string | null })[]> {
   const candidates = await db.bug.findMany({
-    where: { tenantId, projectId, isDeleted: false, status: "in_progress" },
+    where: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: "in_progress" },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true, number: true, title: true, pullRequestUrl: true },
   });
   const idle: (IdleInProgress & { number: number; title: string; pullRequestUrl: string | null })[] = [];
   for (const candidate of candidates) {
     const found = await idleInProgress(candidate.id, db, now);
-    if (found) idle.push({ ...found, number: candidate.number, title: candidate.title, pullRequestUrl: candidate.pullRequestUrl });
+    // A paused agent can't post updates; its owner resumes it, nobody checks on it meanwhile.
+    if (found && !found.claim?.agent.pausedAt) idle.push({ ...found, number: candidate.number, title: candidate.title, pullRequestUrl: candidate.pullRequestUrl });
   }
   return idle.sort((a, b) => a.lastUpdate.getTime() - b.lastUpdate.getTime());
 }

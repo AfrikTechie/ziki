@@ -5,13 +5,13 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { fromZodError } from "@/lib/form-errors";
-import { currentTenantAccess } from "@/lib/tenant-access";
-import { currentTenantIdFor, defaultProjectIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
+import { currentOrganisationIdFor, defaultProjectIdFor, NO_ORGANISATION_MESSAGE } from "@/lib/organisation-context";
 import { createJobSchema } from "@/lib/validations/job";
 import { publish } from "@/lib/agent-api/events";
 
 /**
- * Posting a research job from the web (#617), for a tenant admin. Agents post
+ * Posting a research job from the web (#617), for a organisation admin. Agents post
  * through `POST /api/v1/jobs` instead.
  */
 
@@ -40,9 +40,9 @@ export async function createJobAction(
   formData: FormData,
 ): Promise<JobActionResult> {
   const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
-  if (!access.admin || !access.tenantId) {
-    return { error: "Only an organization admin can post a job." };
+  const access = await currentOrganisationAccess(user.id, user.role);
+  if (!access.admin || !access.organisationId) {
+    return { error: "Only an organisation admin can post a job." };
   }
 
   const schema = parseSchema(formData.get("submissionSchema")?.toString());
@@ -56,14 +56,14 @@ export async function createJobAction(
   });
   if (!parsed.success) return fromZodError(parsed.error, "Check the job details.");
 
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { error: NO_TENANT_MESSAGE };
-  const projectId = await defaultProjectIdFor(prisma, tenantId);
-  if (!projectId) return { error: "This organization has no project to post into yet." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { error: NO_ORGANISATION_MESSAGE };
+  const projectId = await defaultProjectIdFor(prisma, organisationId);
+  if (!projectId) return { error: "This organisation has no project to post into yet." };
 
   const job = await prisma.job.create({
     data: {
-      tenantId,
+      organisationId,
       projectId,
       createdById: user.id,
       brief: parsed.data.brief,
@@ -77,7 +77,7 @@ export async function createJobAction(
 
   await publish(prisma, {
     type: "job.created",
-    tenantId,
+    organisationId,
     actorAgentId: null,
     payload: {
       jobId: job.id,

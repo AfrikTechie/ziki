@@ -5,17 +5,17 @@ vi.mock("@/lib/auth-helpers", () => ({
   requireUser: vi.fn(),
 }));
 
-/** Comment permissions and attachment access (#578, #658): files are served only to members of their tenant, unattached uploads only to their uploader; only authors edit comments, and only authors and organization admins delete them. */
-const tenantAccessFor = vi.hoisted(() =>
+/** Comment permissions and attachment access (#578, #658): files are served only to members of their organisation, unattached uploads only to their uploader; only authors edit comments, and only authors and organisation admins delete them. */
+const organisationAccessFor = vi.hoisted(() =>
   vi.fn(async () => ({
-    tenantId: "tenant-ziki",
-    tenantName: "Ziki",
-    tenantSlug: "ziki",
+    organisationId: "organisation-ziki",
+    organisationName: "Ziki",
+    organisationSlug: "ziki",
     membershipRole: "member" as "owner" | "admin" | "member",
     admin: false,
   })),
 );
-vi.mock("@/lib/tenant-access", () => ({ tenantAccessFor }));
+vi.mock("@/lib/organisation-access", () => ({ organisationAccessFor }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -98,7 +98,7 @@ describe("GET /api/attachments/[id]", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns 404 when a site admin is only a member of the issue's organization", async () => {
+  it("returns 404 when a site admin is only a member of the issue's organisation", async () => {
     userMock.mockResolvedValue({ id: "admin-1", role: "admin" });
     findUnique.mockResolvedValue({
       uploaderId: "user-2",
@@ -106,7 +106,7 @@ describe("GET /api/attachments/[id]", () => {
       contentType: "image/png",
       size: 50,
       data: Buffer.from("png-bytes"),
-      bug: { isDeleted: true, tenantId: "tenant-ziki" },
+      bug: { isDeleted: true, organisationId: "organisation-ziki" },
       comment: null,
       redesignProposal: null,
     });
@@ -122,7 +122,7 @@ describe("GET /api/attachments/[id]", () => {
       contentType: "image/webp",
       size: 100,
       data: Buffer.from("webp-bytes"),
-      bug: { isDeleted: false, tenantId: "tenant-ziki" },
+      bug: { isDeleted: false, organisationId: "organisation-ziki" },
       comment: null,
       redesignProposal: null,
     });
@@ -141,7 +141,7 @@ describe("GET /api/attachments/[id]", () => {
       size: 100,
       data: Buffer.from("png-bytes"),
       bug: null,
-      comment: { bug: { isDeleted: false, tenantId: "tenant-ziki" } },
+      comment: { bug: { isDeleted: false, organisationId: "organisation-ziki" } },
       redesignProposal: null,
     });
     membershipFindUnique.mockResolvedValue(null);
@@ -170,7 +170,7 @@ describe("DELETE /api/attachments/[id] (#658)", () => {
       bugId: "bug-1",
       commentId: null,
       redesignProposalId: null,
-      bug: { tenantId: "tenant-ziki" },
+      bug: { organisationId: "organisation-ziki" },
       comment: null,
       redesignProposal: null,
     });
@@ -193,7 +193,7 @@ describe("comment permissions", () => {
     expect(canEditComment("me", { authorId: "me", deletedAt: new Date() })).toBe(false);
   });
 
-  it("lets the author, an organization admin and the super admin delete, not a site admin who is only a member", () => {
+  it("lets the author, an organisation admin and the super admin delete, not a site admin who is only a member", () => {
     expect(canDeleteComment("me", "user", mine)).toBe(true);
     expect(canDeleteComment("me", "user", theirs, true)).toBe(true);
     expect(canDeleteComment("me", "super_admin", theirs)).toBe(true);

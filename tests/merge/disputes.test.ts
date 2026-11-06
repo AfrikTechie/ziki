@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ALREADY_RESOLVED,
   DISPUTE_ALREADY_OPEN,
-  NOT_IN_WORKSPACE,
+  NOT_IN_ORGANISATION,
   NOT_YOUR_ENTRY,
   correctionSourceKey,
   correctEntry,
@@ -13,7 +13,7 @@ import {
   type DisputeRow,
 } from "@/lib/points/disputes";
 
-/** Points disputes (#622): members dispute only their own entries in their own workspace, one open dispute at a time; resolving one grants or corrects exactly once. */
+/** Points disputes (#622): members dispute only their own entries in their own organisation, one open dispute at a time; resolving one grants or corrects exactly once. */
 /** The fake `award()` ledger: same unique-by-sourceKey rule as Postgres. */
 function fakeLedger() {
   const rows: Array<Record<string, unknown>> = [];
@@ -57,15 +57,15 @@ function fakeLedger() {
   return { rows, db: db as never, raw: db };
 }
 
-const TENANT = "tenant-a";
-const OTHER_TENANT = "tenant-b";
+const ORGANISATION = "organisation-a";
+const OTHER_ORGANISATION = "organisation-b";
 const ME = "user-me";
 const ADMIN = "user-admin";
 
 const bugOn = {
   id: "bug-1",
   number: 42,
-  tenantId: TENANT,
+  organisationId: ORGANISATION,
   reporterId: ME,
   assigneeId: "user-solver",
 };
@@ -73,7 +73,7 @@ const bugOn = {
 function openDisputeRow(overrides: Partial<DisputeRow> = {}): DisputeRow {
   return {
     id: "dispute-1",
-    tenantId: TENANT,
+    organisationId: ORGANISATION,
     userId: ME,
     bugId: bugOn.id,
     pointEntryId: null,
@@ -90,10 +90,10 @@ describe("openDispute", () => {
     reason: "I resolved it but got nothing.",
   };
 
-  it("rejects a bug from another tenant", async () => {
+  it("rejects a bug from another organisation", async () => {
     const { db } = fakeLedger();
-    const result = await openDispute(db, { tenantId: OTHER_TENANT, userId: ME, input });
-    expect(result).toEqual({ ok: false, error: NOT_IN_WORKSPACE });
+    const result = await openDispute(db, { organisationId: OTHER_ORGANISATION, userId: ME, input });
+    expect(result).toEqual({ ok: false, error: NOT_IN_ORGANISATION });
   });
 
   it("rejects disputing a points entry that isn't yours", async () => {
@@ -101,7 +101,7 @@ describe("openDispute", () => {
     raw.bug.findFirst.mockResolvedValue({ id: "bug-1" });
     raw.pointEntry.findFirst.mockResolvedValue(null);
     const result = await openDispute(db, {
-      tenantId: TENANT,
+      organisationId: ORGANISATION,
       userId: ME,
       input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-x", reason: "Wrong amount." },
     });
@@ -114,7 +114,7 @@ describe("openDispute", () => {
     raw.pointEntry.findFirst.mockResolvedValue({ id: "entry-1", correctedAt: null });
     raw.pointDispute.findFirst.mockResolvedValue({ id: "dispute-existing" });
     const result = await openDispute(db, {
-      tenantId: TENANT,
+      organisationId: ORGANISATION,
       userId: ME,
       input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-1", reason: "Wrong amount." },
     });
@@ -192,7 +192,7 @@ describe("grantMissingAward", () => {
 describe("correctEntry", () => {
   const entry = {
     id: "entry-1",
-    tenantId: TENANT,
+    organisationId: ORGANISATION,
     userId: ME,
     bugId: "bug-1" as string | null,
     role: "solver" as const,

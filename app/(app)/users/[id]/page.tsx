@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
+import { bugInOrganisation, currentOrganisationIdFor } from "@/lib/organisation-context";
 import { pointTotals } from "@/lib/points/leaderboard";
 import { getPlatformRewardConfig } from "@/lib/points/platform-rewards";
 import { formatZ } from "@/lib/points/rules";
@@ -22,7 +22,7 @@ import { issueHref } from "@/lib/issue-ref";
 import { teamAgentsForMember, teamAssignedWorkForMember } from "@/lib/team-directory";
 import { TeamAgentList } from "@/components/team-agent-list";
 import { MemberAssignedWork } from "@/components/member-assigned-work";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { settableLevels } from "@/lib/agents/levels";
 
 type ProfileProps = { params: Promise<{ id: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
@@ -54,12 +54,12 @@ export async function generateMetadata({
 export default async function ProfilePage({ params, searchParams }: ProfileProps) {
   const viewer = await requireUser();
   const { id } = await params;
-  // #503: only people who share a tenant with this person can see them.
+  // #503: only people who share a organisation with this person can see them.
   if (!(await canViewProfile(prisma, viewer, id))) notFound();
-  // #428: points in the viewer's tenant.
-  const tenantId = await currentTenantIdFor(viewer.id);
+  // #428: points in the viewer's organisation.
+  const organisationId = await currentOrganisationIdFor(viewer.id);
   // #425, #439: a profile is another way to read issues. No membership, no issues.
-  const scope = bugInTenant(tenantId);
+  const scope = bugInOrganisation(organisationId);
 
   const [person, reported, assigned, counts, assignedTotal] = await Promise.all([
     prisma.user.findUnique({
@@ -68,13 +68,13 @@ export default async function ProfilePage({ params, searchParams }: ProfileProps
     }),
     prisma.bug.findMany({
       where: { reporterId: id, isDeleted: false, ...scope },
-      select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+      select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
       orderBy: { createdAt: "desc" },
       take: RECENT,
     }),
     prisma.bug.findMany({
       where: { assigneeId: id, isDeleted: false, ...scope },
-      select: { id: true, number: true, title: true, status: true, updatedAt: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+      select: { id: true, number: true, title: true, status: true, updatedAt: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
       orderBy: { updatedAt: "desc" },
       take: RECENT,
     }),
@@ -91,10 +91,10 @@ export default async function ProfilePage({ params, searchParams }: ProfileProps
   if (!person) notFound();
 
   const [points, platformRewards, balance, walletVisible] = await Promise.all([
-    tenantId ? pointTotals(prisma, tenantId, person.id) : Promise.resolve({ points: 0, solvedTasks: 0 }),
+    organisationId ? pointTotals(prisma, organisationId, person.id) : Promise.resolve({ points: 0, solvedTasks: 0 }),
     getPlatformRewardConfig(prisma),
-    tenantId ? pointBalance(prisma, { tenantId, userId: person.id }) : Promise.resolve(null),
-    canViewWallet(prisma, viewer, person.id, tenantId),
+    organisationId ? pointBalance(prisma, { organisationId, userId: person.id }) : Promise.resolve(null),
+    canViewWallet(prisma, viewer, person.id, organisationId),
   ]);
 
   const ledgerParams = await searchParams ?? {};
@@ -105,32 +105,32 @@ export default async function ProfilePage({ params, searchParams }: ProfileProps
   if (ledgerQuery.success && ledgerQuery.data.cursor) {
     try { decodePointCursor(ledgerQuery.data.cursor); } catch { ledgerError = true; }
   }
-  const ledger = tenantId && viewer.id === person.id && ledgerQuery.success && !ledgerError
-    ? await pointEntries(prisma, { tenantId, userId: person.id }, ledgerQuery.data) : null;
+  const ledger = organisationId && viewer.id === person.id && ledgerQuery.success && !ledgerError
+    ? await pointEntries(prisma, { organisationId, userId: person.id }, ledgerQuery.data) : null;
 
   const reportedTotal = counts.reduce((sum, row) => sum + row._count._all, 0);
   const resolved =
     counts.find((row) => row.status === "resolved")?._count._all ?? 0;
-  const tenantMembership = tenantId
+  const organisationMembership = organisationId
     ? await prisma.membership.findFirst({
-        where: { tenantId, userId: person.id },
+        where: { organisationId, userId: person.id },
         select: { id: true },
       })
     : null;
-  const agents = tenantId && tenantMembership
-    ? await teamAgentsForMember(prisma, tenantId, person.id)
+  const agents = organisationId && organisationMembership
+    ? await teamAgentsForMember(prisma, organisationId, person.id)
     : [];
   // #447: assigned to this person, not claimed by any of their agents.
-  const assignedWork = tenantId && tenantMembership
-    ? await teamAssignedWorkForMember(prisma, tenantId, person.id, agents)
+  const assignedWork = organisationId && organisationMembership
+    ? await teamAssignedWorkForMember(prisma, organisationId, person.id, agents)
     : [];
-  const viewerIsAdmin = tenantId ? await isTenantAdmin(viewer, tenantId) : false;
-  const manageLevels = tenantId && viewer.id !== person.id && viewerIsAdmin
-    ? settableLevels({ isOwner: false, isTenantAdmin: true })
+  const viewerIsAdmin = organisationId ? await isAdminOfOrganisation(viewer, organisationId) : false;
+  const manageLevels = organisationId && viewer.id !== person.id && viewerIsAdmin
+    ? settableLevels({ isOwner: false, isAdminOfOrganisation: true })
     : null;
-  // #points-sources: where their points came from, for the person and the workspace's admins (to spot farming).
-  const sources = tenantId && (viewer.id === person.id || viewerIsAdmin)
-    ? await pointSources(prisma, { tenantId, userId: person.id })
+  // #points-sources: where their points came from, for the person and the organisation's admins (to spot farming).
+  const sources = organisationId && (viewer.id === person.id || viewerIsAdmin)
+    ? await pointSources(prisma, { organisationId, userId: person.id })
     : null;
 
   return (
@@ -198,7 +198,7 @@ export default async function ProfilePage({ params, searchParams }: ProfileProps
 
       {sources ? <PointsSources sources={sources} name={person.name ?? "this person"} /> : null}
 
-      {tenantId && viewer.id === person.id ? (
+      {organisationId && viewer.id === person.id ? (
         <PointsLedger page={ledger} profileId={person.id} from={ledgerQuery.success ? ledgerQuery.data.from : undefined} to={ledgerQuery.success ? ledgerQuery.data.to : undefined} error={ledgerError} />
       ) : null}
 
@@ -242,7 +242,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 type ProfileIssue = {
   id: string;
   number: number;
-  project: { slug: string; tenant: { slug: string } };
+  project: { slug: string; organisation: { slug: string } };
   title: string;
   status: keyof typeof statusLabels;
 };

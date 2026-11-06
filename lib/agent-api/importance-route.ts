@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 
 /** The issue's id from the path: the readable number (`123`, `ZE-123`) or the id (#457). */
 async function issueId(agent: AgentContext, issueRef: string): Promise<string> {
-  const id = await issueIdFor(prisma, issueRef, agent.tenantId);
+  const id = await issueIdFor(prisma, issueRef, agent.organisationId);
   if (!id) throw new IssueApiError(404, "Issue not found.");
   return id;
 }

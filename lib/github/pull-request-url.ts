@@ -1,5 +1,5 @@
 /**
- * GitHub addresses, read from the URL alone. Ziki never calls GitHub: agents
+ * GitHub addresses, read from the URL alone. Agents and Ziki (#github-status, lib/github/sync.ts) read GitHub;
  * check pull requests there and report what they saw
  * (`POST /api/v1/issues/{id}/pull-request-status`, lib/agent-api/pull-request-report.ts).
  */

@@ -25,14 +25,14 @@ import { reportPullRequestStatus } from "@/lib/agent-api/pull-request-report";
 import { prGate, type GateReport } from "@/lib/agent-api/pr-gate";
 
 const PR = "https://github.com/emerjent/ziki/pull/552";
-const scope = { tenantId: "t1", projectId: "p1" };
+const scope = { organisationId: "t1", projectId: "p1" };
 const checker = (ownerId = "erin", level: AgentContext["level"] = "working"): AgentContext =>
-  ({ agentId: `agent-${ownerId}`, name: `${ownerId}'s agent`, ownerId, tenantId: "t1", level, burst: false, keyId: "k" });
+  ({ agentId: `agent-${ownerId}`, name: `${ownerId}'s agent`, ownerId, organisationId: "t1", level, burst: false, keyId: "k" });
 
 /** Delivered work on #552, filed by Ada, the claim held by Cara's agent. */
 function bug(over: Record<string, unknown> = {}) {
   return {
-    id: "bug1", tenantId: "t1", projectId: "p1",
+    id: "bug1", organisationId: "t1", projectId: "p1",
     pullRequestUrl: PR, pullRequestHeadSha: "aaa1111",
     beneficiaryUserId: "ada", reporterId: "ada", assigneeId: null, createdByAgent: null,
     claims: [{ status: "active", releasedAt: null, beneficiaryUserId: "cara", dispatcherUserId: null, agent: { ownerUserId: "cara" } }],
@@ -98,7 +98,7 @@ describe("reportPullRequestStatus (#pr-reports)", () => {
       expect.objectContaining({ bugId: "bug1", db: db.tx }),
     );
     expect(publish).toHaveBeenCalledWith(db.tx, expect.objectContaining({
-      tenantId: "t1",
+      organisationId: "t1",
       type: "issue.pull_request_reported",
       actorAgentId: "agent-erin",
       bugId: "bug1",

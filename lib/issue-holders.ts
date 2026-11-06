@@ -19,6 +19,12 @@ export type IssueHold = {
   offeredAt: Date | null;
   claimedAt: Date | null;
   deliverBy: Date | null;
+  /** Earliest heartbeat or delivery deadline that can release an undelivered claim. */
+  releaseAt: Date | null;
+  /** Heartbeat and delivery clocks pause while the agent waits for its owner. */
+  waitingOnOwner: boolean;
+  /** A linked pull request is in review; heartbeat no longer releases the claim. */
+  hasPullRequest: boolean;
 };
 
 /**
@@ -85,12 +91,14 @@ export async function currentHold(bugId: string, db: Db = prisma): Promise<Issue
       status: true,
       offeredAt: true,
       claimedAt: true,
+      lastHeartbeatAt: true,
       deliverBy: true,
+      waitingOnOwnerSince: true,
       agent: { select: { name: true } },
       beneficiary: { select: { name: true } },
       dispatcher: { select: { name: true } },
       awardedBid: { select: { id: true } },
-      bug: { select: { projectId: true } },
+      bug: { select: { projectId: true, pullRequestUrl: true } },
     },
   });
   if (!claim || (claim.status !== "offered" && claim.status !== "active")) return null;
@@ -99,6 +107,15 @@ export async function currentHold(bugId: string, db: Db = prisma): Promise<Issue
     const { offerWindowSeconds } = await workflowFor(claim.bug.projectId, db);
     if (!isLiveHold(claim, offerWindowSeconds)) return null;
   }
+  const lastHeartbeat = claim.lastHeartbeatAt ?? claim.claimedAt;
+  const { heartbeatMinutes } = await workflowFor(claim.bug.projectId, db);
+  const heartbeatDeadline = lastHeartbeat
+    ? new Date(lastHeartbeat.getTime() + heartbeatMinutes * 60_000)
+    : null;
+  const deadlines = [heartbeatDeadline, claim.deliverBy].filter((date): date is Date => date !== null);
+  const releaseAt = deadlines.length
+    ? new Date(Math.min(...deadlines.map((date) => date.getTime())))
+    : null;
   return {
     id: claim.id,
     agentName: claim.agent.name,
@@ -109,5 +126,8 @@ export async function currentHold(bugId: string, db: Db = prisma): Promise<Issue
     offeredAt: claim.offeredAt,
     claimedAt: claim.claimedAt,
     deliverBy: claim.deliverBy,
+    releaseAt,
+    waitingOnOwner: Boolean(claim.waitingOnOwnerSince),
+    hasPullRequest: Boolean(claim.bug.pullRequestUrl),
   };
 }

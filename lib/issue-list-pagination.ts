@@ -24,7 +24,7 @@ export type IssueListFilterValues = {
   showDuplicates: boolean;
   /** #1058: resolved and closed issues are hidden unless this is set. */
   showResolved: boolean;
-  /** Workspace-wide view: `?project=all`, which widens the list to every project. */
+  /** Organisation-wide view: `?project=all`, which widens the list to every project. */
   allProjects: boolean;
 };
 

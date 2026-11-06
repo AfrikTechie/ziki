@@ -229,7 +229,7 @@ export function IssueConfirmationsPanel({
               {entry.verdict !== "neutral" && !entry.counted ? (
                 <p className="mb-0 mt-1 text-xs text-zk-muted" data-testid="confirmation-not-counted">
                   {entry.undone
-                    ? "Undone by a workspace admin, so it doesn't count."
+                    ? "Undone by an organisation admin, so it doesn't count."
                     : "Doesn't count: given before the latest edit."}
                 </p>
               ) : null}

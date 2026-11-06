@@ -89,7 +89,7 @@ const fail = (status: 403 | 404 | 409 | 422, error: ReconcileError, message: str
 /** Reconcile issue `bugId` (by id) in `scope`. `pullRequestUrl`, when given, must be the linked one. */
 export async function reconcileMergedWork(
   agent: AgentContext,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   bugId: string,
   pullRequestUrl?: string,
 ): Promise<ReconcileResult> {
@@ -101,7 +101,7 @@ export async function reconcileMergedWork(
   }
 
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, tenantId: scope.tenantId, projectId: scope.projectId, isDeleted: false },
+    where: { id: bugId, organisationId: scope.organisationId, projectId: scope.projectId, isDeleted: false },
     select: mergeBugSelect,
   });
   if (!bug) return fail(404, "not_found", "No such issue in this project.");

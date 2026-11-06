@@ -12,7 +12,7 @@ import { pointSourceKey, pointsNumber, type PointAmount, type PointRole } from "
 
 /**
  * Dispute logic (#436). A member says an award is missing or wrong; a
- * workspace admin resolves it. `lib/points/award.ts` and `prisma/**` are
+ * organisation admin resolves it. `lib/points/award.ts` and `prisma/**` are
  * owned by other issues — disputes only call them.
  *
  * A grant reuses the canonical `pointSourceKey`, so granting twice adds one
@@ -22,7 +22,7 @@ import { pointSourceKey, pointsNumber, type PointAmount, type PointRole } from "
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-export const NOT_IN_WORKSPACE = "That issue isn't in this workspace.";
+export const NOT_IN_ORGANISATION = "That issue isn't in this organisation.";
 export const ALREADY_RESOLVED = "That dispute has already been resolved.";
 export const NOT_YOUR_ENTRY = "That points entry isn't yours.";
 export const NOBODY_TO_AWARD = "This issue has nobody to award: it has no assignee.";
@@ -60,7 +60,7 @@ export type DisputeRole = "solver" | "reporter";
 export type DisputableBug = {
   id: string;
   number: number;
-  tenantId: string;
+  organisationId: string;
   reporterId: string;
   assigneeId: string | null;
   projectId?: string | null;
@@ -70,7 +70,7 @@ export type DisputableBug = {
 
 export type DisputeRow = {
   id: string;
-  tenantId: string;
+  organisationId: string;
   userId: string;
   bugId: string;
   pointEntryId: string | null;
@@ -82,13 +82,13 @@ export type GrantResult = { ok: true; awarded: boolean } | { ok: false; error: s
 
 /** The canonical entry for the award a "missing" dispute asks for; null when there is nobody to award. */
 export function missingAwardEntry(
-  bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "reward">,
+  bug: Pick<DisputableBug, "id" | "organisationId" | "reporterId" | "assigneeId" | "reward">,
   role: DisputeRole,
   rewardConfig?: ProjectRewardConfig | null,
 ): PointAward | null {
   if (role === "reporter") {
     return {
-      tenantId: bug.tenantId,
+      organisationId: bug.organisationId,
       userId: bug.reporterId,
       bugId: bug.id,
       role: "reporter",
@@ -98,7 +98,7 @@ export function missingAwardEntry(
   }
   if (!bug.assigneeId) return null;
   return {
-    tenantId: bug.tenantId,
+    organisationId: bug.organisationId,
     userId: bug.assigneeId,
     bugId: bug.id,
     role: "solver",
@@ -112,22 +112,22 @@ export function correctionSourceKey(pointEntryId: string): string {
   return `undo:${pointEntryId}`;
 }
 
-/** Opens a dispute on an issue in the member's workspace. */
+/** Opens a dispute on an issue in the member's organisation. */
 export async function openDispute(
   db: Db,
-  args: { tenantId: string; userId: string; input: DisputeInput },
+  args: { organisationId: string; userId: string; input: DisputeInput },
 ): Promise<DisputeResult> {
-  const { tenantId, userId, input } = args;
+  const { organisationId, userId, input } = args;
 
   const bug = await db.bug.findFirst({
-    where: { number: input.bugNumber, tenantId },
+    where: { number: input.bugNumber, organisationId },
     select: { id: true },
   });
-  if (!bug) return { ok: false, error: NOT_IN_WORKSPACE };
+  if (!bug) return { ok: false, error: NOT_IN_ORGANISATION };
 
   if (input.kind === "wrong") {
     const entry = await db.pointEntry.findFirst({
-      where: { id: input.pointEntryId, userId, tenantId, bugId: bug.id },
+      where: { id: input.pointEntryId, userId, organisationId, bugId: bug.id },
       select: { id: true, correctedAt: true },
     });
     if (!entry) return { ok: false, error: NOT_YOUR_ENTRY };
@@ -142,7 +142,7 @@ export async function openDispute(
 
   const dispute = await db.pointDispute.create({
     data: {
-      tenantId,
+      organisationId,
       userId,
       bugId: bug.id,
       pointEntryId: input.kind === "wrong" ? input.pointEntryId : null,
@@ -165,15 +165,15 @@ export async function grantMissingAward(
   db: Db,
   args: {
     dispute: DisputeRow;
-    bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "projectId">;
+    bug: Pick<DisputableBug, "id" | "organisationId" | "reporterId" | "assigneeId" | "projectId">;
     role: DisputeRole;
     resolvedById: string;
   },
 ): Promise<GrantResult> {
   const { dispute, bug, role, resolvedById } = args;
   if (dispute.status !== "open") return { ok: false, error: ALREADY_RESOLVED };
-  if (bug.id !== dispute.bugId || bug.tenantId !== dispute.tenantId) {
-    return { ok: false, error: NOT_IN_WORKSPACE };
+  if (bug.id !== dispute.bugId || bug.organisationId !== dispute.organisationId) {
+    return { ok: false, error: NOT_IN_ORGANISATION };
   }
 
   const rewardConfig = await getProjectRewardConfig(db, bug.projectId);
@@ -200,7 +200,7 @@ export async function correctEntry(
     dispute: DisputeRow;
     entry: {
       id: string;
-      tenantId: string;
+      organisationId: string;
       userId: string;
       bugId: string | null;
       role: PointRole;
@@ -216,7 +216,7 @@ export async function correctEntry(
   if (!dispute.pointEntryId || dispute.pointEntryId !== entry.id) {
     return { ok: false, error: NO_ENTRY_ON_THIS_DISPUTE };
   }
-  if (entry.tenantId !== dispute.tenantId) return { ok: false, error: NOT_IN_WORKSPACE };
+  if (entry.organisationId !== dispute.organisationId) return { ok: false, error: NOT_IN_ORGANISATION };
   if (entry.correctedAt) return { ok: false, error: ALREADY_CORRECTED };
 
   if (typeof db.pointEntry.findUnique === "function") {
@@ -238,7 +238,7 @@ export async function correctEntry(
     data: { correctedAt: new Date() },
   });
   const awarded = await award(db, {
-    tenantId: entry.tenantId,
+    organisationId: entry.organisationId,
     userId: entry.userId,
     bugId: entry.bugId,
     role: entry.role,
@@ -287,7 +287,7 @@ const disputeSelect = {
   createdAt: true,
   pointEntryId: true,
   requestedRole: true,
-  bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+  bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
   user: { select: { id: true, name: true } },
   pointEntry: { select: { id: true, points: true, role: true } },
 } satisfies Prisma.PointDisputeSelect;
@@ -341,20 +341,20 @@ function toView(row: DisputeRowWithRelations): DisputeView {
 /** One member's disputes, newest first. */
 export async function disputesForMember(
   db: Db,
-  args: { tenantId: string; userId: string },
+  args: { organisationId: string; userId: string },
 ): Promise<DisputeView[]> {
   const rows = await db.pointDispute.findMany({
-    where: { tenantId: args.tenantId, userId: args.userId },
+    where: { organisationId: args.organisationId, userId: args.userId },
     orderBy: { createdAt: "desc" },
     select: disputeSelect,
   });
   return rows.map(toView);
 }
 
-/** The open queue for a workspace, oldest first. */
-export async function openDisputes(db: Db, tenantId: string): Promise<DisputeView[]> {
+/** The open queue for an organisation, oldest first. */
+export async function openDisputes(db: Db, organisationId: string): Promise<DisputeView[]> {
   const rows = await db.pointDispute.findMany({
-    where: { tenantId, status: "open" },
+    where: { organisationId, status: "open" },
     orderBy: { createdAt: "asc" },
     select: disputeSelect,
   });
@@ -364,7 +364,7 @@ export async function openDisputes(db: Db, tenantId: string): Promise<DisputeVie
 /** A member's own ledger rows, newest first — for the "dispute this entry" picker. */
 export async function entriesForMember(
   db: Db,
-  args: { tenantId: string; userId: string },
+  args: { organisationId: string; userId: string },
 ): Promise<
   Array<{
     id: string;
@@ -376,7 +376,7 @@ export async function entriesForMember(
   }>
 > {
   const rows = await db.pointEntry.findMany({
-    where: { tenantId: args.tenantId, userId: args.userId },
+    where: { organisationId: args.organisationId, userId: args.userId },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -435,7 +435,7 @@ type CreditBug = DisputableBug & {
  */
 export async function creditMissingAwards(
   db: Db,
-  args: { tenantId: string; numbers: number[]; role: DisputeRole },
+  args: { organisationId: string; numbers: number[]; role: DisputeRole },
 ): Promise<CreditResult> {
   const numbers = [...new Set(args.numbers)].slice(0, MAX_CREDIT_NUMBERS);
   const credited: number[] = [];
@@ -444,11 +444,11 @@ export async function creditMissingAwards(
   if (numbers.length === 0) return { credited, already, skipped };
 
   const bugs = (await db.bug.findMany({
-    where: { tenantId: args.tenantId, number: { in: numbers } },
+    where: { organisationId: args.organisationId, number: { in: numbers } },
     select: {
       id: true,
       number: true,
-      tenantId: true,
+      organisationId: true,
       reporterId: true,
       assigneeId: true,
       status: true,
@@ -463,7 +463,7 @@ export async function creditMissingAwards(
   for (const number of numbers) {
     const bug = byNumber.get(number);
     if (!bug) {
-      skipped.push({ number, reason: "not in this workspace" });
+      skipped.push({ number, reason: "not in this organisation" });
       continue;
     }
     if (bug.isDeleted) {

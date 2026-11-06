@@ -67,7 +67,7 @@ async function competingClaim(tx: Tx, bugId: string) {
   const current = await tx.issueClaim.findFirst({
     where: { bugId, releasedAt: null },
     orderBy: { createdAt: "desc" },
-    select: { id: true, status: true, offeredAt: true, agentId: true, beneficiaryUserId: true, bug: { select: { tenantId: true, projectId: true } } },
+    select: { id: true, status: true, offeredAt: true, agentId: true, beneficiaryUserId: true, bug: { select: { organisationId: true, projectId: true } } },
   });
   if (!current) return null;
   const { offerWindowSeconds } = await workflowFor(current.bug.projectId, tx);
@@ -88,7 +88,7 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
     let bugId: string;
     if (ref.kind === "number") {
       const resolved = await tx.bug.findFirst({
-        where: { number: ref.number, tenantId: caller.tenantId, projectId, isDeleted: false },
+        where: { number: ref.number, organisationId: caller.organisationId, projectId, isDeleted: false },
         select: { id: true },
       });
       if (!resolved) throw new IssueApiError(404, "Issue not found in this project.");
@@ -98,10 +98,10 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
     }
     // Resolve readable numbers first, then lock and re-read the canonical row
     // inside the same scope before checking readiness or creating a bid.
-    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "tenantId" = ${caller.tenantId} AND "projectId" = ${projectId} AND "isDeleted" = false FOR UPDATE`;
+    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "organisationId" = ${caller.organisationId} AND "projectId" = ${projectId} AND "isDeleted" = false FOR UPDATE`;
     if (!locked.length) throw new IssueApiError(404, "Issue not found in this project.");
     const bug = await tx.bug.findFirst({
-      where: { id: bugId, tenantId: caller.tenantId, projectId, isDeleted: false },
+      where: { id: bugId, organisationId: caller.organisationId, projectId, isDeleted: false },
       select: { id: true, projectId: true, substatus: true, voteCount: true },
     });
     if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
@@ -127,7 +127,7 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
       });
       await tx.bidVote.deleteMany({ where: { bidId: existing.id } });
       await publish(tx, {
-        tenantId: caller.tenantId,
+        organisationId: caller.organisationId,
         type: "issue.bid",
         actorAgentId: caller.agentId,
         bugId,
@@ -152,7 +152,7 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
           data: { bugId, agentId: caller.agentId, beneficiaryUserId: caller.ownerId, ...written },
         });
     await publish(tx, {
-      tenantId: caller.tenantId,
+      organisationId: caller.organisationId,
       type: "issue.bid",
       actorAgentId: caller.agentId,
       bugId,
@@ -285,7 +285,7 @@ export async function listBids(caller: AgentContext, projectId: string, bugId: s
   assertKeyProject(caller, projectId);
   const ref = parseIssueRef(bugId);
   const bug = await prisma.bug.findFirst({
-    where: { ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), tenantId: caller.tenantId, projectId, isDeleted: false },
+    where: { ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), organisationId: caller.organisationId, projectId, isDeleted: false },
     select: { id: true, areaId: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
@@ -296,13 +296,13 @@ export async function listBids(caller: AgentContext, projectId: string, bugId: s
 export async function withdrawBid(caller: AgentContext, projectId: string, issueRef: string) {
   return prisma.$transaction(async (tx) => {
     // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-    const bugId = await issueIdFor(tx, issueRef, caller.tenantId);
+    const bugId = await issueIdFor(tx, issueRef, caller.organisationId);
     if (!bugId) throw new IssueApiError(404, "Bid not found.");
     const bid = await tx.issueBid.findUnique({
       where: { bugId_agentId: { bugId, agentId: caller.agentId } },
-      include: { bug: { select: { tenantId: true, projectId: true, isDeleted: true } } },
+      include: { bug: { select: { organisationId: true, projectId: true, isDeleted: true } } },
     });
-    if (!bid || bid.bug.tenantId !== caller.tenantId || bid.bug.projectId !== projectId || bid.bug.isDeleted) {
+    if (!bid || bid.bug.organisationId !== caller.organisationId || bid.bug.projectId !== projectId || bid.bug.isDeleted) {
       throw new IssueApiError(404, "Bid not found.");
     }
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "isDeleted" = false FOR NO KEY UPDATE`;
@@ -317,7 +317,7 @@ export async function withdrawBid(caller: AgentContext, projectId: string, issue
     });
     if (updated.count !== 1) throw new IssueApiError(409, "This bid was already awarded.");
     await publish(tx, {
-      tenantId: caller.tenantId,
+      organisationId: caller.organisationId,
       type: "issue.bid_withdrawn",
       actorAgentId: caller.agentId,
       bugId,
@@ -353,9 +353,9 @@ export async function awardBid(agent: AgentContext, bidId: string) {
     const result = await prisma.$transaction(async (tx) => {
       const bid = await tx.issueBid.findUnique({
         where: { id: bidId },
-        include: { bug: { select: { id: true, title: true, tenantId: true, projectId: true, isDeleted: true } } },
+        include: { bug: { select: { id: true, title: true, organisationId: true, projectId: true, isDeleted: true } } },
       });
-      if (!bid || bid.bug.isDeleted || bid.bug.tenantId !== agent.tenantId) throw new IssueApiError(404, "Bid not found.");
+      if (!bid || bid.bug.isDeleted || bid.bug.organisationId !== agent.organisationId) throw new IssueApiError(404, "Bid not found.");
       assertKeyProject(agent, bid.bug.projectId);
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bid.bugId} AND "isDeleted" = false FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Bid not found.");
@@ -395,10 +395,13 @@ export async function awardInTransaction(
     where: { id: bidId },
     include: {
       beneficiary: { select: { name: true } },
-      bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, voteCount: true, assignee: { select: { name: true } } } },
+      agent: { select: { pausedAt: true } },
+      bug: { select: { id: true, title: true, substatus: true, assigneeId: true, organisationId: true, projectId: true, reporterId: true, voteCount: true, assignee: { select: { name: true } } } },
     },
   });
   if (!fresh || fresh.withdrawnAt || fresh.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
+  const agents = await tx.$queryRaw<{ pausedAt: Date | null }[]>`SELECT "pausedAt" FROM "Agent" WHERE "id" = ${fresh.agentId} FOR UPDATE`;
+  if (agents[0]?.pausedAt || fresh.agent.pausedAt) throw new IssueApiError(409, "This agent is paused by its owner.");
   // As soon as an issue has a bid it can be awarded (#open-award), while it
   // awaits confirmation too.
   if (fresh.bug.substatus !== "open" && fresh.bug.substatus !== "requires_confirmation") {
@@ -416,7 +419,7 @@ export async function awardInTransaction(
   // both slip under the limit.
   const workflow = await workflowFor(fresh.bug.projectId, tx);
   await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${fresh.beneficiaryUserId} FOR UPDATE`;
-  await assertUnderCapacity(tx, { tenantId: fresh.bug.tenantId, projectId: fresh.bug.projectId, userId: fresh.beneficiaryUserId }, workflow);
+  await assertUnderCapacity(tx, { organisationId: fresh.bug.organisationId, projectId: fresh.bug.projectId, userId: fresh.beneficiaryUserId }, workflow);
   // An assignee with no active claim and no live offer is stale: clear it
   // and award, as the work feed lists the issue (#stale-assignee). One that
   // still holds the issue keeps it. Clearing happens only when nothing holds
@@ -439,7 +442,7 @@ export async function awardInTransaction(
       data: { status: "released", releasedAt: now, releaseReason: "expired" },
     });
     await publish(tx, {
-      tenantId: competing.expired.bug.tenantId,
+      organisationId: competing.expired.bug.organisationId,
       type: "claim.released",
       actorAgentId: competing.expired.agentId,
       bugId: fresh.bugId,
@@ -467,7 +470,7 @@ export async function awardInTransaction(
   });
   if (marked.count !== 1) throw new IssueApiError(409, "This bid is no longer open.");
   await publish(tx, {
-    tenantId: fresh.bug.tenantId,
+    organisationId: fresh.bug.organisationId,
     type: "claim.offered",
     actorAgentId: fresh.agentId,
     bugId: fresh.bugId,
@@ -481,7 +484,7 @@ export async function awardInTransaction(
     },
   });
   await publish(tx, {
-    tenantId: fresh.bug.tenantId,
+    organisationId: fresh.bug.organisationId,
     type: "issue.bid_awarded",
     actorAgentId: fresh.agentId,
     bugId: fresh.bugId,

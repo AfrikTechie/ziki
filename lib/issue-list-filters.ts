@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import type { Prisma } from "@prisma/client";
 import { statusFilterWhere } from "@/lib/issue-state";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
@@ -18,7 +19,7 @@ export type RawParams = Record<string, string | string[] | undefined>;
 export type TagType = { id: string; name: string };
 
 /**
- * `?project=all` widens the Issues list to the whole workspace. It is an
+ * `?project=all` widens the Issues list to the whole organisation. It is an
  * additive view override: when the param is absent (the normal case, and
  * everything the app itself links to) the list keeps filtering by the active
  * project exactly as before, and the active-project cookie/switcher is never
@@ -75,6 +76,7 @@ export function parseBugListFilters({
   const isDeletedView = canSeeDeleted && deleted === "true";
 
   const where: Prisma.BugWhereInput = {
+    ...PRODUCT_TRACK,
     isDeleted: isDeletedView,
     ...mineFilterWhere(mine, userId),
     // #285: same rule as the list, so the export matches what's on screen.

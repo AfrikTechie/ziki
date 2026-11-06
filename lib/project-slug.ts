@@ -19,9 +19,10 @@ export const RESERVED_PROJECT_SLUGS: ReadonlySet<string> = new Set([
   "fonts",
   "for-agents",
   "how-it-works",
+  // A business's own link from an earner's email (#earn-outreach): /r/<code>.
+  "r",
   "session-expired",
   // app/(app)/
-  "activity",
   "superadmin",
   "agent",
   "agents",
@@ -52,7 +53,7 @@ export const RESERVED_PROJECT_SLUGS: ReadonlySet<string> = new Set([
   "security",
   "settings",
   "team",
-  "tenants",
+  "organisations",
   "users",
   "workers",
   // app/(auth)/

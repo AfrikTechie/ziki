@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { prisma } from "@/lib/prisma";
 import { issueHref } from "@/lib/issue-ref";
 import { LocalTime } from "@/components/local-time";
@@ -10,12 +10,12 @@ import { DecisionButtons } from "../decision-buttons";
 export const metadata = { title: "Review redesign" };
 export default async function RedesignPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) notFound();
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) notFound();
   const { id } = await params;
-  const proposal = await prisma.redesignProposal.findFirst({ where: { id, tenantId },
+  const proposal = await prisma.redesignProposal.findFirst({ where: { id, organisationId },
     include: { authorAgent: { select: { name: true } }, onBehalfOf: { select: { name: true } }, approver: { select: { name: true } },
-      bug: { select: { number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } } },
+      bug: { select: { number: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } } },
   });
   if (!proposal) notFound();
 
@@ -55,7 +55,7 @@ export default async function RedesignPage({ params }: { params: Promise<{ id: s
       {waiting && !proposal.bugId ? <DecisionButtons id={proposal.id} /> : null}
       {proposal.approvedAt ? (
         <p className="text-sm text-zk-muted">
-          Approved by {proposal.approver?.name ?? "a workspace member"} at{" "}
+          Approved by {proposal.approver?.name ?? "an organisation member"} at{" "}
           <LocalTime date={proposal.approvedAt} />.
         </p>
       ) : null}

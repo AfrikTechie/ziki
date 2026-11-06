@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { settableLevels } from "@/lib/agents/levels";
 import { prisma } from "@/lib/prisma";
-import { MEMBERSHIP_ROLE_LABELS, tenantMembersFrom } from "@/lib/tenants";
+import { MEMBERSHIP_ROLE_LABELS, organisationMembersFrom } from "@/lib/organisations";
 import { loadOrg } from "../org-context";
 import { OrgPageHeader, ReadOnlyNote } from "../org-ui";
 import { MemberList, type OrgMember } from "./member-list";
@@ -12,12 +12,12 @@ const MEMBER_LIMIT = 1000;
 
 /**
  * Memberships and users are loaded apart so a membership whose user row is
- * gone is skipped rather than failing the page (see tenantMembersFrom).
+ * gone is skipped rather than failing the page (see organisationMembersFrom).
  */
-async function loadMembers(tenantId: string): Promise<OrgMember[]> {
+async function loadMembers(organisationId: string): Promise<OrgMember[]> {
   try {
     const rows = await prisma.membership.findMany({
-      where: { tenantId },
+      where: { organisationId },
       orderBy: [{ role: "asc" }, { createdAt: "asc" }],
       take: MEMBER_LIMIT,
       select: { role: true, createdAt: true, userId: true },
@@ -30,7 +30,7 @@ async function loadMembers(tenantId: string): Promise<OrgMember[]> {
         select: { id: true, name: true, email: true, image: true, role: true },
       }),
       prisma.agent.findMany({
-        where: { tenantId, ownerUserId: { in: userIds }, revokedAt: null },
+        where: { organisationId, ownerUserId: { in: userIds }, revokedAt: null },
         orderBy: [{ name: "asc" }, { id: "asc" }],
         select: { id: true, name: true, level: true, ownerUserId: true },
       }),
@@ -41,7 +41,7 @@ async function loadMembers(tenantId: string): Promise<OrgMember[]> {
       list.push({ id: agent.id, name: agent.name, level: agent.level });
       agentsByOwner.set(agent.ownerUserId, list);
     }
-    return tenantMembersFrom(rows, people).map((member) => ({
+    return organisationMembersFrom(rows, people).map((member) => ({
       id: member.user.id,
       name: member.user.name,
       email: member.user.email,
@@ -58,7 +58,7 @@ async function loadMembers(tenantId: string): Promise<OrgMember[]> {
   }
 }
 
-/** Who is in the organization, their roles and agents, and leaving it. */
+/** Who is in the organisation, their roles and agents, and leaving it. */
 export default async function OrgMembersPage() {
   const { user, org } = await loadOrg();
   if (!org) return null;
@@ -75,19 +75,19 @@ export default async function OrgMembersPage() {
       </OrgPageHeader>
       {org.admin ? null : (
         <ReadOnlyNote>
-          You can see who is here and leave the organization. Only owners and admins can change
+          You can see who is here and leave the organisation. Only owners and admins can change
           roles or remove people.
         </ReadOnlyNote>
       )}
       <MemberList
-        tenantId={org.id}
-        tenantName={org.name}
+        organisationId={org.id}
+        organisationName={org.name}
         viewerId={user.id}
         members={members}
         ownerCount={ownerCount}
         canChangeRoles={org.owner}
         canRemove={org.admin}
-        agentLevels={org.admin ? settableLevels({ isOwner: false, isTenantAdmin: true }) : []}
+        agentLevels={org.admin ? settableLevels({ isOwner: false, isAdminOfOrganisation: true }) : []}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-/* Ranking: the agent panel under a member, the activity note and the no-workspace state. */
+/* Ranking: the agent panel under a member, the activity note and the no-organisation state. */
 .team-activity-note { color: var(--zk-text2); font-size: 12px; line-height: 20px; }
 .team-activity-note summary { width: fit-content; min-height: 32px; cursor: pointer; color: var(--zk-accent); }
 .team-activity-note p { margin-top: 8px; }

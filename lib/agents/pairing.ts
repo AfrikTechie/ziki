@@ -3,7 +3,7 @@ import type { AgentLevel, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
 import { generateApiKey, generateDeviceCode, generateUserCode, hashSecret, normalizeUserCode } from "@/lib/agents/keys";
-import { tenantForOwner } from "@/lib/agents/membership";
+import { organisationForOwner } from "@/lib/agents/membership";
 import { DEFAULT_AGENT_LEVEL, SELF_REGISTRATION_LEVELS, normalizeAgentLevel } from "@/lib/agents/levels";
 import { agentModelSchema, agentNameSchema, insertAgentWithKey, type Actor, type IssuedKey } from "@/lib/agents/registry";
 import { AGENT_LIMIT_MESSAGE, MAX_ACTIVE_AGENTS_PER_OWNER } from "@/lib/agents/registry-limits";
@@ -27,7 +27,7 @@ export const PAIRING_TTL_MS = 15 * 60 * 1000;
 export const PAIRING_POLL_INTERVAL = 5;
 /**
  * An agent may only ask to be a working agent (#425); manager and merger are a
- * tenant admin's grant. Old role names are still accepted and mapped, so an
+ * organisation admin's grant. Old role names are still accepted and mapped, so an
  * agent sending `level: "contributor"` keeps pairing.
  */
 function parseRequestedLevel(level: unknown): { ok: true; level: AgentLevel } | { ok: false; error: string } {
@@ -38,7 +38,7 @@ function parseRequestedLevel(level: unknown): { ok: true; level: AgentLevel } | 
     return { ok: false, error: `Unknown level. Send one of: ${SELF_REGISTRATION_LEVELS.join(", ")}.` };
   }
   if (!(SELF_REGISTRATION_LEVELS as readonly string[]).includes(normalized)) {
-    return { ok: false, error: "Agents cannot register as manager or merger agents. A tenant admin grants these classes later." };
+    return { ok: false, error: "Agents cannot register as manager or merger agents. A organisation admin grants these classes later." };
   }
   return { ok: true, level: normalized };
 }
@@ -120,28 +120,28 @@ export async function findPendingPairing(userCode: string, now = new Date()): Pr
 export type ApprovePairingResult = { ok: true; name: string } | { ok: false; error: string };
 
 const CODE_NOT_FOUND = "That code doesn't match a waiting agent. It may have expired; ask the agent for a new one.";
-const PROJECT_REQUIRED = "Choose a project in this workspace.";
-const NO_TENANT = "Join or create a team before you register agents.";
+const PROJECT_REQUIRED = "Choose a project in this organisation.";
+const NO_ORGANISATION = "Join or create a team before you register agents.";
 
 /**
- * The organization this approval joins. A passed id must be one the person
+ * The organisation this approval joins. A passed id must be one the person
  * belongs to. Omit it and the oldest membership, preferring Zedu, is used.
  */
-async function tenantForApproval(userId: string, tenantId?: string | null): Promise<string | null> {
-  if (tenantId) {
+async function organisationForApproval(userId: string, organisationId?: string | null): Promise<string | null> {
+  if (organisationId) {
     const member = await prisma.membership.findUnique({
-      where: { tenantId_userId: { tenantId, userId } },
-      select: { tenantId: true },
+      where: { organisationId_userId: { organisationId, userId } },
+      select: { organisationId: true },
     });
-    return member?.tenantId ?? null;
+    return member?.organisationId ?? null;
   }
-  if (tenantId === null) return null;
-  return (await tenantForOwner(userId))?.tenantId ?? null;
+  if (organisationId === null) return null;
+  return (await organisationForOwner(userId))?.organisationId ?? null;
 }
 
 /**
  * The signed-in owner approves. Single use: the first approval wins.
- * `tenantId` is the organization they are in now. `instructions` is the
+ * `organisationId` is the organisation they are in now. `instructions` is the
  * standing brief the owner approved on the form (#431): the agent's proposal,
  * edited or cleared. Left out, the agent starts with none.
  */
@@ -150,7 +150,7 @@ export async function approvePairing(
   userCode: string,
   now = new Date(),
   projectId = "",
-  tenantId?: string | null,
+  organisationId?: string | null,
   instructions?: unknown,
 ): Promise<ApprovePairingResult> {
   const code = normalizeUserCode(userCode);
@@ -158,13 +158,13 @@ export async function approvePairing(
   // Checked before the pairing is claimed, so too-long text doesn't burn the code.
   const approvedInstructions = parseInstructions(instructions);
   if (!approvedInstructions.ok) return { ok: false, error: approvedInstructions.error };
-  const tenant = await tenantForApproval(owner.id, tenantId);
-  if (!tenant) return { ok: false, error: NO_TENANT };
+  const organisation = await organisationForApproval(owner.id, organisationId);
+  if (!organisation) return { ok: false, error: NO_ORGANISATION };
 
   // Checked before the pairing is claimed, so a bad project doesn't burn the code (#742).
   const project = projectId
     ? await prisma.project.findFirst({
-        where: { id: projectId, tenantId: tenant },
+        where: { id: projectId, organisationId: organisation },
         select: { id: true },
       })
     : null;
@@ -175,12 +175,12 @@ export async function approvePairing(
     // Checked before the pairing is claimed, so hitting the cap does not burn
     // the code the person already typed (#511).
     const active = await tx.agent.count({
-      where: { tenantId: tenant, ownerUserId: owner.id, revokedAt: null },
+      where: { organisationId: organisation, ownerUserId: owner.id, revokedAt: null },
     });
     if (active >= MAX_ACTIVE_AGENTS_PER_OWNER) return { ok: false, error: AGENT_LIMIT_MESSAGE } as const;
     const approved = await tx.agentPairing.updateMany({
       where: { codeHash, approvedAt: null, ownerUserId: null, expiresAt: { gt: now }, OR: [{ proposedLevel: null }, { proposedLevel: { in: [...SELF_REGISTRATION_LEVELS] } }] },
-      data: { ownerUserId: owner.id, tenantId: tenant, projectId: project.id, approvedAt: now },
+      data: { ownerUserId: owner.id, organisationId: organisation, projectId: project.id, approvedAt: now },
     });
     if (approved.count !== 1) return { ok: false, error: CODE_NOT_FOUND } as const;
     const pairing = await tx.agentPairing.findUnique({
@@ -195,7 +195,7 @@ export async function approvePairing(
       proposedLevel: pairing.proposedLevel,
       instructions: approvedInstructions.instructions,
       ownerUserId: owner.id,
-      tenantId: tenant,
+      organisationId: organisation,
     });
     return { ok: true, name: pairing.proposedName } as const;
   });
@@ -210,13 +210,13 @@ export async function approvePairing(
  * Those rows never appeared under Your agents when the poll failed. Create them
  * on the next visit so the list matches the approval.
  */
-export async function materializeApprovedPairings(ownerUserId: string, tenantId: string): Promise<void> {
+export async function materializeApprovedPairings(ownerUserId: string, organisationId: string): Promise<void> {
   const waiting = await prisma.agentPairing.findMany({
-    where: { ownerUserId, tenantId, approvedAt: { not: null }, agentId: null, consumedAt: null },
-    select: { id: true, proposedName: true, proposedModel: true, proposedLevel: true, ownerUserId: true, tenantId: true },
+    where: { ownerUserId, organisationId, approvedAt: { not: null }, agentId: null, consumedAt: null },
+    select: { id: true, proposedName: true, proposedModel: true, proposedLevel: true, ownerUserId: true, organisationId: true },
   });
   for (const pairing of waiting) {
-    if (!pairing.ownerUserId || !pairing.tenantId) continue;
+    if (!pairing.ownerUserId || !pairing.organisationId) continue;
     try {
       await prisma.$transaction((tx) => attachApprovedAgent(tx, {
         id: pairing.id,
@@ -224,7 +224,7 @@ export async function materializeApprovedPairings(ownerUserId: string, tenantId:
         proposedModel: pairing.proposedModel,
         proposedLevel: pairing.proposedLevel,
         ownerUserId: pairing.ownerUserId!,
-        tenantId: pairing.tenantId!,
+        organisationId: pairing.organisationId!,
       }));
     } catch (error) {
       logger.error("[pairing] could not record approved agent", error);
@@ -245,18 +245,18 @@ async function attachApprovedAgent(
     /** The brief the owner approved (#431); never the agent's unreviewed proposal. */
     instructions?: string | null;
     ownerUserId: string;
-    tenantId: string;
+    organisationId: string;
   },
 ): Promise<string> {
   const requested = parseRequestedLevel(pairing.proposedLevel);
   if (!requested.ok) throw new Error(requested.error);
   const created = await tx.agent.create({
     data: {
-      tenantId: pairing.tenantId,
+      organisationId: pairing.organisationId,
       ownerUserId: pairing.ownerUserId,
       name: pairing.proposedName,
       // #agent-profile: its @username starts as its name; it can change it.
-      username: await freeUsername(tx, pairing.tenantId, pairing.proposedName),
+      username: await freeUsername(tx, pairing.organisationId, pairing.proposedName),
       model: pairing.proposedModel,
       level: pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL,
       ...(pairing.instructions ? { instructions: pairing.instructions } : {}),
@@ -274,7 +274,7 @@ async function attachApprovedAgent(
     throw new Error("Could not record the approved agent.");
   }
   await audit(
-    { agentId: created.id, tenantId: pairing.tenantId },
+    { agentId: created.id, organisationId: pairing.organisationId },
     "agent.created",
     `agent:${created.id}`,
     {
@@ -313,7 +313,7 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
       approvedAt: true,
       consumedAt: true,
       ownerUserId: true,
-      tenantId: true,
+      organisationId: true,
       projectId: true,
       agentId: true,
     },
@@ -321,17 +321,17 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
   if (!pairing) return { status: "invalid" };
   if (pairing.consumedAt) return { status: "used" };
   if (!pairing.agentId && !parseRequestedLevel(pairing.proposedLevel).ok) return { status: "invalid" };
-  if (!pairing.approvedAt || !pairing.ownerUserId || !pairing.tenantId) {
+  if (!pairing.approvedAt || !pairing.ownerUserId || !pairing.organisationId) {
     return pairing.expiresAt <= now ? { status: "expired" } : { status: "pending" };
   }
   // Approved in time: collecting may finish after the code's expiry, but
   // not long after, so an approved code isn't usable forever.
   if (pairing.expiresAt.getTime() + PAIRING_TTL_MS <= now.getTime()) return { status: "expired" };
 
-  const { ownerUserId, tenantId, agentId } = pairing;
+  const { ownerUserId, organisationId, agentId } = pairing;
   // Resolved before the code is consumed, so a missing project doesn't burn it.
-  // Older approvals have no project; those keys use the tenant's oldest project.
-  const projectId = await projectForIssuedKey(tenantId, pairing.projectId);
+  // Older approvals have no project; those keys use the organisation's oldest project.
+  const projectId = await projectForIssuedKey(organisationId, pairing.projectId);
   if (!projectId) return { status: "invalid" };
 
   return prisma.$transaction(async (tx) => {
@@ -356,7 +356,7 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
       } as const;
     }
     const key = await insertAgentWithKey(tx, {
-      tenantId,
+      organisationId,
       ownerUserId,
       name: pairing.proposedName,
       model: pairing.proposedModel,
@@ -365,7 +365,7 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
     });
     await tx.agentPairing.update({ where: { id: pairing.id }, data: { agentId: key.agentId } });
     await audit(
-      { agentId: key.agentId, tenantId },
+      { agentId: key.agentId, organisationId },
       "agent.created",
       `agent:${key.agentId}`,
       { name: key.name, model: pairing.proposedModel, level: pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL, projectId, via: "pairing" },
@@ -376,16 +376,16 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
 }
 
 /** The project a collected key is limited to. A missing id falls back to the oldest project. */
-async function projectForIssuedKey(tenantId: string, projectId: string | null): Promise<string | null> {
+async function projectForIssuedKey(organisationId: string, projectId: string | null): Promise<string | null> {
   if (projectId) {
     const chosen = await prisma.project.findFirst({
-      where: { id: projectId, tenantId },
+      where: { id: projectId, organisationId },
       select: { id: true },
     });
     return chosen?.id ?? null;
   }
   const oldest = await prisma.project.findFirst({
-    where: { tenantId },
+    where: { organisationId },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });

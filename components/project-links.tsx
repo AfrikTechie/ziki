@@ -32,13 +32,40 @@ function snooze(slug: string): void {
 const input =
   "h-9 w-full rounded-md border border-zk-border bg-zk-surface px-3 text-[13px] text-zk-text placeholder:text-zk-muted focus:border-electric-blue-strong focus:outline-none";
 
-/** A gear: the project's settings. */
+/** A gear: the project's settings (ProjectIconLinks). */
 function SettingsIcon({ size }: { size: number }) {
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
     </svg>
+  );
+}
+
+/** A chain link: the project's site and code addresses. */
+function LinksIcon({ size }: { size: number }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+const ICON_BUTTON =
+  "relative inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zk-border bg-zk-surface text-zk-text2 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue";
+
+/** Beside the stage tabs, at the top right: Project notes and the project's settings, as icons only. */
+export function ProjectIconLinks({ notesHref, settingsHref }: { notesHref: string; settingsHref: string }) {
+  return (
+    <>
+      <Link href={notesHref} aria-label="Project notes" title="Project notes" className={ICON_BUTTON}>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="3" width="15" height="18" rx="2" /><path d="M9 3v18M3 7h4M3 12h4M3 17h4M12 8h5M12 12h5" /></svg>
+      </Link>
+      <Link href={settingsHref} aria-label="Project settings" title="Project settings" className={ICON_BUTTON}>
+        <SettingsIcon size={17} />
+      </Link>
+    </>
   );
 }
 
@@ -65,18 +92,12 @@ export function ProjectLinks({
   siteUrl,
   repoUrl,
   canEdit,
-  notesHref,
-  settingsHref,
   askOnLoad,
 }: {
   slug: string;
   siteUrl: string | null;
   repoUrl: string | null;
   canEdit: boolean;
-  /** Project notes: shown in the panel once the site URL is set (the notes icon leaves the top row then). */
-  notesHref: string;
-  /** The project's full settings page. */
-  settingsHref: string;
   /** Whether the panel asks for a missing site by itself here: only on the Ideas tab. Elsewhere only the icon opens it. */
   askOnLoad: boolean;
 }) {
@@ -273,26 +294,15 @@ export function ProjectLinks({
           ) : null}
         </form>
       ) : (
-        <p className="mt-2 text-[12.5px] text-zk-muted">A workspace owner or admin can add these.</p>
+        <p className="mt-2 text-[12.5px] text-zk-muted">An organisation owner or admin can add these.</p>
       )}
 
-      {/* Project notes and the full settings page, in both views (the notes icon left the top row). */}
-      <div className="mt-3 flex w-full flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-zk-border pt-3 text-[13px]">
-        <Link href={notesHref} className="inline-flex items-center gap-1.5 font-medium text-zk-text hover:text-zk-accent hover:underline">
-          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="3" width="15" height="18" rx="2" /><path d="M9 3v18M3 7h4M3 12h4M3 17h4M12 8h5M12 12h5" /></svg>
-          Project notes
-        </Link>
-        <Link href={settingsHref} className="inline-flex items-center gap-1.5 font-medium text-zk-text hover:text-zk-accent hover:underline">
-          <SettingsIcon size={15} />
-          All project settings
-        </Link>
-      </div>
     </section>
   ) : null;
 
   return (
     <>
-      {/* The settings icon at the far right of the top row; the panel flies here. */}
+      {/* The addresses icon at the top right; the panel flies here. */}
       <span ref={anchorRef} className="inline-flex">
         {showIcon ? (
           <button
@@ -302,13 +312,13 @@ export function ProjectLinks({
               setEditing(!hasSite);
             }}
             aria-expanded={open}
-            aria-label={hasSite ? "Project settings" : "Project settings: add your site URL"}
-            title={hasSite ? "Project settings" : "Project settings: add your site URL"}
+            aria-label={hasSite ? "Site and code addresses" : "Add your site URL"}
+            title={hasSite ? "Site and code addresses" : "Add your site URL"}
             className={`relative inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zk-border bg-zk-surface text-zk-text2 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue ${
               arrived ? "motion-safe:animate-[zk-links-arrive_0.9s_ease-out]" : ""
             }`}
           >
-            <SettingsIcon size={17} />
+            <LinksIcon size={16} />
             {/* Still unset: a small dot says something is missing. */}
             {!hasSite ? <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-amber-500" /> : null}
           </button>

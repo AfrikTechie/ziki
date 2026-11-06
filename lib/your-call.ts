@@ -91,7 +91,7 @@ export function urgencyOf(s: UrgencySignals, y: ProjectYardsticks, now = Date.no
 
 const OPEN_WORK = ["open", "in_progress", "done", "merge"] as const;
 
-/** Who is looking: the person, and whether they are an admin of the workspace (admins answer for any issue in it). */
+/** Who is looking: the person, and whether they are an admin of the organisation (admins answer for any issue in it). */
 export type YourCallViewer = { userId: string; isAdmin: boolean };
 
 /** The answer written in a decision comment, read back from the words it was posted with. */
@@ -105,7 +105,7 @@ export function answerFrom(kind: "confirm" | "merge", body: string): YourCallAns
 
 /**
  * The issues in the project that the viewer has to settle: the ones they filed,
- * or any in the workspace when they are an admin. For each, what the agents
+ * or any in the organisation when they are an admin. For each, what the agents
  * said and, when the person already answered, that answer (the issue stays
  * listed until the agents act on it, since the answer is a comment and does not
  * change a vote).
@@ -121,7 +121,7 @@ export async function loadYourCall(projectId: string, viewer: YourCallViewer): P
         id: true, number: true, title: true, summary: true, substatus: true, pullRequestUrl: true, pullRequestHeadSha: true, updatedAt: true,
         voteCount: true, isBoosted: true, reporterId: true, beneficiaryUserId: true,
         milestone: { select: { title: true, dueDate: true } },
-        project: { select: { slug: true, tenant: { select: { slug: true } } } },
+        project: { select: { slug: true, organisation: { select: { slug: true } } } },
         // The people who delivered the fix: their own agents' judgements never count.
         deliveries: { select: { beneficiaryUserId: true, pullRequestUrl: true } },
         // A person's answer given here, by the one who may give it. Their words end up as a comment, and nothing else marks it.

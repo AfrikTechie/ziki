@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { IdeasWelcome } from "@/components/ideas-welcome";
 import { IdeaChat } from "@/components/idea-chat";
 import { LocalTime } from "@/components/local-time";
@@ -21,16 +22,16 @@ import { StatusFilterChips } from "@/components/status-filter-chips";
 import { ToolbarFilterMenu, type ToolbarFilterGroup, type ToolbarFilterOption } from "@/components/toolbar-filter-menu";
 import { IdeasMoreFilters } from "@/components/ideas-more-filters";
 import { IDEA_AUTHOR_PARAM, parseIdeaAuthorFilter } from "@/lib/idea-filters";
-import { MY_WORK_PARAM, myWorkWhere, parseMyWorkFilter, yourWorkWhere } from "@/lib/my-work-filter";
+import { MY_WORK_PARAM, TRACK_PARAM, myWorkWhere, parseMyWorkFilter, parseTrackFilter, trackWhere, yourWorkWhere } from "@/lib/my-work-filter";
 import { WORK_TAG_TONE, whatsNext } from "@/lib/whats-next";
 import { IDEA_SORT_COOKIE, ISSUE_SORT_COOKIE, getIdeaOrderBy, parseIdeaSort } from "@/lib/list-sort";
 import { SortHeader } from "@/components/sort-header";
-import { PROJECT_LINKS_SLOT_ID, ProjectLinks } from "@/components/project-links";
+import { PROJECT_LINKS_SLOT_ID, ProjectIconLinks, ProjectLinks } from "@/components/project-links";
 import { AgentSetupNotice, type UnconfiguredAgent } from "@/components/agent-setup-notice";
-import { WorkspaceNextStepCard } from "@/components/workspace-next-step-card";
-import { NEXT_STEP_COOKIE, workspaceNextStep, type WorkspaceNextStep } from "@/lib/workspace-next-step";
+import { OrganisationNextStepCard } from "@/components/organisation-next-step-card";
+import { NEXT_STEP_COOKIE, organisationNextStep, type OrganisationNextStep } from "@/lib/organisation-next-step";
 import { missingProfileFields } from "@/lib/agents/work-gate";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import type { AppRole } from "@/lib/roles";
 import { IssueFilters } from "@/components/issue-filters";
 import { RowAge, RowAssignee } from "@/components/issue-row-meta";
@@ -74,20 +75,19 @@ import {
   parseBugSort,
 } from "@/lib/issues-sort";
 import { canDeleteTicket } from "@/lib/ticket-deletion";
-import { currentTenantAccess } from "@/lib/tenant-access";
-import type { OrganizationRole } from "@/lib/organization-role";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
+import type { OrganisationRole } from "@/lib/organisation-role";
 import { defaultSortFor, mineFilterWhere, parseMineFilter } from "@/lib/mine-filter";
 import { finishedWatchedWhere } from "@/lib/watching";
 import { UnwatchButton, UnwatchFinishedButton } from "@/components/unwatch-button";
 import { parseTagFilter, serializeTags, tagTypeIds } from "@/lib/tag-filter";
-import { bugInTenant, isMissingTenantColumnError } from "@/lib/tenant-context";
+import { bugInOrganisation, isMissingOrganisationColumnError } from "@/lib/organisation-context";
 import { requireProject } from "@/lib/project-route";
 import { ideasPath, issuesPath, orgPath, projectPath, type ProjectRef } from "@/lib/project-paths";
 import { RichText } from "@/components/rich-text";
-import { isOrganizationAdmin } from "@/lib/organization-role";
+import { isOrganisationAdmin } from "@/lib/organisation-role";
 import { cookies } from "next/headers";
-import { GettingStarted } from "@/components/getting-started";
-import { GETTING_STARTED_COOKIE, gettingStartedFor, parseDismissed, type GettingStartedStep } from "@/lib/onboarding";
+import { parseDismissed } from "@/lib/onboarding";
 import { liveCheck, liveConfirmLabel, liveFactLabel, type LiveCheck, type LiveFact } from "@/lib/live-check";
 import { latestPullRequestReports } from "@/lib/agent-api/pull-request-report";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
@@ -108,6 +108,7 @@ import { ConfirmDots } from "@/components/confirm-dots";
 import { ExpandableRow, RowToggle } from "@/components/expandable-row";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
+import { bugSearchSort, ideaSearchSort, searchWorkItems, typesenseFilter } from "@/lib/search-index";
 import { EARN_PROJECT_SLUG, EARN_TASKS, tasksPaid } from "@/lib/earn/draft";
 import { isEarner } from "@/lib/earn/earner";
 import { earnState } from "@/lib/earn/state";
@@ -245,37 +246,18 @@ export async function IssuesList({
   status: string;
   /** `drafts` on `/<slug>/ideas/drafts`. */
   ideas?: string;
-  /** This page's address, to come back to after switching workspace. */
+  /** This page's address, to come back to after switching organisation. */
   returnTo: string;
   searchParams: SearchParams;
 }) {
-  const { user, tenantId, project } = await requireProject(org, slug);
+  const { user, organisationId, project } = await requireProject(org, slug);
   const ref = project.ref;
   const userId: string | undefined = user.id;
   const effectiveRole: AppRole | null | undefined = user.role;
-  const membershipRole: OrganizationRole | null = (await currentTenantAccess(user.id, user.role)).membershipRole;
-  // #425: only this project's issues, in its workspace.
+  const membershipRole: OrganisationRole | null = (await currentOrganisationAccess(user.id, user.role)).membershipRole;
+  // #425: only this project's issues, in its organisation.
   const projectId: string | null = project.id;
   const activeProject = project;
-
-  // #641: a short checklist for a new workspace's owner or admin, until it's
-  // done or dismissed on this device.
-  let gettingStarted: { tenantId: string; workspaceName: string; steps: GettingStartedStep[] } | null = null;
-  if (tenantId && userId && membershipRole && isOrganizationAdmin(membershipRole, effectiveRole)) {
-    try {
-      const dismissed = parseDismissed((await cookies()).get(GETTING_STARTED_COOKIE)?.value);
-      // Earn (#earn-drafts): someone who came to earn never sees the new-workspace checklist.
-      if (!dismissed.includes(tenantId) && slug !== EARN_PROJECT_SLUG) {
-        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
-        if (tenant) {
-          const checklist = await gettingStartedFor(prisma, tenantId, ref);
-          if (!checklist.complete) gettingStarted = { tenantId, workspaceName: tenant.name, steps: checklist.steps };
-        }
-      }
-    } catch (error) {
-      console.error("[bugs] getting-started checklist failed", error);
-    }
-  }
 
   const canDelete = canDeleteTicket(effectiveRole, membershipRole);
   const params: Awaited<SearchParams> = { ...(await searchParams), status, ...(ideas ? { [IDEAS_PARAM]: ideas } : {}) };
@@ -298,8 +280,11 @@ export async function IssuesList({
   const deletedParam = toSingleQueryParam(params.deleted);
   const mineFilter = parseMineFilter(params.mine);
   const ideaAuthor = parseIdeaAuthorFilter(params[IDEA_AUTHOR_PARAM]);
+  const trackFilter = parseTrackFilter(params[TRACK_PARAM]);
+  // Search follows the same track as the list; "all" names none, so both come back.
+  const trackSearch = trackFilter === "all" ? {} : { track: trackFilter };
   const isDeletedView = canDelete && deletedParam === "true";
-  // Workspace-wide view (`?all=1`). Absent → unchanged project scope.
+  // Organisation-wide view (`?all=1`). Absent → unchanged project scope.
   const allProjects = showsAllProjects(params[PROJECT_ALL_PARAM]);
 
   // Column sort (#column-sort): the address wins, then the sort remembered in this list's cookie.
@@ -310,8 +295,9 @@ export async function IssuesList({
   // #285: duplicates are hidden unless asked for, and the count says so.
   const showDuplicates = parseShowDuplicates(params[DUPLICATES_PARAM]);
   const where: Prisma.BugWhereInput = {
-    ...bugInTenant(tenantId),
+    ...bugInOrganisation(organisationId),
     ...(projectId && !allProjects ? { projectId } : {}),
+    ...trackWhere(trackFilter),
     isDeleted: isDeletedView,
     ...mineFilterWhere(mineFilter, userId),
     ...duplicatesWhere(showDuplicates),
@@ -323,14 +309,14 @@ export async function IssuesList({
   // and the admin path below then queried them again outside this catch.
   const [tagTypes, milestones, areas, userPrefs] = await Promise.all([
     // Cached, expired by the admin actions that change them (#297).
-    loadOrEmpty("issue types", () => getIssueTypes(tenantId), []),
+    loadOrEmpty("issue types", () => getIssueTypes(organisationId), []),
     // #289: few rows; closed ones too, so an old link still resolves.
     loadOrEmpty(
       "milestones",
       () =>
-        tenantId
+        organisationId
           ? prisma.milestone.findMany({
-              where: { tenantId },
+              where: { organisationId },
               select: { id: true, title: true, isClosed: true },
               orderBy: [{ isClosed: "asc" }, { dueDate: { sort: "asc", nulls: "last" } }, { title: "asc" }],
             })
@@ -447,24 +433,42 @@ export async function IssuesList({
     const text = next.toString();
     return text ? `${path}?${text}` : path;
   };
+  const complexBugSearchFilter = Boolean(
+    mineFilter || (parseMyWorkFilter(params[MY_WORK_PARAM]) && userId)
+      || statusParam === REJECTED_STATUS || statusParam === POSSIBLY_DELIVERED
+      || toSingleQueryParam(params.stage) || confirmFilter,
+  );
+  const bugSearchExtraFilters = ["status", "substatus", "typeId", "areaId", "milestoneId", "reporterId", "assigneeId", "duplicateOfId", "isBoosted", "isDeleted"]
+    .map((field) => typesenseFilter(field, (where as Record<string, unknown>)[field]))
+    .filter((filter): filter is string => filter !== null);
+  let typesenseBugSearch: { found: number } | null = null;
+  if (qParam && boundSearchTerm(qParam).length >= 3 && organisationId && !isIdeasView && !complexBugSearchFilter) {
+    try {
+      const indexed = await searchWorkItems({ query: boundSearchTerm(qParam), kind: "bug", organisationId, ...(projectId && !allProjects ? { projectId } : {}), ...trackSearch, includeDeleted: isDeletedView, page: 1, perPage: 1, sortBy: bugSearchSort(currentSort, !isWatchingView), extraFilters: bugSearchExtraFilters });
+      if (indexed.found > 0) typesenseBugSearch = indexed;
+    } catch (error) {
+      console.error("[issues] Typesense search failed; using PostgreSQL", error);
+    }
+  }
 
   let totalCount = 0;
   try {
+    // PostgreSQL is authoritative for pagination totals while the index is asynchronous.
     totalCount = await prisma.bug.count({ where });
   } catch (error) {
     const reference = logLoadFailure("[bugs] list count failed", error);
-    const missingColumn = isMissingTenantColumnError(error);
-    if (!tenantId) {
+    const missingColumn = isMissingOrganisationColumnError(error);
+    if (!organisationId) {
       // No membership: nothing to show either way (#439).
       totalCount = 0;
       if (missingColumn) {
-        delete where.tenantId;
+        delete where.organisationId;
         delete where.projectId;
         where.id = { in: [] };
       }
     } else if (missingColumn) {
-      // #506: never retry without the tenant filter. That used to show every
-      // tenant's issues to anyone whose query error mentioned the column.
+      // #506: never retry without the organisation filter. That used to show every
+      // organisation's issues to anyone whose query error mentioned the column.
       return issuesQueryError(
         reference,
         "The issue list is unavailable while the database finishes upgrading. Try again in a minute.",
@@ -473,6 +477,9 @@ export async function IssuesList({
       return issuesQueryError(reference);
     }
   }
+  // A cardinality mismatch means the asynchronous index cannot safely define
+  // this request's page set. Use PostgreSQL for both rows and exact total.
+  if (typesenseBugSearch && typesenseBugSearch.found !== totalCount) typesenseBugSearch = null;
 
   const stageView: IssueStage | null = isDeletedView || isIdeasView
     ? null
@@ -506,7 +513,7 @@ export async function IssuesList({
   // the stage clause is applied (#626): a ?stage= page must count the same
   // rows its result list shows — tabs, badges and the "Show N resolved" link
   // all follow the stage filter, not the pre-stage row set.
-  // Count the same tenant/project and search scope without the selected tab:
+  // Count the same organisation/project and search scope without the selected tab:
   // its status, and the extra clauses Ideas, Rejected, Duplicates,
   // Ready to Merge and Live add. Left in, those leaked into every other tab's
   // count (on Ready to Merge, "All" only counted ready-to-merge issues).
@@ -555,9 +562,23 @@ export async function IssuesList({
 
   // Select only what the list shows: no `description` (up to 5000 chars
   // each), which the list never displays (#217).
-  const listed = await prisma.bug
+  let indexedBugIds: string[] | null = null;
+  if (typesenseBugSearch && organisationId && qParam) {
+    try {
+      const result = await searchWorkItems({ query: boundSearchTerm(qParam), kind: "bug", organisationId, ...(projectId && !allProjects ? { projectId } : {}), ...trackSearch, includeDeleted: isDeletedView, page: pagination.page, perPage: pagination.take, sortBy: bugSearchSort(currentSort, !isWatchingView), extraFilters: bugSearchExtraFilters });
+      indexedBugIds = result.hits.map((hit) => hit.id);
+    } catch (error) {
+      console.error("[issues] Typesense result lookup failed; using PostgreSQL", error);
+    }
+  }
+  const issueRowWhere = { ...where };
+  if (indexedBugIds) {
+    delete issueRowWhere.OR;
+    issueRowWhere.id = { in: indexedBugIds };
+  }
+  let listed = await prisma.bug
     .findMany({
-      where,
+      where: issueRowWhere,
       select: {
         id: true,
         number: true,
@@ -568,7 +589,7 @@ export async function IssuesList({
         closeReason: true,
         voteCount: true,
         projectId: true,
-        project: { select: { slug: true, tenant: { select: { slug: true } } } },
+        project: { select: { slug: true, organisation: { select: { slug: true } } } },
         isDeleted: true,
         isBoosted: true,
         duplicateOf: showDuplicates ? { select: { number: true } } : false,
@@ -607,11 +628,44 @@ export async function IssuesList({
       orderBy: confirmFilter === "more"
         ? [{ deploymentReports: { _count: "desc" } }, ...getBugOrderBy(currentSort, { boostFirst: false })]
         : getBugOrderBy(currentSort, { boostFirst: !isWatchingView }),
-      skip: pagination.skip,
-      take: pagination.take,
+      skip: indexedBugIds ? 0 : pagination.skip,
+      take: indexedBugIds ? indexedBugIds.length : pagination.take,
     })
     .then((bugs) => ({ bugs }))
     .catch((error: unknown) => ({ reference: logLoadFailure("[bugs] list query failed", error) }));
+  let forcePgFallback = false;
+  if (indexedBugIds && "bugs" in listed && qParam) {
+    try {
+      const literalQuery = boundSearchTerm(qParam).toLocaleLowerCase();
+      const exactNumber = parseIssueNumberQuery(qParam);
+      const descriptionsNeeded = listed.bugs.filter((bug) => !bug.title.toLocaleLowerCase().includes(literalQuery) && bug.number !== exactNumber).map((bug) => bug.id);
+      const descriptions = descriptionsNeeded.length
+        ? await prisma.bug.findMany({ where: { ...issueRowWhere, id: { in: descriptionsNeeded } }, select: { id: true, description: true } })
+        : [];
+      const byId = new Map(descriptions.map((row) => [row.id, row.description]));
+      const matched = listed.bugs.filter((bug) => bug.title.toLocaleLowerCase().includes(literalQuery)
+        || bug.number === exactNumber || (byId.get(bug.id)?.toLocaleLowerCase().includes(literalQuery) ?? false));
+      if (matched.length !== listed.bugs.length) listed = { bugs: matched };
+    } catch (error) {
+      console.error("[issues] could not validate indexed text results; using PostgreSQL", error);
+      forcePgFallback = true;
+    }
+  }
+  if (indexedBugIds && "bugs" in listed && (forcePgFallback || listed.bugs.length < Math.min(pagination.take, Math.max(0, totalCount - pagination.skip)))) {
+    // The index is eventually consistent. If validation drops a stale hit, use the established query for this request rather than render a short page.
+    listed = await prisma.bug.findMany({ where, select: {
+      id: true, number: true, title: true, status: true, substatus: true, closeReason: true, voteCount: true,
+      projectId: true, project: { select: { slug: true, organisation: { select: { slug: true } } } }, isDeleted: true, isBoosted: true, createdAt: true, updatedAt: true,
+      pullRequestUrl: true, type: { select: { name: true } }, reporter: { select: { name: true, role: true, image: true } },
+      assignee: { select: { name: true, role: true, image: true } },
+      claims: { where: { status: { in: ["active", "offered"] }, releasedAt: null }, select: { status: true, claimedAt: true, createdAt: true, deliverBy: true, beneficiaryUserId: true, beneficiary: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 2 },
+      area: { select: { id: true, name: true } }, reward: true, rewardEstimateCount: true, rewardFixedAt: true,
+      duplicateOf: showDuplicates ? { select: { number: true } } : false,
+      _count: { select: { comments: true, attachments: true, bids: { where: OPEN_BID_WHERE } } },
+    }, orderBy: getBugOrderBy(currentSort, { boostFirst: !isWatchingView }), skip: pagination.skip, take: pagination.take })
+      .then((bugs) => ({ bugs }))
+      .catch((error: unknown) => ({ reference: logLoadFailure("[bugs] list query failed", error) }));
+  }
   if ("reference" in listed) {
     return issuesQueryError(listed.reference);
   }
@@ -640,11 +694,12 @@ export async function IssuesList({
     : new Set<string>();
 
   // #idea-table: the Ideas tab's New ideas and Drafted read open ideas from
-  // their own table, in the same tenant, project and search scope as the
+  // their own table, in the same organisation, project and search scope as the
   // issues. A draft is a person's idea not yet written up in the standard
   // headings.
   const ideaWhere: Prisma.IdeaWhereInput = {
-    tenantId: tenantId ?? "",
+    organisationId: organisationId ?? "",
+    ...PRODUCT_TRACK,
     ...(projectId && !allProjects ? { projectId } : {}),
     isDeleted: false,
     status: "open",
@@ -666,17 +721,17 @@ export async function IssuesList({
   // #project-links: the project's site and GitHub repository, and whether you can set them.
   const [projectLinks, canEditProjectLinks] = await Promise.all([
     loadOrEmpty("project links", () => prisma.project.findUnique({ where: { id: project.id }, select: { siteUrl: true, repoUrl: true } }), null),
-    tenantId && userId ? loadOrEmpty("project admin", () => isTenantAdmin(user, tenantId), false) : Promise.resolve(false),
+    organisationId && userId ? loadOrEmpty("project admin", () => isAdminOfOrganisation(user, organisationId), false) : Promise.resolve(false),
   ]);
   // #agent-work-gate: your agents that aren't allowed to work until their profile is set up.
   const unconfiguredAgents: UnconfiguredAgent[] =
-    tenantId && userId
+    organisationId && userId
       ? await loadOrEmpty(
           "unconfigured agents",
           async () => {
             const agents = await prisma.agent.findMany({
               where: {
-                tenantId,
+                organisationId,
                 ownerUserId: userId,
                 revokedAt: null,
                 OR: [{ tagline: null }, { about: null }, { skills: { none: {} } }, { tagline: "" }, { about: "" }],
@@ -692,26 +747,26 @@ export async function IssuesList({
         )
       : [];
   // The next-step card (#agents-dock) where the empty agents bar used to be: the one next thing for you, from your role and what the
-  // workspace has. Never beside AgentSetupNotice, never repeating a Getting started step that is showing, and dismissable per workspace.
-  let nextStep: WorkspaceNextStep | null = null;
-  if (tenantId && userId && membershipRole && slug !== EARN_PROJECT_SLUG && !isDeletedView) {
-    const dismissed = parseDismissed((await cookies()).get(NEXT_STEP_COOKIE)?.value).includes(tenantId);
+  // organisation has. Never beside AgentSetupNotice, and dismissable per organisation.
+  let nextStep: OrganisationNextStep | null = null;
+  if (organisationId && userId && membershipRole && slug !== EARN_PROJECT_SLUG && !isDeletedView) {
+    const dismissed = parseDismissed((await cookies()).get(NEXT_STEP_COOKIE)?.value).includes(organisationId);
     if (!dismissed) {
       const counts = await loadOrEmpty(
         "next step",
         async () => {
           const now = new Date();
           const [agentCount, memberCount, pendingInvites] = await Promise.all([
-            prisma.agent.count({ where: { tenantId, ownerUserId: userId, revokedAt: null } }),
-            prisma.membership.count({ where: { tenantId } }),
-            prisma.tenantInvite.count({ where: { tenantId, acceptedAt: null, expiresAt: { gt: now } } }),
+            prisma.agent.count({ where: { organisationId, ownerUserId: userId, revokedAt: null } }),
+            prisma.membership.count({ where: { organisationId } }),
+            prisma.organisationInvite.count({ where: { organisationId, acceptedAt: null, expiresAt: { gt: now } } }),
           ]);
           return { agentCount, memberCount, pendingInvites };
         },
         null,
       );
       if (counts) {
-        nextStep = workspaceNextStep({
+        nextStep = organisationNextStep({
           slug: ref,
           membershipRole,
           appRole: effectiveRole,
@@ -719,7 +774,6 @@ export async function IssuesList({
           blockedAgentCount: unconfiguredAgents.length,
           dismissed,
           // The checklist is drawn on every view but Your Work (and hidden on phones).
-          openChecklistSteps: gettingStarted && !isYourWorkView ? gettingStarted.steps.filter((step) => !step.done).map((step) => step.id) : [],
         });
       }
     }
@@ -731,28 +785,28 @@ export async function IssuesList({
           "my work",
           () =>
             prisma.bug.count({
-              where: { ...bugInTenant(tenantId), ...(projectId && !allProjects ? { projectId } : {}), isDeleted: false, ...myWorkWhere(userId) },
+              where: { ...bugInOrganisation(organisationId), ...(projectId && !allProjects ? { projectId } : {}), ...trackWhere(trackFilter), isDeleted: false, ...myWorkWhere(userId) },
             }),
           0,
         )
       : 0;
   // The Your Work stage shows only while something is assigned to you in this project.
   const yourWorkCount =
-    userId && !isDeletedView && tenantId
+    userId && !isDeletedView && organisationId
       ? await loadOrEmpty(
           "your work",
           () =>
             prisma.bug.count({
-              where: { ...bugInTenant(tenantId), ...(projectId && !allProjects ? { projectId } : {}), isDeleted: false, ...duplicatesWhere(showDuplicates), AND: [yourWorkWhere(userId)] },
+              where: { ...bugInOrganisation(organisationId), ...(projectId && !allProjects ? { projectId } : {}), isDeleted: false, ...duplicatesWhere(showDuplicates), AND: [yourWorkWhere(userId)] },
             }),
           0,
         )
       : 0;
   // The Ideas tab's counts show on every tab; drafts only while Ideas is open.
   const [ideasCount, rejectedIdeasCount, draftIds] = await Promise.all([
-    tenantId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
-    tenantId && !isDeletedView ? loadOrEmpty("rejected ideas tab", () => prisma.idea.count({ where: rejectedIdeaWhere }), 0) : 0,
-    tenantId && isIdeasView
+    organisationId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
+    organisationId && !isDeletedView ? loadOrEmpty("rejected ideas tab", () => prisma.idea.count({ where: rejectedIdeaWhere }), 0) : 0,
+    organisationId && isIdeasView
       ? loadOrEmpty(
           "drafted ideas",
           async () =>
@@ -773,13 +827,33 @@ export async function IssuesList({
       .filter(([key]) => key !== "page" && key !== "status" && key !== IDEAS_PARAM)
       .map(([key, value]) => [key, toSingleQueryParam(value)]),
   );
-  const ideaRows: IdeaListRow[] = isIdeasView && tenantId
+  const ideaRows: IdeaListRow[] = isIdeasView && organisationId
     ? await loadOrEmpty("ideas list", async () => {
-        const rows = await prisma.idea.findMany({
-          where: ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideasView === "rejected" ? rejectedIdeaWhere : ideaWhere,
+        const originalIdeaWhere = ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideasView === "rejected" ? rejectedIdeaWhere : ideaWhere;
+        let indexedIdeaIds: string[] | null = null;
+        if (qParam && boundSearchTerm(qParam).length >= 3 && ideasView !== "drafts") {
+          try {
+            const filters = [
+              ...(ideasView === "rejected" ? ["status:[rejected,archived]"] : ["status:=open"]),
+              ...(ideaAuthor === "agents" ? ["hasAgentCreator:=true"] : ideaAuthor === "people" ? ["hasAgentCreator:=false"] : []),
+              ...(mineFilter === "created" && userId ? [`reporterId:=${userId}`] : []),
+            ];
+            const indexed = await searchWorkItems({ query: boundSearchTerm(qParam), kind: "idea", organisationId, ...(projectId && !allProjects ? { projectId } : {}), track: "product", page: ideaPagination.page, perPage: ideaPagination.take, sortBy: ideaSearchSort(currentIdeaSort), extraFilters: filters });
+            if (indexed.found === ideaPagination.totalCount) indexedIdeaIds = indexed.hits.map((hit) => hit.id);
+          } catch (error) {
+            console.error("[ideas] Typesense result lookup failed; using PostgreSQL", error);
+          }
+        }
+        const ideaRowWhere = { ...originalIdeaWhere };
+        if (indexedIdeaIds) {
+          delete ideaRowWhere.OR;
+          ideaRowWhere.id = { in: indexedIdeaIds };
+        }
+        let rows = await prisma.idea.findMany({
+          where: ideaRowWhere,
           orderBy: getIdeaOrderBy(currentIdeaSort),
-          skip: ideaPagination.skip,
-          take: ideaPagination.take,
+          skip: indexedIdeaIds ? 0 : ideaPagination.skip,
+          take: indexedIdeaIds ? indexedIdeaIds.length : ideaPagination.take,
           select: {
             id: true, number: true, title: true, score: true, projectId: true, createdAt: true, updatedAt: true,
             status: true, archiveReason: true, archiveDuplicateOf: true, rejectedAt: true, archivedAt: true,
@@ -789,6 +863,30 @@ export async function IssuesList({
             _count: { select: { verdicts: true } },
           },
         });
+        let validatedRows = rows;
+        let forcePgIdeaFallback = false;
+        if (indexedIdeaIds && qParam) {
+          try {
+            const literalQuery = boundSearchTerm(qParam).toLocaleLowerCase();
+            const descriptionsNeeded = rows.filter((row) => !row.title.toLocaleLowerCase().includes(literalQuery)).map((row) => row.id);
+            const descriptions = descriptionsNeeded.length
+              ? await prisma.idea.findMany({ where: { ...ideaRowWhere, id: { in: descriptionsNeeded } }, select: { id: true, description: true } })
+              : [];
+            const byId = new Map(descriptions.map((row) => [row.id, row.description]));
+            validatedRows = rows.filter((row) => row.title.toLocaleLowerCase().includes(literalQuery) || (byId.get(row.id)?.toLocaleLowerCase().includes(literalQuery) ?? false));
+          } catch (error) {
+            console.error("[ideas] could not validate indexed text results; using PostgreSQL", error);
+            forcePgIdeaFallback = true;
+          }
+        }
+        if (indexedIdeaIds && (forcePgIdeaFallback || validatedRows.length < Math.min(ideaPagination.take, Math.max(0, ideaPagination.totalCount - ideaPagination.skip)))) {
+          rows = await prisma.idea.findMany({ where: originalIdeaWhere, orderBy: getIdeaOrderBy(currentIdeaSort), skip: ideaPagination.skip, take: ideaPagination.take, select: {
+            id: true, number: true, title: true, score: true, projectId: true, createdAt: true, updatedAt: true,
+            status: true, archiveReason: true, archiveDuplicateOf: true, rejectedAt: true, archivedAt: true,
+            verdicts: { orderBy: { updatedAt: "desc" }, take: 1, select: { updatedAt: true } },
+            reporter: { select: { name: true } }, _count: { select: { verdicts: true } },
+          } });
+        } else rows = validatedRows;
         const thresholds = new Map<string, number | null>();
         for (const id of new Set(rows.map((row) => row.projectId))) {
           thresholds.set(id, await workflowFor(id).then((w) => w.ideaThreshold).catch(() => null));
@@ -868,7 +966,7 @@ export async function IssuesList({
     try {
       [milestoneSummary] = await loadMilestoneSummaries({
         id: selectedMilestone.id,
-        tenantId: tenantId ?? undefined,
+        organisationId: organisationId ?? undefined,
       });
     } catch (error) {
       console.error("[bugs] milestone summary failed", error);
@@ -880,15 +978,16 @@ export async function IssuesList({
   // filter that is not there. The extra count only runs when the page is
   // already empty, so a populated list pays nothing for it. It counts the
   // same scope the list shows, including ?project=all, so an empty filter
-  // across a busy workspace is "no issues match", not "no issues yet".
+  // across a busy organisation is "no issues match", not "no issues yet".
   let isFirstRun = false;
-  // Earn: the earner's workspace keeps the normal toolbar (Add Idea at the far left, filter and
+  // Earn: the earner's organisation keeps the normal toolbar (Add Idea at the far left, filter and
   // search at the right) even while it has no issues, since the Ziki tasks fill the list.
   if (totalCount === 0 && !isDeletedView && slug !== EARN_PROJECT_SLUG) {
     try {
       isFirstRun = (await prisma.bug.count({
         where: {
-          ...bugInTenant(tenantId),
+          ...bugInOrganisation(organisationId),
+          ...PRODUCT_TRACK,
           ...(projectId && !allProjects ? { projectId } : {}),
           isDeleted: false,
         },
@@ -904,7 +1003,7 @@ export async function IssuesList({
   if (isWatchingView && userId) {
     try {
       finishedWatched = await prisma.bug.count({
-        where: { ...finishedWatchedWhere(userId), ...bugInTenant(tenantId) },
+        where: { ...finishedWatchedWhere(userId), ...bugInOrganisation(organisationId), ...PRODUCT_TRACK },
       });
     } catch (error) {
       console.error("[bugs] finished watched count failed", error);
@@ -922,7 +1021,7 @@ export async function IssuesList({
   const confirmingCount = [...stages.values()].filter((stage) => stage === "confirming").length;
   const readyCount = [...stages.values()].filter((stage) => stage === "ready").length;
 
-  const [statusCounts, rejectedCount, duplicateCount, errorCount, possiblyDeliveredCount] = isDeletedView || !tenantId ? [[], 0, 0, 0, 0] : await Promise.all([
+  const [statusCounts, rejectedCount, duplicateCount, errorCount, possiblyDeliveredCount] = isDeletedView || !organisationId ? [[], 0, 0, 0, 0] : await Promise.all([
     loadOrEmpty("status tabs", () => prisma.bug.groupBy({
       by: ["status"], where: statusTabWhere, _count: { _all: true },
     }), []),
@@ -964,7 +1063,20 @@ export async function IssuesList({
     else next.set(MY_WORK_PARAM, "1");
     return listHref(next);
   })();
-  // The toolbar's Filter menu: on the All tab, All / Rejected / Duplicates (pick one); then My Work (on or off).
+  // Track filter: Product (the default, which leaves the address alone) / Marketing / All
+  const trackHref = (track: "product" | "marketing" | "all") => {
+    const next = new URLSearchParams(currentQuery);
+    next.delete("page");
+    if (track === "product") next.delete(TRACK_PARAM);
+    else next.set(TRACK_PARAM, track);
+    return listHref(next);
+  };
+  const trackFilterOptions: ToolbarFilterOption[] = [
+    { label: "Product", count: 0, href: trackHref("product"), selected: trackFilter === "product" },
+    { label: "Marketing", count: 0, href: trackHref("marketing"), selected: trackFilter === "marketing" },
+    { label: "All", count: 0, href: trackHref("all"), selected: trackFilter === "all" },
+  ];
+  // The toolbar's Filter menu: on the All tab, All / Rejected / Duplicates (pick one); then My Work (on or off); then Track filter.
   const allTabFilters: ToolbarFilterOption[] = !isDeletedView && allSelected
     ? ALL_FILTERS.map(({ value, label }) => ({ label, count: allFilterCount(value), href: statusHref(value), selected: statusParam === value }))
     : [];
@@ -972,11 +1084,13 @@ export async function IssuesList({
   const filterGroups: ToolbarFilterGroup[] = [
     ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
     ...(myWorkFilter.length ? [{ options: myWorkFilter }] : []),
+    { label: "Track", options: trackFilterOptions },
   ];
   // What the Filter button names while closed: anything beyond the default "All".
   const filterSummary = [
     ...allTabFilters.filter((option) => option.selected && option.label !== "All").map((option) => option.label),
     ...(myWorkOn ? ["My Work"] : []),
+    ...(trackFilter !== "product" ? [trackFilter === "all" ? "Track: All" : `Track: ${trackFilter.charAt(0).toUpperCase() + trackFilter.slice(1)}`] : []),
   ].join(" · ");
   // Only a status tab is picked (no search or other filter): an empty list then
   // just means that tab is empty, so the empty state names the tab.
@@ -993,26 +1107,20 @@ export async function IssuesList({
       : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
   // Your call (#your-call): the issues the agents split on that this person has to settle. Its step sits above Open only while there
   // are any, and only In Progress shows it, so the other views don't ask for it.
-  const yourCall = stageIndex !== IN_PROGRESS_STAGE || !tenantId || !projectId || allProjects || !userId
+  const yourCall = stageIndex !== IN_PROGRESS_STAGE || !organisationId || !projectId || allProjects || !userId
     ? []
-    : await loadOrEmpty("your call", () => loadYourCall(projectId, { userId, isAdmin: Boolean(membershipRole && isOrganizationAdmin(membershipRole, effectiveRole)) }), []);
+    : await loadOrEmpty("your call", () => loadYourCall(projectId, { userId, isAdmin: Boolean(membershipRole && isOrganisationAdmin(membershipRole, effectiveRole)) }), []);
   const statusCount = (value: string) =>
     value === YOUR_WORK_STATUS ? yourWorkCount : value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
   const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));
 
   const headerContent = (
     <>
-      {/* Your Work is about your own assignments, not setting up the workspace; and on a phone it would cover the list. */}
-      {gettingStarted && !isYourWorkView ? (
-        <div className="max-sm:hidden">
-          <GettingStarted {...gettingStarted} />
-        </div>
-      ) : null}
       {activeProject?.goal ? (
         <section aria-labelledby="project-goal-heading" className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <h2 id="project-goal-heading" className="text-sm font-bold text-zk-text">{activeProject.name} goal</h2>
-            {membershipRole && isOrganizationAdmin(membershipRole, effectiveRole) ? (
+            {membershipRole && isOrganisationAdmin(membershipRole, effectiveRole) ? (
               <Link href={`/projects/${encodeURIComponent(activeProject.slug)}/settings`} className="text-xs font-bold text-zk-accent underline">Edit project settings</Link>
             ) : null}
           </div>
@@ -1065,7 +1173,7 @@ export async function IssuesList({
   // The In Progress tab opens on the Ziki tasks (its link points there); Open and the rest stay normal.
   const onZikiTasks = zikiTasks;
 
-  const listContent = onZikiTasks && earnStage ? <ZikiTasksTable stage={earnStage} started={earn?.started ?? null} /> : (
+  const listContent = onZikiTasks && earnStage ? <ZikiTasksTable stage={earnStage} done={earn?.balance.done} /> : (
     <div className="space-y-4">
         {statusParam === "resolved" && !isDeletedView ? <LiveRefresh /> : null}
         {statusParam === "resolved" && liveTabChecks.size > 0 ? (
@@ -1077,7 +1185,7 @@ export async function IssuesList({
         <div id={PROJECT_LINKS_SLOT_ID} className="empty:hidden" />
 
         <AgentSetupNotice agents={unconfiguredAgents} />
-        {nextStep && tenantId ? <WorkspaceNextStepCard step={nextStep} tenantId={tenantId} /> : null}
+        {nextStep && organisationId ? <OrganisationNextStepCard step={nextStep} organisationId={organisationId} /> : null}
 
         {milestoneSummary ? (
           <section aria-label={`Milestone ${milestoneSummary.title}`} className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
@@ -1113,7 +1221,7 @@ export async function IssuesList({
               />
             }
             // Open ideas, none yet and no search: what Ziki is for and where to type (#ideas-welcome).
-            welcome={ideasView === "new" && !qParam ? <IdeasWelcome projectId={project.id} projectName={project.name} /> : undefined}
+            welcome={ideasView === "new" && !qParam ? <IdeasWelcome projectId={project.id} /> : undefined}
             empty={
               ideasView === "drafts"
                 ? "No unstructured draft ideas are waiting to be structured."
@@ -1136,7 +1244,7 @@ export async function IssuesList({
           />
         ) : null}
         {isIdeasView ? null : isFirstRun ? (
-          <FirstRunWelcome isAdmin={canDelete} hasTenant={Boolean(tenantId)} slug={ref} returnTo={returnTo} />
+          <FirstRunWelcome isAdmin={canDelete} hasOrganisation={Boolean(organisationId)} slug={ref} returnTo={returnTo} />
         ) : bugs.length === 0 ? (
           <WhimsicalEmptyState
             title={
@@ -1429,18 +1537,20 @@ export async function IssuesList({
         />
       ) : null}
       <div className="absolute right-0 top-0 flex items-center gap-2 max-sm:static max-sm:self-end">
-        {/* The project's settings icon, at the far right: the site and code URLs, notes, and the settings page. */}
+        {/* At the far right: the site and code addresses, then Project notes and the settings page. */}
         {projectLinks && !isDeletedView ? (
           <ProjectLinks
             slug={slug}
             siteUrl={projectLinks.siteUrl}
             repoUrl={projectLinks.repoUrl}
             canEdit={canEditProjectLinks}
-            notesHref={projectPath(ref, "/notes")}
-            settingsHref={`/projects/${encodeURIComponent(slug)}/settings`}
             // #agent-work-gate: a blocked agent comes first; the site URL ask waits (the icon still opens it).
             askOnLoad={isIdeasView && unconfiguredAgents.length === 0}
           />
+        ) : null}
+        {/* Project notes and settings, as icons, beside the tabs. */}
+        {!isDeletedView ? (
+          <ProjectIconLinks notesHref={projectPath(ref, "/notes")} settingsHref={`/projects/${encodeURIComponent(slug)}/settings`} />
         ) : null}
       </div>
     </div>
@@ -1486,29 +1596,29 @@ export async function IssuesList({
 /** What a brand-new tracker shows instead of an empty list (#292, #444). */
 function FirstRunWelcome({
   isAdmin,
-  hasTenant = true,
+  hasOrganisation = true,
   slug,
   returnTo,
 }: {
   isAdmin: boolean;
-  hasTenant?: boolean;
+  hasOrganisation?: boolean;
   slug: ProjectRef;
   returnTo: string;
 }) {
-  if (!hasTenant) {
+  if (!hasOrganisation) {
     return (
-      <section aria-labelledby="issues-workspace-heading" className="issues-workspace-empty rounded-[20px] border border-zk-border bg-zk-bg px-6 py-10 text-center sm:px-8">
-        <h2 id="issues-workspace-heading" className="text-xl font-bold leading-7 text-zk-text">No workspace yet</h2>
+      <section aria-labelledby="issues-organisation-heading" className="issues-organisation-empty rounded-[20px] border border-zk-border bg-zk-bg px-6 py-10 text-center sm:px-8">
+        <h2 id="issues-organisation-heading" className="text-xl font-bold leading-7 text-zk-text">No organisation yet</h2>
         <p className="mx-auto mt-3 max-w-lg text-base leading-7 text-zk-text2">
-          You are not currently a member of any workspace. Join a workspace via an invite from your team,
-          or create your own workspace to start filing issues.
+          You are not currently a member of any organisation. Join an organisation via an invite from your team,
+          or create your own organisation to start filing issues.
         </p>
         <div className="mt-6">
           <Link
-            href="/tenants"
+            href="/organisations"
             className="inline-flex min-h-12 max-w-full items-center justify-center rounded-full bg-electric-blue-strong px-6 py-3 text-sm font-bold leading-5 text-white transition-colors hover:bg-blue-slate focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zk-accent"
           >
-            Create or join a workspace
+            Create or join an organisation
           </Link>
         </div>
       </section>

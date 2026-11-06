@@ -8,14 +8,14 @@ import { MemberRoleActions } from "@/components/member-role-actions";
 import { TeamAgentLevelControl } from "@/components/team-agent-level";
 import { Badge } from "@/components/ui/badge";
 import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
-import type { OrganizationRole } from "@/lib/organization-role";
+import type { OrganisationRole } from "@/lib/organisation-role";
 
 export type OrgMember = {
   id: string;
   name: string | null;
   email: string | null;
   image: string | null;
-  role: OrganizationRole;
+  role: OrganisationRole;
   /** The role's display label, from MEMBERSHIP_ROLE_LABELS. */
   roleLabel: string;
   siteSuperAdmin: boolean;
@@ -26,7 +26,7 @@ export type OrgMember = {
 /** Past this many people, the list gets a search box. */
 const SEARCH_FROM = 20;
 
-const roleBadgeClass: Record<OrganizationRole, string> = {
+const roleBadgeClass: Record<OrganisationRole, string> = {
   owner: "bg-zk-warn-bg text-zk-warn-fg",
   admin: "bg-zk-tint text-zk-accent",
   member: "bg-zk-chip text-zk-text2",
@@ -41,13 +41,13 @@ function matches(member: OrgMember, query: string): boolean {
 }
 
 /**
- * The organization's one members list: role, when they joined, their agents,
+ * The organisation's one members list: role, when they joined, their agents,
  * and, for owners and admins, the role and remove controls. Everyone gets
  * "Leave" on their own row.
  */
 export function MemberList({
-  tenantId,
-  tenantName,
+  organisationId,
+  organisationName,
   viewerId,
   members,
   ownerCount,
@@ -55,8 +55,8 @@ export function MemberList({
   canRemove,
   agentLevels,
 }: {
-  tenantId: string;
-  tenantName: string;
+  organisationId: string;
+  organisationName: string;
   viewerId: string;
   members: OrgMember[];
   ownerCount: number;
@@ -95,7 +95,7 @@ export function MemberList({
         {shown.length === 0 ? (
           <li className="px-4 py-8 text-center text-sm text-zk-muted sm:px-6">
             {members.length === 0
-              ? `No one has joined ${tenantName} yet. Invite someone from the Invites tab.`
+              ? `No one has joined ${organisationName} yet. Invite someone from the Invites tab.`
               : `No one matches “${query.trim()}”.`}
           </li>
         ) : (
@@ -141,8 +141,8 @@ export function MemberList({
                 </div>
                 <div className="sm:shrink-0">
                   <MemberRoleActions
-                    tenantId={tenantId}
-                    tenantName={tenantName}
+                    organisationId={organisationId}
+                    organisationName={organisationName}
                     userId={member.id}
                     userName={name}
                     membershipRole={member.role}

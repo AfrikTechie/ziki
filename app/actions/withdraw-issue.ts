@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { withdrawIssue } from "@/lib/agent-api/close-suggestions";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -21,16 +21,16 @@ export async function withdrawIssueFromPage(issueId: string): Promise<{ ok?: tru
   const limit = await consumeRateLimit(`issue-withdraw:${userId}`, ACTION_RATE_LIMITS.addComment);
   if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
 
-  const tenantId = await currentTenantIdFor(userId);
-  if (!tenantId || typeof issueId !== "string" || !issueId) return { error: "Issue not found" };
+  const organisationId = await currentOrganisationIdFor(userId);
+  if (!organisationId || typeof issueId !== "string" || !issueId) return { error: "Issue not found" };
   const issue = await prisma.bug.findFirst({
-    where: { id: issueId, tenantId, isDeleted: false },
+    where: { id: issueId, organisationId, isDeleted: false },
     select: { id: true, projectId: true },
   });
   if (!issue) return { error: "Issue not found" };
 
   try {
-    await withdrawIssue({ tenantId, userId, agentId: null, agentName: null }, issue.projectId, issue.id);
+    await withdrawIssue({ organisationId, userId, agentId: null, agentName: null }, issue.projectId, issue.id);
     revalidatePath("/[org]/[project]", "layout");
     revalidateIssue();
     return { ok: true };

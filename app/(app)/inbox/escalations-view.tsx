@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { listOwnerQuestions, parseEscalationBody } from "@/lib/agent-questions";
 import { issueHref } from "@/lib/issue-ref";
+import type { WorkTrack } from "@prisma/client";
+import { escalationOnTrack, escalationTrackWhere } from "@/lib/my-work-filter";
 import { LocalTime } from "@/components/local-time";
 import { EscalationTypeBadge, QuickResolveButtons } from "./escalation-controls";
 
@@ -21,15 +23,17 @@ type View = (typeof VIEWS)[number]["value"];
 export async function EscalationsView({
   searchParams,
 }: {
-  searchParams?: Promise<{ status?: string }>;
+  searchParams?: Promise<{ status?: string; track?: WorkTrack | "all" }>;
 }) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  const [questions, proposals] = tenantId
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const params = searchParams ? await searchParams : {};
+  const track = params.track ?? "all";
+  const [questions, proposals] = organisationId
     ? await Promise.all([
-        listOwnerQuestions(user.id, tenantId),
+        listOwnerQuestions(user.id, organisationId, track),
         prisma.redesignProposal.findMany({
-          where: { tenantId },
+          where: { organisationId, ...escalationTrackWhere(track) },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: 50,
           select: {
@@ -38,15 +42,15 @@ export async function EscalationsView({
             body: true,
             status: true,
             createdAt: true,
-            bug: { select: { number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+            bug: { select: { number: true, title: true, track: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
             authorAgent: { select: { name: true } },
           },
         }),
       ])
     : [[], []];
 
-  const params = searchParams ? await searchParams : {};
   const view: View = VIEWS.some((v) => v.value === params.status) ? (params.status as View) : "waiting";
+  const trackQuery = track === "all" ? "" : `&track=${track}`;
 
   const rows = [
     ...questions.map((q) => {
@@ -78,7 +82,9 @@ export async function EscalationsView({
       bug: p.bug,
       href: `/redesigns/${p.id}`,
     })),
-  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
+  ]
+    .filter((row) => escalationOnTrack(row.bug, track))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
 
   const waitingCount = rows.filter((row) => row.waiting).length;
   const counts: Record<View, number> = { waiting: waitingCount, resolved: rows.length - waitingCount, all: rows.length };
@@ -97,7 +103,7 @@ export async function EscalationsView({
           return (
             <Link
               key={value}
-              href={value === "waiting" ? "/inbox?tab=escalations" : `/inbox?tab=escalations&status=${value}`}
+              href={value === "waiting" ? `/inbox?tab=escalations${trackQuery}` : `/inbox?tab=escalations&status=${value}${trackQuery}`}
               aria-current={on ? "page" : undefined}
               className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent ${
                 on ? "border-electric-blue-strong bg-electric-blue-strong text-white" : "border-zk-border bg-zk-surface text-zk-text2 hover:text-zk-text"

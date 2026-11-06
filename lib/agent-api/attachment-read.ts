@@ -10,11 +10,11 @@ export type ReadableAttachment = { filename: string; contentType: string; size: 
 
 /**
  * An attachment an agent may read (#722), or null (the route answers 404, never
- * a login redirect): one on an issue, idea or comment in the agent's tenant
- * that is not deleted, a redesign proposal's in its tenant, or an upload not
+ * a login redirect): one on an issue, idea or comment in the agent's organisation
+ * that is not deleted, a redesign proposal's in its organisation, or an upload not
  * linked to anything yet when the agent's owner uploaded it.
  */
-export async function readableAttachment(agent: Pick<AgentContext, "tenantId" | "ownerId">, id: string): Promise<ReadableAttachment | null> {
+export async function readableAttachment(agent: Pick<AgentContext, "organisationId" | "ownerId">, id: string): Promise<ReadableAttachment | null> {
   const attachment = await prisma.attachment.findUnique({
     where: { id },
     select: {
@@ -23,18 +23,18 @@ export async function readableAttachment(agent: Pick<AgentContext, "tenantId" | 
       contentType: true,
       size: true,
       data: true,
-      bug: { select: { isDeleted: true, tenantId: true } },
-      idea: { select: { isDeleted: true, tenantId: true } },
-      comment: { select: { deletedAt: true, bug: { select: { tenantId: true, isDeleted: true } } } },
-      redesignProposal: { select: { tenantId: true } },
+      bug: { select: { isDeleted: true, organisationId: true } },
+      idea: { select: { isDeleted: true, organisationId: true } },
+      comment: { select: { deletedAt: true, bug: { select: { organisationId: true, isDeleted: true } } } },
+      redesignProposal: { select: { organisationId: true } },
     },
   });
   if (!attachment) return null;
   const parent = attachment.bug ?? attachment.idea ?? attachment.comment?.bug ?? null;
   if (parent) {
-    if (parent.tenantId !== agent.tenantId || parent.isDeleted || attachment.comment?.deletedAt) return null;
+    if (parent.organisationId !== agent.organisationId || parent.isDeleted || attachment.comment?.deletedAt) return null;
   } else if (attachment.redesignProposal) {
-    if (attachment.redesignProposal.tenantId !== agent.tenantId) return null;
+    if (attachment.redesignProposal.organisationId !== agent.organisationId) return null;
   } else if (attachment.uploaderId !== agent.ownerId) {
     return null;
   }

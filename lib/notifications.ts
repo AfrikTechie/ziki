@@ -25,7 +25,7 @@ type AgentBase = {
   actorId: string | null;
   actorName: string;
   recipientId: string;
-  tenantId?: string;
+  organisationId?: string;
   bugId?: string | null;
   bugTitle?: string | null;
 };
@@ -84,10 +84,10 @@ export type NotificationEvent =
       proposalTitle: string;
     })
   | (AgentBase & {
-      /** Someone invited this person to a tenant (#444). */
-      kind: "tenant_invite";
+      /** Someone invited this person to a organisation (#444). */
+      kind: "organisation_invite";
       inviteId: string;
-      tenantName: string;
+      organisationName: string;
     })
   | (AgentBase & {
       /** The platform offered this person an issue (#449). */
@@ -111,7 +111,7 @@ export type NotificationEvent =
 export const AGENT_NOTIFICATION_KINDS = [
   "agent_question",
   "approval_needed",
-  "tenant_invite",
+  "organisation_invite",
   "claim_offered",
   "reviewer_eligible",
   "merge_failed",
@@ -156,8 +156,8 @@ function agentTarget(event: Extract<NotificationEvent, AgentBase>, issuePath: st
       return { path: `/questions/${event.questionId}`, label: "Answer the question" };
     case "approval_needed":
       return { path: `/redesigns/${event.proposalId}`, label: "Review the proposal" };
-    case "tenant_invite":
-      return { path: `/tenants?invite=${encodeURIComponent(event.inviteId)}`, label: "See the invite" };
+    case "organisation_invite":
+      return { path: `/organisations?invite=${encodeURIComponent(event.inviteId)}`, label: "See the invite" };
     case "claim_offered":
       return { path: issuePath ?? "/home", label: "Open the issue" };
     case "reviewer_eligible":
@@ -195,9 +195,9 @@ function planAgentNotification(
         "It stays blocked until a person approves or rejects it.",
       ];
       break;
-    case "tenant_invite":
-      subject = `${event.actorName} invited you to ${event.tenantName}`;
-      lines = [`${event.actorName} invited you to join ${event.tenantName} on Ziki.`];
+    case "organisation_invite":
+      subject = `${event.actorName} invited you to ${event.organisationName}`;
+      lines = [`${event.actorName} invited you to join ${event.organisationName} on Ziki.`];
       break;
     case "claim_offered":
       subject = `You've been offered ${quote(event.bugTitle)}`;

@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
 import { audit } from "@/lib/agents/audit";
-import { isOrganizationAdmin } from "@/lib/organization-role";
+import { isOrganisationAdmin } from "@/lib/organisation-role";
 import type { SessionAppUser } from "@/lib/auth-helpers";
 
 export const notesInput = z.object({
@@ -25,7 +25,7 @@ export const restoreNotesInput = z.object({ expectedVersion: z.number().int().mi
  */
 export const promoteNoteCommentInput = notesInput;
 export type NotesActor = {
-  userId: string; name: string; tenantId: string; projectId: string; canEdit: boolean;
+  userId: string; name: string; organisationId: string; projectId: string; canEdit: boolean;
   agent?: AgentContext;
 };
 
@@ -33,31 +33,31 @@ export type NotesActor = {
 export async function agentNotesActor(agent: AgentContext, projectId: string): Promise<NotesActor> {
   assertKeyProject(agent, projectId);
   const project = await prisma.project.findFirst({
-    where: { id: projectId, tenantId: agent.tenantId, archivedAt: null, tenant: { archivedAt: null } },
+    where: { id: projectId, organisationId: agent.organisationId, archivedAt: null, organisation: { archivedAt: null } },
     select: { id: true },
   });
   const membership = await prisma.membership.findUnique({
-    where: { tenantId_userId: { tenantId: agent.tenantId, userId: agent.ownerId } }, select: { role: true },
+    where: { organisationId_userId: { organisationId: agent.organisationId, userId: agent.ownerId } }, select: { role: true },
   });
   if (!project || !membership) throw new IssueApiError(404, "Project not found.");
   return {
-    userId: agent.ownerId, name: agent.name, tenantId: agent.tenantId, projectId, agent,
+    userId: agent.ownerId, name: agent.name, organisationId: agent.organisationId, projectId, agent,
     // #notes-promote: no agent edits the notes directly, whoever its owner is. Only a
     // merger agent changes them, by promoting a discussion comment or restoring a revision.
     canEdit: agent.level === "merger",
   };
 }
 
-export async function humanNotesActor(user: SessionAppUser, tenantId: string, projectId: string): Promise<NotesActor> {
+export async function humanNotesActor(user: SessionAppUser, organisationId: string, projectId: string): Promise<NotesActor> {
   const project = await prisma.project.findFirst({
-    where: { id: projectId, tenantId, archivedAt: null, tenant: { archivedAt: null } }, select: { id: true },
+    where: { id: projectId, organisationId, archivedAt: null, organisation: { archivedAt: null } }, select: { id: true },
   });
   const membership = await prisma.membership.findUnique({
-    where: { tenantId_userId: { tenantId, userId: user.id } }, select: { role: true },
+    where: { organisationId_userId: { organisationId, userId: user.id } }, select: { role: true },
   });
   if (!project || !membership) throw new IssueApiError(404, "Project not found.");
-  return { userId: user.id, name: user.name || "Workspace member", tenantId, projectId,
-    canEdit: isOrganizationAdmin(membership.role, user.role) };
+  return { userId: user.id, name: user.name || "Organisation member", organisationId, projectId,
+    canEdit: isOrganisationAdmin(membership.role, user.role) };
 }
 
 export function requireNotesEditor(actor: NotesActor) {
@@ -66,7 +66,7 @@ export function requireNotesEditor(actor: NotesActor) {
       403,
       actor.agent
         ? "Only a merger agent changes the official notes, by promoting a notes comment. Post what you learned as a notes comment instead."
-        : "Only workspace owners and admins can edit official notes.",
+        : "Only organisation owners and admins can edit official notes.",
     );
   }
 }
@@ -110,7 +110,7 @@ function staleOnConflict(error: unknown): never {
 }
 
 /**
- * A person's direct edit in the app (workspace owners and admins). Agents
+ * A person's direct edit in the app (organisation owners and admins). Agents
  * never edit the notes directly (#notes-promote): a merger agent promotes a
  * comment (`promoteNoteComment`) or restores a revision.
  */
@@ -235,7 +235,7 @@ export async function listNoteComments(actor: NotesActor, params: URLSearchParam
 }
 
 /**
- * Adds a note comment (#732): any member of the project's workspace, in the
+ * Adds a note comment (#732): any member of the project's organisation, in the
  * app or through an agent, or a reply to one (`parentId`), such as a
  * correction or an adaptation of what it learned. Comments are contributions;
  * they never change the official notes on their own: a merger agent promotes
@@ -285,7 +285,7 @@ export async function voteNoteComment(actor: NotesActor, commentId: string, valu
     // moves the points back. Paid to the agent that wrote it, if one did.
     if (value !== previous && userId !== author.ownerId) {
       await award(db, {
-        tenantId: actor.tenantId,
+        organisationId: actor.organisationId,
         userId: author.ownerId,
         bugId: null,
         role: "comment",

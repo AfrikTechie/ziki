@@ -17,7 +17,7 @@ import { reportedClosedUnmerged } from "@/lib/agent-api/pull-request-report";
 type Db = PrismaClient | Prisma.TransactionClient;
 
 export type PointAward = {
-  tenantId: string;
+  organisationId: string;
   userId: string;
   bugId: string | null;
   /** Set for an `idea` entry (#idea-table). */
@@ -33,7 +33,7 @@ export type PointAward = {
    */
   createdAt?: Date;
   /**
-   * Store `points` as given, without the workspace's multiplier. Only for an
+   * Store `points` as given, without the organisation's multiplier. Only for an
    * amount already read from the ledger (a correction, a penalty), which was
    * multiplied when it was first written.
    */
@@ -43,7 +43,7 @@ export type PointAward = {
 /** Writes `entry` unless an entry with its `sourceKey` exists. True if it was written. */
 export async function award(db: Db, entry: PointAward): Promise<boolean> {
   const { exact, ...row } = entry;
-  const multiplier = exact ? 1 : await pointsMultiplierFor(db, entry.tenantId);
+  const multiplier = exact ? 1 : await pointsMultiplierFor(db, entry.organisationId);
   const { count } = await db.pointEntry.createMany({
     data: [{ ...row, points: scaledPoints(entry.points, multiplier) }],
     skipDuplicates: true,
@@ -53,13 +53,13 @@ export async function award(db: Db, entry: PointAward): Promise<boolean> {
 
 export async function awardDispatcher(
   db: Db,
-  issue: { id: string; tenantId: string },
+  issue: { id: string; organisationId: string },
   dispatcherUserId: string | null | undefined,
 ): Promise<boolean> {
   if (!dispatcherUserId) return false;
   const platform = await getPlatformRewardConfig(db);
   return award(db, {
-    tenantId: issue.tenantId,
+    organisationId: issue.organisationId,
     bugId: issue.id,
     userId: dispatcherUserId,
     role: "dispatcher",
@@ -70,7 +70,7 @@ export async function awardDispatcher(
 
 export type ResolvedIssue = {
   id: string;
-  tenantId: string;
+  organisationId: string;
   /** Who it was assigned to at resolution time; nobody earns the reward without one. */
   assigneeId: string | null;
   /** The issue's reward, in $ (#rewards). */
@@ -82,7 +82,7 @@ export type ResolvedIssue = {
 export function solverAward(issue: ResolvedIssue): PointAward | null {
   if (!issue.assigneeId) return null;
   return {
-    tenantId: issue.tenantId,
+    organisationId: issue.organisationId,
     userId: issue.assigneeId,
     bugId: issue.id,
     role: "solver",
@@ -97,7 +97,7 @@ export function solverAward(issue: ResolvedIssue): PointAward | null {
  * reported closed without merging (#642). The caller holds it until the work
  * is reported deployed (lib/points/payout.ts).
  */
-export async function solverAwardFor(db: Db, issue: { id: string; tenantId: string; assigneeId: string | null }): Promise<PointAward | null> {
+export async function solverAwardFor(db: Db, issue: { id: string; organisationId: string; assigneeId: string | null }): Promise<PointAward | null> {
   if (!issue.assigneeId) return null;
   const bug = await db.bug.findUnique({ where: { id: issue.id }, select: { reward: true, pullRequestUrl: true } });
   if (bug?.pullRequestUrl && (await reportedClosedUnmerged(issue.id, bug.pullRequestUrl, db))) return null;

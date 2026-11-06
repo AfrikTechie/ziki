@@ -31,12 +31,12 @@ export async function publishWebEvent(
 ): Promise<void> {
   if (!db?.bug?.findUnique || !db?.user?.findUnique) return;
   const [bug, actor] = await Promise.all([
-    db.bug.findUnique({ where: { id: input.bugId }, select: { tenantId: true, projectId: true } }),
+    db.bug.findUnique({ where: { id: input.bugId }, select: { organisationId: true, projectId: true } }),
     db.user.findUnique({ where: { id: input.actorUserId }, select: { name: true } }),
   ]);
   if (!bug) return;
   await publish(db, {
-    tenantId: bug.tenantId,
+    organisationId: bug.organisationId,
     type: input.type,
     bugId: input.bugId,
     actorAgentId: null,

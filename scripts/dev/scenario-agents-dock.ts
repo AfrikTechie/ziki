@@ -75,9 +75,9 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     const demo = await prisma.user.findUnique({ where: { email: DEMO_EMAIL }, select: { id: true } });
-    const claim = await prisma.issueClaim.findUnique({ where: { id: WORKING_CLAIM }, select: { agent: { select: { tenantId: true } } } });
-    if (!demo || !claim) throw new Error("The Demo workspace isn't loaded. Run `pnpm db:fixtures` first.");
-    const tenantId = claim.agent.tenantId;
+    const claim = await prisma.issueClaim.findUnique({ where: { id: WORKING_CLAIM }, select: { agent: { select: { organisationId: true } } } });
+    if (!demo || !claim) throw new Error("The Demo organisation isn't loaded. Run `pnpm db:fixtures` first.");
+    const organisationId = claim.agent.organisationId;
     const now = new Date();
     // Held, or with --all let go of so nobody is at work; any other run takes them up again.
     const held = ALL ? { status: "released" as const, releasedAt: now } : { status: "active" as const, releasedAt: null };
@@ -109,7 +109,7 @@ async function main() {
       // Stuck: holds #114 (no pull request yet) but went quiet two hours ago.
       prisma.agent.upsert({
         where: { id: STUCK_AGENT },
-        create: { id: STUCK_AGENT, tenantId, ownerUserId: demo.id, name: "Demo Fixer", avatar: "tangerine" },
+        create: { id: STUCK_AGENT, organisationId, ownerUserId: demo.id, name: "Demo Fixer", avatar: "tangerine" },
         update: { revokedAt: null },
       }),
       prisma.issueClaim.update({
@@ -141,14 +141,14 @@ async function main() {
       ...(THREE ? [] : [prisma.agent.create({
         data: {
           id: `${P}-idle`,
-          tenantId,
+          organisationId,
           ownerUserId: demo.id,
           name: "Demo Scout",
           apiKeys: { create: { id: `${P}-idle-key`, keyHash: `${P}-idle-key-hash`, prefix: "zk_scout", lastUsedAt: new Date(now.getTime() - 60_000) } },
         },
       }),
       // Offline: never seen.
-      prisma.agent.create({ data: { id: `${P}-offline`, tenantId, ownerUserId: demo.id, name: "Demo Tester" } })]),
+      prisma.agent.create({ data: { id: `${P}-offline`, organisationId, ownerUserId: demo.id, name: "Demo Tester" } })]),
     ]);
     if (ALL) {
       console.log(`[scenario] Demo agents: Builder, Lead and Fixer all ${ALL}${THREE ? "" : ", Scout idle, Tester offline"}. Sign in as demo@fixtures.local.`);
