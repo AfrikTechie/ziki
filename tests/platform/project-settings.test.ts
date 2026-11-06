@@ -17,12 +17,17 @@ const currentOrganisationIdFor = vi.hoisted(() => vi.fn());
 const revalidatePath = vi.hoisted(() => vi.fn());
 const updateTag = vi.hoisted(() => vi.fn());
 const invalidateWorkflow = vi.hoisted(() => vi.fn());
+const projectFindMany = vi.hoisted(() => vi.fn());
+const projectCreate = vi.hoisted(() => vi.fn());
+const organisationFindUnique = vi.hoisted(() => vi.fn());
+const redirect = vi.hoisted(() => vi.fn((to: string) => { throw new Error(`redirect:${to}`); }));
 const findFirst = vi.hoisted(() => vi.fn());
 const upsert = vi.hoisted(() => vi.fn());
 const auditCreate = vi.hoisted(() => vi.fn());
 const transaction = vi.hoisted(() => vi.fn());
 
 vi.mock("next/cache", () => ({ revalidatePath, updateTag }));
+vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("@/lib/auth-helpers", () => ({ requireUser }));
 vi.mock("@/lib/project-route", () => ({ requireProject }));
 vi.mock("@/lib/marketing/settings", () => ({ assertMarketingSettingsAccess, updateMarketingSettings }));
@@ -37,7 +42,8 @@ vi.mock("@/lib/organisation-context", () => ({
 vi.mock("@/lib/workflow", () => ({ invalidateWorkflow }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst },
+    project: { findFirst, findMany: projectFindMany, create: projectCreate },
+    organisation: { findUnique: organisationFindUnique },
     projectWorkflow: { upsert },
     projectAuditEvent: { create: auditCreate },
     issueType: { findFirst: typeFindFirst, create: typeCreate, update: typeUpdate, delete: typeDelete },
@@ -48,6 +54,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+import { createProjectAction } from "@/app/(app)/projects/actions";
 import { updateProjectWorkflowAction } from "@/app/(app)/projects/[slug]/settings/workflow-actions";
 import {
   createMarketingIssueTypeAction,
@@ -85,6 +92,7 @@ function form(values: Record<string, string | number | boolean> = {}) {
     acceptThreshold: 3,
     stakeLimit: 2,
     stakeInProgressLimit: 2,
+    planReviewSeconds: 7200,
     ...values,
   };
   for (const [key, value] of Object.entries(merged)) {
@@ -198,6 +206,23 @@ describe("updateProjectWorkflowAction (#595)", () => {
       error: expect.any(String),
     });
     expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("createProjectAction", () => {
+  it("creates a project when the contributor guidelines are left empty", async () => {
+    requireUser.mockResolvedValue({ id: "owner", role: "user" });
+    currentOrganisationIdFor.mockResolvedValue("org");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    projectFindMany.mockResolvedValue([]);
+    projectCreate.mockResolvedValue({ id: "p1" });
+    organisationFindUnique.mockResolvedValue({ slug: "acme" });
+    const data = new FormData();
+    data.set("name", "Mobile app");
+    data.set("visibility", "private");
+    await expect(createProjectAction(undefined, data)).rejects.toThrow("redirect:");
+    expect(projectCreate).toHaveBeenCalledOnce();
+    expect(projectCreate.mock.calls[0][0].data).toMatchObject({ name: "Mobile app", slug: "mobile-app", contributorGuidelines: null });
   });
 });
 

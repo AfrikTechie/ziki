@@ -8,6 +8,7 @@ import { ResetAgentPointsForm } from "@/components/superadmin-reset-points-form"
 import { resetAgentPointsAction } from "../actions";
 
 import { formatZ } from "@/lib/points/rules";
+import { activeIn } from "@/lib/agents/active-in";
 
 export const metadata: Metadata = { title: "Organisation · Super admin" };
 
@@ -32,7 +33,7 @@ export default async function SuperadminOrgPage({ params, searchParams }: { para
     prisma.membership.count({ where: { organisationId: organisation.id } }),
     prisma.project.count({ where: { organisationId: organisation.id } }),
     prisma.agent.findMany({
-      where: { organisationId: organisation.id },
+      where: { ...activeIn(organisation.id) },
       select: { id: true, name: true, owner: { select: { name: true, email: true } } },
     }),
     prisma.pointEntry.groupBy({

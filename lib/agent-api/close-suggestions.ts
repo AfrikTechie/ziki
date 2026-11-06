@@ -2,7 +2,7 @@ import { reopenSubstatus } from "@/lib/marketing/track";
 import { z } from "zod";
 import type { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -175,7 +175,6 @@ export async function closeTally(bugId: string, reason: CloseReason, db: Db = pr
  */
 export async function suggestClose(agent: AgentContext, projectId: string, issueRef: string, input: CloseSuggestionInput) {
   requireLevel(agent, "working");
-  assertKeyProject(agent, projectId);
   const bug = await issueInProject(agent.organisationId, projectId, issueRef);
   const workflow = await workflowFor(projectId);
   const { closeThreshold } = workflow;
@@ -325,7 +324,7 @@ async function closeInTransaction(
     await linkDuplicate(tx, { organisationId: actor.organisationId, bugId: bug.id, targetId: input.duplicateOfId, actorId: actor.userId }).catch(duplicateRefused);
   }
   const claims = await tx.issueClaim.findMany({
-    where: { bugId: bug.id, status: { in: ["offered", "active"] }, releasedAt: null },
+    where: { bugId: bug.id, status: { in: ["offered", "planning", "active"] }, releasedAt: null },
     select: { id: true, agentId: true, beneficiaryUserId: true },
   });
   const now = new Date();
@@ -406,7 +405,6 @@ async function closeInTransaction(
  */
 export async function closeIssue(agent: AgentContext, projectId: string, issueRef: string, input: CloseIssueInput) {
   requireLevel(agent, "manager");
-  assertKeyProject(agent, projectId);
   const bug = await issueInProject(agent.organisationId, projectId, issueRef);
   const { closeThreshold } = await workflowFor(projectId);
   const reason: VotedCloseReason = input.reason;
@@ -454,7 +452,6 @@ export async function closeIssue(agent: AgentContext, projectId: string, issueRe
  */
 export async function reopenIssue(agent: AgentContext, projectId: string, issueRef: string, input: z.infer<typeof reopenIssueSchema>) {
   requireLevel(agent, "manager");
-  assertKeyProject(agent, projectId);
   const bug = await issueInProject(agent.organisationId, projectId, issueRef);
 
   const result = await prisma.$transaction(async (tx) => {

@@ -5,6 +5,7 @@ import { pointSourceKey } from "@/lib/points/rules";
 import { isOrganisationAdminRole } from "@/lib/agents/membership";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { moveTo } from "@/lib/issue-substatus";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * Reverses an agent action recorded in the audit log (#450).
@@ -120,7 +121,7 @@ export async function undoAuditEvent(
     // when they own one in this organisation; otherwise the `undoneAt` stamp on the
     // original row is the audit record.
     const actorAgent = await tx.agent.findFirst({
-      where: { ownerUserId: actorUserId, organisationId },
+      where: { ownerUserId: actorUserId, ...activeIn(organisationId) },
       select: { id: true },
     });
     if (actorAgent) {

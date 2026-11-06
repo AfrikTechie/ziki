@@ -219,21 +219,21 @@ async function remindOwnerIfDue(agentId: string, bugId: string, now: Date) {
   const question = await prisma.agentQuestion.findFirst({
     where: { agentId, bugId, answeredAt: null, remindedAt: null, createdAt: { lte: due } },
     orderBy: { createdAt: "asc" },
-    select: { id: true, body: true, ownerUserId: true, agent: { select: { name: true, organisationId: true } },
-      bug: { select: { title: true } } },
+    select: { id: true, body: true, ownerUserId: true, agent: { select: { name: true } },
+      bug: { select: { title: true, organisationId: true } } },
   });
-  if (!question) return;
+  if (!question?.bug) return;
   // Guarded so two sweeps racing send one reminder.
   const marked = await prisma.agentQuestion.updateMany({ where: { id: question.id, remindedAt: null }, data: { remindedAt: now } });
   if (!marked.count) return;
   notifyAgentQuestion({
     id: question.id,
     body: question.body,
-    organisationId: question.agent.organisationId,
+    organisationId: question.bug.organisationId,
     ownerUserId: question.ownerUserId,
     agent: { name: question.agent.name },
     bugId,
-    bugTitle: question.bug?.title ?? null,
+    bugTitle: question.bug.title,
     reminder: true,
   });
 }

@@ -6,6 +6,7 @@ import { workflowFor } from "@/lib/workflow";
 import { archiveReasonLabel, IDEA_WITHDRAWN_REASON } from "@/lib/idea-archive";
 import { calculatePagination } from "@/lib/pagination";
 import type { RejectedIdea, RejectedIdeaOpinion, RejectedIdeaVerdict, RejectedIdeasResult } from "@/components/marketing/rejected-ideas/model";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * Marketing ideas that left the Ideas tab: rejected or archived, as the product
@@ -68,7 +69,7 @@ export async function readRejectedIdeas(
   // The agents named by a rejection or archive are stored by id.
   const deciderIds = [...new Set(rows.flatMap((row) => [row.rejectedByAgentId, row.archivedByAgentId]).filter((id): id is string => Boolean(id)))];
   const deciders = deciderIds.length
-    ? await prisma.agent.findMany({ where: { id: { in: deciderIds }, organisationId }, select: { id: true, name: true } })
+    ? await prisma.agent.findMany({ where: { id: { in: deciderIds }, ...activeIn(organisationId) }, select: { id: true, name: true } })
     : [];
   const deciderName = new Map(deciders.map((agent) => [agent.id, agent.name]));
 

@@ -1,3 +1,4 @@
+import { createSubmissionSchema } from "@/lib/validations/skill";
 import { describe, expect, it } from "vitest";
 import { createBugSchema, signupSchema, updateBugSchema } from "@/lib/validations/issue";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
@@ -75,5 +76,52 @@ describe("agent profiles", () => {
     expect(agentSkillsReplaceSchema.safeParse({ skills: [skill, { ...skill, tag: "postgres" }] }).success).toBe(false);
     expect(agentSkillsReplaceSchema.safeParse({ skills: Array.from({ length: 21 }, (_, n) => ({ ...skill, tag: `Tag ${n}` })) }).success).toBe(false);
     expect(agentSkillsReplaceSchema.safeParse({ skills: [{ ...skill, summary: "a".repeat(121) }] }).success).toBe(false);
+  });
+});
+
+describe("skill submission payloads", () => {
+  const validSubmission = {
+    title: "Vitest Deterministic Suite Runner",
+    category: "testing",
+    summary: "Configures Vitest to run unit tests with deterministic seed and 0 network dependencies.",
+    tags: ["vitest", "testing", "ci"],
+    prompt: "You are a test runner expert. Always run vitest run --reporter=verbose before committing.",
+    checklist: ["Ensures all assertions pass", "Flags console errors as test failures"],
+    sampleCommand: "npm run test",
+    documentationUrl: "https://vitest.dev/guide/",
+  };
+
+  it("accepts a well-formed skill submission", () => {
+    expect(createSubmissionSchema.safeParse(validSubmission).success).toBe(true);
+  });
+
+  it("rejects documentation URLs with non-http(s) schemes like javascript: or ftp:", () => {
+    expect(createSubmissionSchema.safeParse({ ...validSubmission, documentationUrl: "javascript:alert(1)" }).success).toBe(false);
+    expect(createSubmissionSchema.safeParse({ ...validSubmission, documentationUrl: "ftp://files.example.com/spec.pdf" }).success).toBe(false);
+    expect(createSubmissionSchema.safeParse({ ...validSubmission, documentationUrl: "https://trusted-docs.example.com" }).success).toBe(true);
+  });
+
+  it("rejects prompts exceeding maximum length limits", () => {
+    expect(createSubmissionSchema.safeParse({ ...validSubmission, prompt: "x".repeat(10_001) }).success).toBe(false);
+  });
+
+  it("rejects arbitrary unallowed category strings", () => {
+    expect(createSubmissionSchema.safeParse({ ...validSubmission, category: "malicious-category-override" }).success).toBe(false);
+  });
+
+  it("rejects tags that exceed 30 characters or have unallowed characters", () => {
+    expect(createSubmissionSchema.safeParse({ ...validSubmission, tags: ["a".repeat(31)] }).success).toBe(false);
+    expect(createSubmissionSchema.safeParse({ ...validSubmission, tags: ["bad tag with spaces"] }).success).toBe(false);
+  });
+
+  it("preserves checklist and tags during revision", () => {
+    const revision = { ...validSubmission, revisionOfId: "sub-123" };
+    const parsed = createSubmissionSchema.safeParse(revision);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.tags).toEqual(["vitest", "testing", "ci"]);
+      expect(parsed.data.checklist).toEqual(["Ensures all assertions pass", "Flags console errors as test failures"]);
+      expect(parsed.data.revisionOfId).toBe("sub-123");
+    }
   });
 });

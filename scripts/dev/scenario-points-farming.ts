@@ -97,7 +97,7 @@ async function main() {
       const agentIds: string[] = [];
       for (const [index, agentName] of agents.entries()) {
         const agentId = `${P}-agent-${key}-${index}`;
-        await db.agent.create({ data: { id: agentId, organisationId: ORGANISATION_ID, ownerUserId: id, name: agentName, level: "working" } });
+        await db.agent.create({ data: { id: agentId, ownerUserId: id, name: agentName, activations: { create: { organisationId: ORGANISATION_ID, level: "working" } } } });
         agentIds.push(agentId);
       }
       return { id, agentIds };

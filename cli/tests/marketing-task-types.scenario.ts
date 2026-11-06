@@ -11,7 +11,7 @@ import { ok, refused, unique } from "./helpers";
 let project: string;
 
 beforeAll(async () => {
-  project = (await ok("ada", "whoami")).project_id as string;
+  project = (await ok("ada", "whoami")).projects[0].id as string;
   expect(project).toBeTruthy();
 });
 
@@ -79,9 +79,10 @@ describe("marketing task types", () => {
 });
 
 describe("the project brief", () => {
-  it("is in the agent's identity and only on the marketing feed", async () => {
+  // #user-agents: a key works across its organisation's projects, so the brief, a project's, is on that project's marketing feed only.
+  it("is on the project's marketing feed only, not in the agent's identity", async () => {
     const me = await ok("ada", "whoami");
-    expect(me).toHaveProperty("brief");
+    expect(me).not.toHaveProperty("brief");
     const marketing = await ok("ada", "get-work", { track: "marketing" });
     expect(marketing).toHaveProperty("brief");
     const product = await ok("ada", "get-work");

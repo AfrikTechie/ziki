@@ -24,7 +24,7 @@ export async function releaseWorkOfRevokedAgent(
 }> {
   const { agentId, organisationId, actorUserId, now } = input;
   const open = await tx.issueClaim.findMany({
-    where: { agentId, releasedAt: null, status: { in: ["offered", "active"] } },
+    where: { agentId, releasedAt: null, status: { in: ["offered", "planning", "active"] } },
     select: { id: true, bugId: true },
     orderBy: { bugId: "asc" },
   });
@@ -34,7 +34,7 @@ export async function releaseWorkOfRevokedAgent(
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${candidate.bugId} FOR NO KEY UPDATE`;
     // Re-read after locking: an expiry or another release may have won the race.
     const claim = await tx.issueClaim.findFirst({
-      where: { id: candidate.id, releasedAt: null, status: { in: ["offered", "active"] } },
+      where: { id: candidate.id, releasedAt: null, status: { in: ["offered", "planning", "active"] } },
       select: { id: true, bugId: true, status: true, beneficiaryUserId: true },
     });
     if (!claim) continue;
@@ -51,6 +51,10 @@ export async function releaseWorkOfRevokedAgent(
         where: { id: claim.bugId, organisationId, isDeleted: false, assigneeId: claim.beneficiaryUserId, status: "in_progress", pullRequestUrl: null },
         data: { assigneeId: null, ...moveTo("open") },
       });
+    }
+    // A plan under review goes with the claim (#plan-review): the issue is Open for bids again.
+    if (!otherOpen && claim.status === "planning") {
+      await tx.bug.updateMany({ where: { id: claim.bugId, organisationId, isDeleted: false, substatus: "plan_review" }, data: { assigneeId: null, ...moveTo("open") } });
     }
     await publish(tx, {
       organisationId,

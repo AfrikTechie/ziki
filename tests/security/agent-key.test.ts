@@ -2,11 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findUnique = vi.hoisted(() => vi.fn());
 const update = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/prisma", () => ({ prisma: { agentApiKey: { findUnique, update } } }));
+const findActivation = vi.hoisted(() => vi.fn());
+const registryDb = vi.hoisted(() => ({
+  agent: { findUnique: vi.fn() },
+  membership: { findUnique: vi.fn() },
+  $transaction: vi.fn(),
+}));
+vi.mock("@/lib/prisma", () => ({
+  prisma: { agentApiKey: { findUnique, update }, agentActivation: { findUnique: findActivation }, ...registryDb },
+}));
 
 import { generateApiKey, hashSecret } from "@/lib/agents/keys";
 import { AgentLevelError } from "@/lib/agents/levels";
 import { AgentAuthError, agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
+import { activateAgent } from "@/lib/agents/registry";
 
 const KEY = "ziki_valid-key-for-tests";
 const request = (authorization?: string) => ({
@@ -22,15 +31,12 @@ function keyRow(overrides: {
     id: "key1",
     lastUsedAt: overrides.lastUsedAt ?? null,
     revokedAt: overrides.revokedAt ?? null,
-    projectId: null,
-    project: null,
+    // #user-agents: the organisation the key works in, every project there.
+    organisationId: "organisation_zedu",
     agent: {
       id: "agent1",
       name: "Ada's Claude",
       ownerUserId: "ada",
-      organisationId: "organisation_zedu",
-      level: "working",
-      burst: false,
       revokedAt: null,
       // A set-up profile, so the work gate lets the key through.
       username: "adas-claude",
@@ -52,9 +58,13 @@ async function failure(promise: Promise<unknown>) {
   throw new Error("expected requireAgent to reject");
 }
 
+/** The agent switched on in the key's organisation, with its class there. */
+const activeHere = { level: "working", burst: false, burstUntil: null, deactivatedAt: null };
+
 beforeEach(() => {
   vi.clearAllMocks();
   update.mockResolvedValue({});
+  findActivation.mockResolvedValue(activeHere);
 });
 
 /** Agent keys (#427): a valid key resolves its agent; missing, malformed, wrong, revoked and foreign keys are refused. */
@@ -94,8 +104,6 @@ describe("requireAgent (#427)", () => {
       burstUntil: null,
       pausedAt: null,
       keyId: "key1",
-      projectId: null,
-      projectSlug: null,
     });
     // Looked up by hash only; the raw key never reaches the query.
     expect(JSON.stringify(findUnique.mock.calls[0][0])).not.toContain(KEY);
@@ -108,12 +116,19 @@ describe("requireAgent (#427)", () => {
     expect((await failure(requireAgent(request(`Bearer ${KEY}`)))).code).toBe("revoked");
   });
 
-  it("carries the project a key is limited to", async () => {
-    findUnique.mockResolvedValue({ ...keyRow(), projectId: "project_web", project: { slug: "web" } });
-    await expect(requireAgent(request(`Bearer ${KEY}`))).resolves.toMatchObject({
-      projectId: "project_web",
-      projectSlug: "web",
-    });
+  it("runs as the agent's activation in the key's organisation: its class there (#user-agents)", async () => {
+    findUnique.mockResolvedValue(keyRow());
+    findActivation.mockResolvedValue({ ...activeHere, level: "manager" });
+    await expect(requireAgent(request(`Bearer ${KEY}`))).resolves.toMatchObject({ organisationId: "organisation_zedu", level: "manager" });
+    expect(findActivation.mock.calls[0][0].where).toEqual({ agentId_organisationId: { agentId: "agent1", organisationId: "organisation_zedu" } });
+  });
+
+  it("stops a key once its agent is taken out of that organisation, or was never brought in", async () => {
+    findUnique.mockResolvedValue(keyRow());
+    findActivation.mockResolvedValue({ ...activeHere, deactivatedAt: new Date() });
+    expect((await failure(requireAgent(request(`Bearer ${KEY}`)))).code).toBe("revoked");
+    findActivation.mockResolvedValue(null);
+    expect((await failure(requireAgent(request(`Bearer ${KEY}`)))).code).toBe("revoked");
   });
 
   it("rejects an agent whose owner has left its organisation", async () => {
@@ -175,5 +190,41 @@ describe("the work gate (#agent-work-gate)", () => {
       expect(() => assertAgentMayWork(agent, at(method, path)), `${method} ${path}`).toThrow(AgentWorkBlockedError);
     }
     expect(() => assertAgentMayWork({ ...ready, username: "ada-claude" }, at("POST", "/api/v1/ideas"))).not.toThrow();
+  });
+});
+
+/** #user-agents: a person brings their agent into an organisation only where they belong; the key it gets works there. */
+describe("activateAgent", () => {
+  const owner = { id: "ada", role: "user" as const };
+  const agent = { id: "agent1", name: "Ada's Claude", ownerUserId: "ada", revokedAt: null, activations: [] };
+
+  it("refuses an organisation its owner isn't a member of, and someone else's agent", async () => {
+    registryDb.agent.findUnique.mockResolvedValue(agent);
+    registryDb.membership.findUnique.mockResolvedValue(null);
+    await expect(activateAgent(owner, "agent1", "organisation_other")).resolves.toMatchObject({ ok: false });
+    registryDb.agent.findUnique.mockResolvedValue({ ...agent, ownerUserId: "bob" });
+    await expect(activateAgent(owner, "agent1", "organisation_zedu")).resolves.toMatchObject({ ok: false });
+    expect(registryDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("switches it on where they belong, keeping the class that organisation gave it, with one live key there", async () => {
+    registryDb.agent.findUnique.mockResolvedValue(agent);
+    registryDb.membership.findUnique.mockResolvedValue({ userId: "ada" });
+    // The key is sealed so its owner can copy it again.
+    vi.stubEnv("AUTH_SECRET", "a-test-secret-of-enough-length");
+    const tx = {
+      agentActivation: { upsert: vi.fn().mockResolvedValue({ level: "manager" }) },
+      agentApiKey: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), create: vi.fn().mockResolvedValue({}) },
+      agentAuditEvent: { create: vi.fn().mockResolvedValue({}) },
+    };
+    registryDb.$transaction.mockImplementation((run: (db: typeof tx) => unknown) => run(tx));
+    const result = await activateAgent(owner, "agent1", "organisation_zedu");
+    expect(result).toMatchObject({ ok: true, key: { agentId: "agent1", level: "manager" } });
+    expect(tx.agentActivation.upsert.mock.calls[0][0]).toMatchObject({
+      where: { agentId_organisationId: { agentId: "agent1", organisationId: "organisation_zedu" } },
+      update: { deactivatedAt: null },
+    });
+    expect(tx.agentApiKey.updateMany.mock.calls[0][0].where).toMatchObject({ agentId: "agent1", organisationId: "organisation_zedu", revokedAt: null });
+    expect(tx.agentApiKey.create.mock.calls[0][0].data).toMatchObject({ agentId: "agent1", organisationId: "organisation_zedu" });
   });
 });

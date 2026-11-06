@@ -34,6 +34,11 @@ export function agentInstructionsFor(input: AgentInstructionsInput): string {
       `Bid: POST ${api(`${issue}/bid`)} with { "summary": "<at most two sentences>", "description": "<how you will fix it and test it>" }.`,
       `Award: read the bids with GET ${api(`${issue}/bid`)}, pick the one most likely to ship a good fix (votes are only guidance; your own owner's bid is allowed), then POST ${api("/bids/<bidId>/award")}. The bidding agent then accepts the offer.`,
     ],
+    plan_review: [
+      "This is a complex issue: the agent awarded it writes its plan, and that agent's owner approves it in the app before the work starts (#plan-review).",
+      `If you hold the claim: submit your plan with POST ${api(`${issue}/plan`)} and { "summary", "description", "reading", "assumptions", "uncertainties", "steps": ["..."], "estimateMinutes", "risk": "low" | "medium" | "high", "confidence": "low" | "medium" | "high" }. If your owner sent it back, read their edited steps with GET ${api(`${issue}/plan`)}, then resubmit, or refuse with POST ${api(`${issue}/plan/refuse`)}.`,
+      "If you don't hold it: nothing; only the owner decides the plan.",
+    ],
     in_progress: [
       "Someone holds this issue and is working on it.",
       `If you hold the claim: implement the fix, open a pull request, then deliver it with POST ${api(`${issue}/delivery`)} and { "pullRequestUrl", "summary", "description", "testResults" }. Keep the claim alive with POST ${api(`${issue}/heartbeat`)}.`,

@@ -16,7 +16,6 @@ import { getIssueTypes } from "@/lib/lookups";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { loadYourCall } from "@/lib/your-call";
 import { YourCall } from "@/components/your-call";
-import { CollaborationHub } from "@/components/collaboration-hub";
 import { LightOnly } from "@/components/light-only";
 import { StageSidebar } from "@/components/stage-sidebar";
 import { StatusFilterChips } from "@/components/status-filter-chips";
@@ -89,7 +88,7 @@ import { RichText } from "@/components/rich-text";
 import { isOrganisationAdmin } from "@/lib/organisation-role";
 import { cookies } from "next/headers";
 import { parseDismissed } from "@/lib/onboarding";
-import { liveCheck, liveConfirmLabel, liveFactLabel, type LiveCheck, type LiveFact } from "@/lib/live-check";
+import { liveCheck, liveConfirmLabel, liveFactLabel, type LiveCheck } from "@/lib/live-check";
 import { latestPullRequestReports } from "@/lib/agent-api/pull-request-report";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
 import { IssueRowStatus } from "@/components/issue-row-status";
@@ -114,6 +113,7 @@ import { EARN_PROJECT_SLUG, EARN_TASKS, tasksPaid } from "@/lib/earn/draft";
 import { isEarner } from "@/lib/earn/earner";
 import { earnState } from "@/lib/earn/state";
 import { ZikiTasksTable } from "@/components/ziki-tasks-table";
+import { activeIn } from "@/lib/agents/active-in";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Issues" };
@@ -410,34 +410,10 @@ export async function IssuesList({
     if (asNumber !== null) where.OR.push({ number: asNumber });
   }
 
-  // #live-confirm: on the Live tab, narrow to the issues three agents have
-  // found on prod, or the ones still short. The counts are of the unnarrowed list.
-  // The line above the list describes every Live issue the other filters match, whichever confirmation filter is on.
-  const liveSummaryWhere: Prisma.BugWhereInput = { ...where };
-  const confirmFilter = statusParam === "resolved" && !isDeletedView ? (["done", "more"] as const).find((value) => value === toSingleQueryParam(params.confirm)) ?? null : null;
-  let confirmCounts: { all: number; done: number } | null = null;
-  if (statusParam === "resolved" && !isDeletedView) {
-    confirmCounts = await loadOrEmpty("live confirmations", async () => {
-      const ids = (await prisma.bug.findMany({ where, select: { id: true } })).map((bug) => bug.id);
-      const confirmers = await loadProdConfirmers(ids);
-      const done = ids.filter((id) => (confirmers.get(id)?.length ?? 0) >= PROD_CONFIRMATIONS_NEEDED);
-      if (confirmFilter) where.id = confirmFilter === "done" ? { in: done } : { in: ids.filter((id) => !done.includes(id)) };
-      return { all: ids.length, done: done.length };
-    }, null);
-  }
-  const confirmHref = (value: "done" | "more" | null) => {
-    const [path, query = ""] = returnTo.split("?");
-    const next = new URLSearchParams(query);
-    if (value) next.set("confirm", value);
-    else next.delete("confirm");
-    next.delete("page");
-    const text = next.toString();
-    return text ? `${path}?${text}` : path;
-  };
   const complexBugSearchFilter = Boolean(
     mineFilter || (parseMyWorkFilter(params[MY_WORK_PARAM]) && userId)
       || statusParam === REJECTED_STATUS || statusParam === POSSIBLY_DELIVERED
-      || toSingleQueryParam(params.stage) || confirmFilter,
+      || toSingleQueryParam(params.stage),
   );
   const bugSearchExtraFilters = ["status", "substatus", "typeId", "areaId", "milestoneId", "reporterId", "assigneeId", "duplicateOfId", "isBoosted", "isDeleted"]
     .map((field) => typesenseFilter(field, (where as Record<string, unknown>)[field]))
@@ -604,7 +580,7 @@ export async function IssuesList({
         // Who is working on it and since when, for the status column.
         // The claim working on it, or an offer waiting to be accepted.
         claims: {
-          where: { status: { in: ["active", "offered"] }, releasedAt: null },
+          where: { status: { in: ["active", "offered", "planning"] }, releasedAt: null },
           select: { status: true, claimedAt: true, createdAt: true, deliverBy: true, beneficiaryUserId: true, beneficiary: { select: { name: true } } },
           orderBy: { createdAt: "desc" },
           take: 2,
@@ -625,10 +601,7 @@ export async function IssuesList({
         },
       },
       // A personal list reads newest-activity-first; boosts are for the shared one.
-      // #live-confirm: "Needs more" puts the issues closest to confirmed first.
-      orderBy: confirmFilter === "more"
-        ? [{ deploymentReports: { _count: "desc" } }, ...getBugOrderBy(currentSort, { boostFirst: false })]
-        : getBugOrderBy(currentSort, { boostFirst: !isWatchingView }),
+      orderBy: getBugOrderBy(currentSort, { boostFirst: !isWatchingView }),
       skip: indexedBugIds ? 0 : pagination.skip,
       take: indexedBugIds ? indexedBugIds.length : pagination.take,
     })
@@ -659,7 +632,7 @@ export async function IssuesList({
       projectId: true, project: { select: { slug: true, organisation: { select: { slug: true } } } }, isDeleted: true, isBoosted: true, createdAt: true, updatedAt: true,
       pullRequestUrl: true, type: { select: { name: true } }, reporter: { select: { name: true, role: true, image: true } },
       assignee: { select: { name: true, role: true, image: true } },
-      claims: { where: { status: { in: ["active", "offered"] }, releasedAt: null }, select: { status: true, claimedAt: true, createdAt: true, deliverBy: true, beneficiaryUserId: true, beneficiary: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 2 },
+      claims: { where: { status: { in: ["active", "offered", "planning"] }, releasedAt: null }, select: { status: true, claimedAt: true, createdAt: true, deliverBy: true, beneficiaryUserId: true, beneficiary: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 2 },
       area: { select: { id: true, name: true } }, reward: true, rewardEstimateCount: true, rewardFixedAt: true,
       duplicateOf: showDuplicates ? { select: { number: true } } : false,
       _count: { select: { comments: true, attachments: true, bids: { where: OPEN_BID_WHERE } } },
@@ -671,17 +644,8 @@ export async function IssuesList({
     return issuesQueryError(listed.reference);
   }
   const bugs = listed.bugs;
-  // #live-check: on the Live tab, every Live issue the filters match (for the
-  // line above the list); elsewhere, just the Live rows on this page.
-  const liveTabChecks = statusParam === "resolved" && !isDeletedView
-    ? await loadOrEmpty("live checks", async () => loadLiveChecks(await prisma.bug.findMany({
-        where: liveSummaryWhere,
-        select: { id: true, pullRequestUrl: true, projectId: true },
-      })), new Map<string, LiveCheck>())
-    : new Map<string, LiveCheck>();
-  const liveChecks = liveTabChecks.size > 0
-    ? liveTabChecks
-    : await loadOrEmpty("live checks", () => loadLiveChecks(bugs.filter((bug) => bug.status === "resolved")), new Map<string, LiveCheck>());
+  // #live-check: where each Live row on this page has its fix.
+  const liveChecks = await loadOrEmpty("live checks", () => loadLiveChecks(bugs.filter((bug) => bug.status === "resolved")), new Map<string, LiveCheck>());
   // #live-confirm: what each agent found, for the Live rows on this page, shown when a row is opened.
   const liveConfirmations = await loadOrEmpty("live confirmations", () => loadProdConfirmations(bugs.filter((bug) => liveChecks.has(bug.id)).map((bug) => bug.id)), new Map<string, ProdConfirmation[]>());
   // Your Work: which rows are there because of your bid, for each row's tag.
@@ -732,7 +696,7 @@ export async function IssuesList({
           async () => {
             const agents = await prisma.agent.findMany({
               where: {
-                organisationId,
+                ...activeIn(organisationId),
                 ownerUserId: userId,
                 revokedAt: null,
                 OR: [{ tagline: null }, { about: null }, { skills: { none: {} } }, { tagline: "" }, { about: "" }],
@@ -758,7 +722,7 @@ export async function IssuesList({
         async () => {
           const now = new Date();
           const [agentCount, memberCount, pendingInvites] = await Promise.all([
-            prisma.agent.count({ where: { organisationId, ownerUserId: userId, revokedAt: null } }),
+            prisma.agent.count({ where: { ...activeIn(organisationId), ownerUserId: userId, revokedAt: null } }),
             prisma.membership.count({ where: { organisationId } }),
             prisma.organisationInvite.count({ where: { organisationId, acceptedAt: null, expiresAt: { gt: now } } }),
           ]);
@@ -1128,25 +1092,6 @@ export async function IssuesList({
           <RichText content={activeProject.goal} className="mt-1 text-sm text-zk-text2" />
         </section>
       ) : null}
-      {!isDeletedView && !isIdeasView && !isFirstRun ? (
-        <CollaborationHub
-          userName={(user as { name?: string | null }).name ?? null}
-          projectSlug={slug}
-          assignTaskHref={newIssueHref(ref, returnTo)}
-          pastActivityHref={statusHref("resolved")}
-          waitingCount={Math.max(2, countForStatus("done") + yourCall.length)}
-          completedCount={Math.max(12, countForStatus("resolved") + countForStatus("merge"))}
-          issues={bugs.slice(0, 3).map((b) => ({
-            id: b.id,
-            number: b.number,
-            title: b.title,
-            status: b.status,
-            substatus: b.substatus,
-            href: issueHref(b),
-            assigneeName: b.assignee?.name ?? null,
-          }))}
-        />
-      ) : null}
       <div className="issues-heading flex flex-wrap items-start justify-between gap-4">
         {/* flex-1: the Add Idea chat box opens in this bar and takes its width. */}
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -1196,10 +1141,6 @@ export async function IssuesList({
   const listContent = onZikiTasks && earnStage ? <ZikiTasksTable stage={earnStage} done={earn?.balance.done} /> : (
     <div className="space-y-4">
         {statusParam === "resolved" && !isDeletedView ? <LiveRefresh /> : null}
-        {statusParam === "resolved" && liveTabChecks.size > 0 ? (
-          <LiveShipped checks={[...liveTabChecks.values()]} filter={confirmFilter} confirmTotals={confirmCounts}
-            hrefs={{ all: confirmHref(null), done: confirmHref("done"), more: confirmHref("more") }} />
-        ) : null}
 
         {/* #project-links: the site/code panel renders here (from ProjectLinks in the top right) while it is open. */}
         <div id={PROJECT_LINKS_SLOT_ID} className="empty:hidden" />
@@ -1344,6 +1285,7 @@ export async function IssuesList({
                     const isFeature = !isSecurity && /feature|improve|enhance|request|idea/i.test(typeName);
                     const claim = bug.claims?.find((c) => c.status === "active");
                     const offer = bug.claims?.find((c) => c.status === "offered");
+                    const planning = bug.claims?.find((c) => c.status === "planning");
                     // Someone is on it: an active claim, or the issue was moved to in progress.
                     // On Your Work it is you, shown once in its own column, and What's next says the deadline:
                     // the row shows the plain status instead of who is on it.
@@ -1366,6 +1308,7 @@ export async function IssuesList({
                         confirmed={confirmationStates.get(bug.id)?.confirmed ?? false}
                         bids={bug.substatus === "open" ? bug._count.bids : undefined}
                         offeredTo={bug.substatus === "open" && offer ? (offer.beneficiary?.name ?? "someone") : null}
+                        planReviewFor={bug.substatus === "plan_review" ? (planning?.beneficiary?.name ?? null) : null}
                         mergePath={bug.status === "resolved" && bug.pullRequestUrl ? mergePathOf(bug) : null} />
                     );
                     // #live-confirm: on a Live row, the status as it is, then how many of the 3 people found it on prod.
@@ -1739,63 +1682,4 @@ function LiveRowDetails({ check, confirmations }: { check: LiveCheck; confirmati
   );
 }
 
-/** Each reason a Live issue isn't released, as the end of a sentence: "18 have no pull request linked". */
-const NOT_RELEASED_BECAUSE: Record<Exclude<LiveFact, "released">, (n: number) => string> = {
-  no_pr: (n) => `${n} ${n === 1 ? "has" : "have"} no pull request linked`,
-  not_released: (n) => `${n} ${n === 1 ? "is" : "are"} merged but not released`,
-  other_repository: (n) => `${n} ${n === 1 ? "is" : "are"} in another repository`,
-  unchecked: (n) => `${n} ${n === 1 ? "hasn't" : "haven't"} been checked`,
-  pr_open: (n) => `${n} still ${n === 1 ? "has" : "have"} an open pull request`,
-  pr_closed: (n) => `${n} had ${n === 1 ? "its" : "their"} pull request closed unmerged`,
-  pr_missing: (n) => `${n} link to a pull request that doesn't exist`,
-};
-
-/**
- * Above the Live list (#live-check): how much of the Live work has really
- * shipped, and the biggest reasons the rest hasn't.
- */
-function LiveShipped({ checks, filter, confirmTotals, hrefs }: {
-  checks: LiveCheck[];
-  filter: "done" | "more" | null;
-  confirmTotals: { all: number; done: number } | null;
-  hrefs: { all: string; done: string; more: string };
-}) {
-  const counts = new Map<LiveFact, number>();
-  for (const check of checks) counts.set(check.fact, (counts.get(check.fact) ?? 0) + 1);
-  const released = counts.get("released") ?? 0;
-  const reasons = (Object.keys(NOT_RELEASED_BECAUSE) as Exclude<LiveFact, "released">[])
-    .map((fact) => ({ fact, n: counts.get(fact) ?? 0 }))
-    .filter(({ n }) => n > 0)
-    .sort((a, b) => b.n - a.n)
-    .slice(0, 3)
-    .map(({ fact, n }) => NOT_RELEASED_BECAUSE[fact](n));
-  const rest = reasons.length > 1 ? `${reasons.slice(0, -1).join(", ")} and ${reasons[reasons.length - 1]}` : reasons[0];
-  return (
-    <p data-testid="live-shipped" className="m-0 px-1 text-sm leading-6 text-zk-text2">
-      <b className="font-bold text-zk-text">{released} of {checks.length}</b> Live issues are released: the default branch has their fix.
-      {rest ? <> Of the rest, {rest}.</> : null}
-      {confirmTotals ? (
-        <>
-          {" "}<b className="font-bold text-zk-text">{confirmTotals.done}</b> {confirmTotals.done === 1 ? "has" : "have"} been found on prod by {PROD_CONFIRMATIONS_NEEDED} different agents.
-        </>
-      ) : null}
-      {confirmTotals ? (
-        <span className="mt-2 flex flex-wrap items-center gap-1.5" data-testid="confirm-filters">
-          {([
-            { value: null, label: "All", n: confirmTotals.all, href: hrefs.all },
-            { value: "done", label: `Found by ${PROD_CONFIRMATIONS_NEEDED}`, n: confirmTotals.done, href: hrefs.done },
-            { value: "more", label: "Needs more", n: confirmTotals.all - confirmTotals.done, href: hrefs.more },
-          ] as const).map(({ value, label, n, href }) => (
-            <Link key={label} href={href} aria-current={filter === value ? "page" : undefined}
-              className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-semibold ${
-                filter === value ? "border-zk-accent bg-zk-accent text-white" : "border-zk-border bg-zk-surface text-zk-text2 hover:bg-zk-chip"
-              }`}>
-              {label} <span className="tabular-nums opacity-80">{n}</span>
-            </Link>
-          ))}
-        </span>
-      ) : null}
-    </p>
-  );
-}
 

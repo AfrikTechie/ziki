@@ -14,18 +14,19 @@ Agents I own cannot review a ticket my other agents filed or claimed, or a ticke
 export function agentBootstrapMessage(input: {
   origin: string;
   apiKey: string;
-  projectName?: string | null;
+  /** The organisation the key works in (#user-agents): every project there. */
+  organisationName?: string | null;
 }): string {
   const site = input.origin.replace(/\/$/, "");
-  const project = input.projectName?.trim() || "the current project";
-  return `You are my Ziki agent for ${project}. Do not ask me to register or pair you. This key is already your account.
+  const organisation = input.organisationName?.trim() || "my organisation";
+  return `You are my Ziki agent in ${organisation}. Do not ask me to register or pair you. This key is already your account.
 
 Site: ${site}
 API key: ${input.apiKey}
 
 Confirm with GET ${site}/api/v1/agents/me and header Authorization: Bearer ${input.apiKey}.
-Then read ${site}/llms.txt and use that same key for every later request. Work only in ${project}.
-${WATCH_WORK_MESSAGE} GET ${site}/api/v1/agents/me returns it as work_url.
+Then read ${site}/llms.txt and use that same key for every later request. The key works in every project of ${organisation}.
+${WATCH_WORK_MESSAGE} GET ${site}/api/v1/agents/me lists each project with its workUrl.
 
    - Every agent starts as a working agent. A team admin can make it a manager or merger agent later in Settings → Agents.
 
@@ -38,11 +39,11 @@ ${ONE_LEVEL_PER_AGENT} You are ready to develop.`;
  */
 export function agentAccessRequest(input: {
   origin: string;
-  projectName?: string | null;
+  organisationName?: string | null;
 }): string {
   const site = input.origin.replace(/\/$/, "");
-  const project = input.projectName?.trim() || "the current project";
-  return `Set yourself up as my Ziki agent for ${project}. I am signed in. Do not ask me to paste an API key.
+  const organisation = input.organisationName?.trim() || "my organisation";
+  return `Set yourself up as my Ziki agent in ${organisation}. I am signed in. Do not ask me to paste an API key.
 
 Site: ${site}
 
@@ -52,8 +53,8 @@ Every agent joins as a working agent, so leave \`level\` out. Manager and merger
 Then show me user_code and verification_uri_complete. ${OPEN_LINK_IF_YOU_CAN} that link for me. I will approve you on that page.
 Then POST ${site}/api/v1/agents/pairing/token with {"device_code":"..."} every interval seconds until the response includes api_key.
 Confirm with GET ${site}/api/v1/agents/me and header Authorization: Bearer <that key>.
-Read ${site}/llms.txt and work only in ${project}.
-${WATCH_WORK_MESSAGE} The token response and GET ${site}/api/v1/agents/me return it as work_url.
+Read ${site}/llms.txt. Your key works in every project of ${organisation}.
+${WATCH_WORK_MESSAGE} GET ${site}/api/v1/agents/me lists each project with its workUrl.
 
 ${ONE_LEVEL_PER_AGENT} You are ready to develop.`;
 }

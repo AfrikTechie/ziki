@@ -43,6 +43,13 @@ export const SANDBOX_AGENTS: readonly {
  */
 const SANDBOX_BUDGET = { burst: true, burstUntil: null } as const;
 
+/** A sandbox's own owner: `cli-ada@cli.test` in the default sandbox, `cli-ada+cli-test-1@cli.test` in a test one. */
+export function sandboxOwnerEmail(email: string, organisationSlug: string): string {
+  if (organisationSlug === "cli-sandbox") return email;
+  const [local, domain] = email.split("@");
+  return `${local}+${organisationSlug}@${domain}`;
+}
+
 /** Fails clearly unless the local database answers. */
 export async function checkDatabase(): Promise<void> {
   localDatabaseUrl();
@@ -89,11 +96,14 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
 
   const agents: Record<string, KeyringAgent> = {};
   for (const spec of SANDBOX_AGENTS) {
+    // #user-agents: an agent is its owner's in every organisation they belong to, so each
+    // sandbox has owners of its own; parallel sandboxes never share an agent or its profile.
+    const ownerEmail = sandboxOwnerEmail(spec.owner, SANDBOX.organisationSlug);
     // Test owners only: no password, so nobody can sign in to the web app as them.
     const user = await prisma.user.upsert({
-      where: { email: spec.owner },
+      where: { email: ownerEmail },
       update: {},
-      create: { email: spec.owner, name: spec.ownerName, role: "user", emailVerified: new Date(), emailNotifications: false },
+      create: { email: ownerEmail, name: spec.ownerName, role: "user", emailVerified: new Date(), emailNotifications: false },
     });
     await prisma.membership.upsert({
       where: { organisationId_userId: { organisationId: organisation.id, userId: user.id } },
@@ -101,8 +111,10 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
       create: { organisationId: organisation.id, userId: user.id, role: spec.membership },
     });
 
+    // #user-agents: the owner's agent, active in the sandbox (a reset removes the activation, not the agent).
     const existing = await prisma.agent.findFirst({
-      where: { organisationId: organisation.id, ownerUserId: user.id, name: spec.agent, revokedAt: null },
+      where: { ownerUserId: user.id, name: spec.agent, revokedAt: null },
+      orderBy: { createdAt: "asc" },
       select: { id: true },
     });
     let agentId: string;
@@ -111,11 +123,15 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
       // A key can't be read back, so issue a new one and retire the old ones.
       const key = generateApiKey();
       await prisma.$transaction([
-        prisma.agentApiKey.updateMany({ where: { agentId: existing.id, revokedAt: null }, data: { revokedAt: new Date() } }),
+        prisma.agentApiKey.updateMany({ where: { agentId: existing.id, organisationId: organisation.id, revokedAt: null }, data: { revokedAt: new Date() } }),
         prisma.agentApiKey.create({
-          data: { agentId: existing.id, keyHash: key.hash, prefix: key.prefix, projectId: project.id, sealedKey: sealSecret(key.raw) },
+          data: { agentId: existing.id, keyHash: key.hash, prefix: key.prefix, organisationId: organisation.id, sealedKey: sealSecret(key.raw) },
         }),
-        prisma.agent.update({ where: { id: existing.id }, data: { level: spec.level, ...SANDBOX_BUDGET } }),
+        prisma.agentActivation.upsert({
+          where: { agentId_organisationId: { agentId: existing.id, organisationId: organisation.id } },
+          update: { level: spec.level, deactivatedAt: null, ...SANDBOX_BUDGET },
+          create: { agentId: existing.id, organisationId: organisation.id, level: spec.level, ...SANDBOX_BUDGET },
+        }),
       ]);
       agentId = existing.id;
       rawKey = key.raw;
@@ -126,14 +142,16 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
         name: spec.agent,
         model: "Ziki CLI",
         level: spec.level,
-        projectId: project.id,
       });
-      await prisma.agent.update({ where: { id: issued.agentId }, data: SANDBOX_BUDGET });
+      await prisma.agentActivation.update({
+        where: { agentId_organisationId: { agentId: issued.agentId, organisationId: organisation.id } },
+        data: SANDBOX_BUDGET,
+      });
       agentId = issued.agentId;
       rawKey = issued.rawKey;
     }
     await ensureSandboxProfile(agentId, organisation.id, spec.agent);
-    agents[spec.agent] = { name: spec.agent, agentId, key: rawKey, level: spec.level as KeyringAgent["level"], ownerEmail: spec.owner, projectId: project.id };
+    agents[spec.agent] = { name: spec.agent, agentId, key: rawKey, level: spec.level as KeyringAgent["level"], ownerEmail, projectId: project.id };
   }
 
   return { serverUrl: options.serverUrl, current: "ada", agents, sandbox: SANDBOX.organisationSlug };

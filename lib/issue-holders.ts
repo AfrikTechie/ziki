@@ -15,7 +15,7 @@ export type IssueHold = {
   via: HoldVia;
   /** Who handed it out, when a person or manager did. */
   dispatcherName: string | null;
-  status: "offered" | "active";
+  status: "offered" | "planning" | "active";
   offeredAt: Date | null;
   claimedAt: Date | null;
   deliverBy: Date | null;
@@ -28,8 +28,10 @@ export type IssueHold = {
 };
 
 /**
- * What holds an issue (#stale-assignee): an active claim, or an offer still
- * inside the project's offer window. Nothing else does: an assignee with
+ * What holds an issue (#stale-assignee): an active claim, a planning claim
+ * (a complex issue's award under plan review, #plan-review; the plan sweeper
+ * releases it when its window runs out), or an offer still inside the
+ * project's offer window. Nothing else does: an assignee with
  * neither is stale. The award gate, the work feed's awards and ready issues,
  * the assign route and the issue page's People box all use this one rule,
  * `liveHoldWhere` for a query and `isLiveHold` for a claim already read.
@@ -39,6 +41,7 @@ export function liveHoldWhere(offerWindowSeconds: number, now = Date.now()): Pri
     releasedAt: null,
     OR: [
       { status: "active" },
+      { status: "planning" },
       { status: "offered", offeredAt: { gt: new Date(now - offerWindowSeconds * 1000) } },
     ],
   };
@@ -51,7 +54,7 @@ export function isLiveHold(
   now = Date.now(),
 ): boolean {
   if (claim.releasedAt) return false;
-  if (claim.status === "active") return true;
+  if (claim.status === "active" || claim.status === "planning") return true;
   return claim.status === "offered" && Boolean(claim.offeredAt) && claim.offeredAt!.getTime() > now - offerWindowSeconds * 1000;
 }
 
@@ -84,7 +87,7 @@ export function shownAssignee<T>(status: string, assignee: T | null, held: boole
  */
 export async function currentHold(bugId: string, db: Db = prisma): Promise<IssueHold | null> {
   const claim = await db.issueClaim.findFirst({
-    where: { bugId, releasedAt: null, status: { in: ["offered", "active"] } },
+    where: { bugId, releasedAt: null, status: { in: ["offered", "planning", "active"] } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
@@ -101,7 +104,7 @@ export async function currentHold(bugId: string, db: Db = prisma): Promise<Issue
       bug: { select: { projectId: true, pullRequestUrl: true } },
     },
   });
-  if (!claim || (claim.status !== "offered" && claim.status !== "active")) return null;
+  if (!claim || (claim.status !== "offered" && claim.status !== "planning" && claim.status !== "active")) return null;
   // An offer past the project's offer window has expired, even before the sweeper releases it.
   if (claim.status === "offered") {
     const { offerWindowSeconds } = await workflowFor(claim.bug.projectId, db);

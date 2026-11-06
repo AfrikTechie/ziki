@@ -61,7 +61,7 @@ beforeEach(() => {
   db.issueBid.findUnique.mockResolvedValue(null);
   db.issueBid.create.mockResolvedValue({ id: "bid1", beneficiaryUserId: "ada", summary: plan.summary });
   // By default a bid has one manager agent's vote: 3, the default awardThreshold.
-  db.bidVote.findMany.mockResolvedValue([{ onBehalfOfUserId: "eve", agent: { level: "manager" } }]);
+  db.bidVote.findMany.mockResolvedValue([{ onBehalfOfUserId: "eve", agent: { activations: [{ organisationId: "organisation", level: "manager" }] } }]);
   vi.mocked(isConfirmed).mockResolvedValue(true);
 });
 

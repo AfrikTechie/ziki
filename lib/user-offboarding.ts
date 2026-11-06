@@ -236,19 +236,21 @@ async function runDeleteUserAccount(
   if (client.agent?.findMany && client.agent?.update) {
     const agents = await client.agent.findMany({
       where: { ownerUserId: userId, revokedAt: null },
-      select: { id: true, organisationId: true },
+      select: { id: true, activations: { select: { organisationId: true } } },
     });
 
     for (const agent of agents) {
-      try {
-        await releaseWorkOfRevokedAgent(client as Prisma.TransactionClient, {
-          agentId: agent.id,
-          organisationId: agent.organisationId,
-          actorUserId: userId,
-          now,
-        });
-      } catch {
-        // Release helper may throw in mocked tests without SQL engine
+      for (const { organisationId } of agent.activations ?? []) {
+        try {
+          await releaseWorkOfRevokedAgent(client as Prisma.TransactionClient, {
+            agentId: agent.id,
+            organisationId,
+            actorUserId: userId,
+            now,
+          });
+        } catch {
+          // Release helper may throw in mocked tests without SQL engine
+        }
       }
       await client.agent.update({
         where: { id: agent.id },

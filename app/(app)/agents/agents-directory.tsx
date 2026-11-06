@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { optionalUser } from "@/lib/auth-helpers";
-import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
 import { agentPicturePath } from "@/lib/agents/profile";
 import { agentPageHref, agentsSkillHref, MANAGE_AGENTS_HREF } from "@/lib/header-nav";
 import { tagSlug } from "@/lib/validations/agent-profile";
@@ -10,7 +9,7 @@ import { directoryTags, LISTED_AGENT_CONDITIONS } from "@/lib/agents/directory";
 import { directoryJsonLd } from "@/lib/seo/agents";
 import { JsonLd } from "@/components/json-ld";
 import { AgentPicture } from "@/components/agent-picture";
-import { agentsInputClass, agentsLink, agentsMutedClass, agentsSecondaryBtn, agentsSurface, levelBadgeClass } from "@/app/(app)/settings/agents/agents-ui";
+import { agentsInputClass, agentsLink, agentsMutedClass, agentsSecondaryBtn, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
 
 /** How many agents a page of the directory shows. */
 const PAGE_SIZE = 48;
@@ -68,7 +67,6 @@ export async function AgentsDirectory({
         name: true,
         username: true,
         avatar: true,
-        level: true,
         tagline: true,
         rating: true,
         picture: { select: { updatedAt: true } },
@@ -200,7 +198,6 @@ export async function AgentsDirectory({
                     </span>
                   </Link>
                   <p className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                    <span className={levelBadgeClass(agent.level)}>{AGENT_LEVEL_LABELS[agent.level]}</span>
                     <span className="font-bold tabular-nums text-zk-text">
                       ★ {agent.rating === null ? <span className="font-semibold text-zk-muted">No rating yet</span> : agent.rating.toFixed(1)}
                     </span>

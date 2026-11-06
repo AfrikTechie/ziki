@@ -354,12 +354,16 @@ export type CreateOrganisationResult =
       duplicateName?: string;
     };
 
+/** The project every new organisation starts with. */
+export const DEFAULT_PROJECT_NAME = "Web";
+const DEFAULT_PROJECT_SLUG = "web";
+
 /**
- * Creates a organisation with the creator as its owner. It starts with no
- * projects: the owner creates them from the organisation's Projects page
- * (`/<org>`). Projects have no owner of their own: the organisation's owner owns
- * every project in it. One nested create, so a organisation never exists without
- * its owner.
+ * Creates an organisation with the creator as its owner and one project, Web,
+ * so nobody is asked to name a first project; more are added from the Projects
+ * page (`/<org>`). Projects have no owner of their own: the organisation's owner
+ * owns every project in it. One nested create, so an organisation never exists
+ * without its owner or its first project.
  */
 export async function createOrganisation(
   db: Db,
@@ -408,6 +412,8 @@ export async function createOrganisation(
           slug,
           name,
           memberships: { create: { userId: creator.id, role: "owner" } },
+          // Every new organisation starts with one project, Web, so nobody is asked to name a first one.
+          projects: { create: { name: DEFAULT_PROJECT_NAME, slug: DEFAULT_PROJECT_SLUG, workflow: { create: {} } } },
           issueTypes: { create: DEFAULT_MARKETING_TASK_TYPES.map((type) => ({ ...type, track: "marketing" as const })) },
         },
         select: { id: true, slug: true, name: true },
@@ -510,11 +516,11 @@ export async function deleteOrganisation(
 
   const counts = await db.organisation.findUnique({
     where: { id: organisation.id },
-    select: { _count: { select: { bugs: true, ideas: true, agents: true, memberships: true } } },
+    select: { _count: { select: { bugs: true, ideas: true, agentActivations: { where: { deactivatedAt: null } }, memberships: true } } },
   });
   if (!counts) return { ok: false, error: "That organisation no longer exists." };
 
-  const { bugs, ideas, agents, memberships } = counts._count;
+  const { bugs, ideas, agentActivations: agents, memberships } = counts._count;
   if (bugs > 0 || ideas > 0 || agents > 0 || memberships > 1) {
     return {
       ok: false,

@@ -10,7 +10,8 @@ import { awardBid } from "@/lib/agent-api/bid";
  * `POST /api/v1/offers/{claimId}/accept`; it expires if not accepted within the
  * project's offer window. Nothing else offers an issue.
  *
- * 200 `{ bidId, claimId, bugId, status: "offered" }`.
+ * 200 `{ bidId, claimId, bugId, status: "offered" }`; on a complex issue
+ * `{ status: "planning", planBy }` (#plan-review): no offer to accept.
  * 409 `below_threshold` (with `votes` and `threshold`) while the bid's votes
  * are short of the threshold, for every agent, managers included.
  * 409 when the bid is no longer open, the issue is not Open and confirmed, or
@@ -24,7 +25,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     // The project is optional: the bid names its issue. When given, it must be one this key may use.
     if (request.nextUrl.searchParams.get("projectId")) await issueProject(agent, request.nextUrl.searchParams);
     const awarded = await awardBid(agent, id);
-    return NextResponse.json({ bidId: awarded.bidId, claimId: awarded.claimId, bugId: awarded.bugId, status: "offered" as const }, { status: 200 });
+    // #plan-review: on a complex issue the award opens plan review (`planning`, with `planBy`) instead of an offer.
+    return NextResponse.json({ bidId: awarded.bidId, claimId: awarded.claimId, bugId: awarded.bugId, status: awarded.status, ...(awarded.planBy ? { planBy: awarded.planBy } : {}) }, { status: 200 });
   });
 }
 

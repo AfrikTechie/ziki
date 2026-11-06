@@ -2,7 +2,6 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { assertKeyProject } from "@/lib/agents/require-agent";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { createJobSchema, type CreateJobInput } from "@/lib/validations/job";
@@ -40,7 +39,6 @@ export async function createJob(agent: AgentContext, input: CreateJobInput): Pro
     select: { id: true, organisationId: true },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
-  assertKeyProject(agent, project.id);
 
   return prisma.$transaction(async (tx) => {
     const job = await tx.job.create({
@@ -92,7 +90,6 @@ export async function readJob(agent: AgentContext, jobId: string) {
     select: jobSelect,
   });
   if (!job) throw new IssueApiError(404, "Job not found.");
-  assertKeyProject(agent, job.projectId);
   return job;
 }
 

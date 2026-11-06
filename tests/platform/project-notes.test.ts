@@ -15,7 +15,7 @@ import { agentNotesActor, saveProjectNotes, promoteNoteComment,
   addNoteComment, voteNoteComment, restoreProjectNotes, type NotesActor } from "@/lib/project-notes";
 import type { AgentContext } from "@/lib/agents/require-agent";
 
-const agent: AgentContext = { agentId: "agent", ownerId: "owner", organisationId: "organisation", name: "Worker", level: "working", projectId: "project", keyId: "key", burst: false };
+const agent: AgentContext = { agentId: "agent", ownerId: "owner", organisationId: "organisation", name: "Worker", level: "working", keyId: "key", burst: false };
 const actor: NotesActor = { projectId: "project", organisationId: "organisation", userId: "owner", name: "Worker", agent, canEdit: true };
 const input = { body: "Use migrations only.", expectedVersion: 0, reason: "Initial guidance" };
 
@@ -31,9 +31,10 @@ beforeEach(() => {
 });
 
 describe("project notes access", () => {
-  it("does not let a key read another project", async () => {
-    await expect(agentNotesActor(agent, "foreign")).rejects.toMatchObject({ name: "AgentProjectError" });
-    expect(db.project.findFirst).not.toHaveBeenCalled();
+  it("does not let a key read another organisation's project", async () => {
+    db.project.findFirst.mockResolvedValue(null);
+    await expect(agentNotesActor(agent, "foreign")).rejects.toMatchObject({ status: 404 });
+    expect(db.project.findFirst.mock.calls[0][0].where).toMatchObject({ id: "foreign", organisationId: "organisation" });
   });
   it("does not confer organisation authority from a site admin title", async () => {
     expect((await agentNotesActor({ ...agent, ownerRole: "admin" }, "project")).canEdit).toBe(false);

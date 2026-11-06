@@ -2,7 +2,6 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
-import { assertKeyProject } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
@@ -24,6 +23,7 @@ import {
   splitProportional,
   type GoalBudgetSummary,
 } from "@/lib/goals/pool-split";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * Goal budgets and pool splitting (#616). The arithmetic lives in
@@ -112,7 +112,6 @@ async function resolveGoal(agent: AgentContext, goalId: string): Promise<GoalRec
     select: goalSelect,
   });
   if (!goal) throw new IssueApiError(404, "Goal not found.");
-  assertKeyProject(agent, goal.projectId);
   return goal;
 }
 
@@ -135,7 +134,6 @@ export async function createGoal(agent: AgentContext, input: CreateGoalInput): P
     select: { id: true, organisationId: true },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
-  assertKeyProject(agent, project.id);
 
   return prisma.$transaction(async (tx) => {
     const goal = await tx.goal.create({
@@ -246,7 +244,7 @@ async function assertTargetsExist(
   const agentIds = [...new Set(targets.filter((t) => t.targetAgentId).map((t) => t.targetAgentId!))];
   if (agentIds.length) {
     const found = await db.agent.findMany({
-      where: { id: { in: agentIds }, organisationId: goal.organisationId },
+      where: { id: { in: agentIds }, ...activeIn(goal.organisationId) },
       select: { id: true },
     });
     const known = new Set(found.map((row) => row.id));

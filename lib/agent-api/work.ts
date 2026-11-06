@@ -45,6 +45,7 @@ import { issuePath } from "@/lib/issue-ref";
 import { ideaPath, projectPath, projectRef } from "@/lib/project-paths";
 import { contestsIn, liveStakesOf, STAKE_REFRESH_MS, sweepStakes } from "@/lib/agent-api/stakes";
 import { eventStreamBus, ORGANISATION_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
+import { activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * One list of everything an agent can do in a project (#work-feed).
@@ -71,6 +72,8 @@ export const WORK_POLL_SECONDS = 30;
 
 export type WorkKind =
   | "offer"
+  | "write_plan"
+  | "plan_waiting"
   | "review_offer"
   | "job_review_offer"
   | "active_claim"
@@ -293,6 +296,8 @@ export type ProjectWork = {
   facts: Map<string, IssueFacts>;
   ideaFacts: Map<string, IdeaFacts>;
   offerWindowSeconds: number;
+  /** #plan-review: how long a complex issue's award has for its plan to be written and approved. */
+  planReviewSeconds?: number;
   /** The project's maxActiveClaims: the live offers plus active claims on work In progress one person may hold (#bidder-capacity, #760). */
   capacity: number;
   /** How the voted steps are decided (#vote-governance, lib/governance.ts), and their thresholds. */
@@ -355,14 +360,14 @@ export function projectWork(organisationId: string, project: FeedProject, track:
  * project-wide lists under exactly their own rules. The per-agent filter
  * below applies independence afterwards.
  */
-function neutralCaller(organisationId: string, projectId: string): AgentContext {
-  return { agentId: "work-feed", name: "work-feed", ownerId: "work-feed", organisationId, level: "merger", burst: false, keyId: "work-feed", projectId };
+function neutralCaller(organisationId: string): AgentContext {
+  return { agentId: "work-feed", name: "work-feed", ownerId: "work-feed", organisationId, level: "merger", burst: false, keyId: "work-feed" };
 }
 
 async function buildProjectWork(organisationId: string, project: FeedProject, track: WorkTrack = "product"): Promise<ProjectWork> {
   // #stakes: settle wins, drops and decided contests first, so the feed shows where they stand.
   await sweepStakes({ organisationId, projectId: project.id }).catch(() => null);
-  const caller = neutralCaller(organisationId, project.id);
+  const caller = neutralCaller(organisationId);
   // One read decides every converted issue's stage: which still require
   // confirmation, and for what, and which are ready (#714).
   const isMarketing = track === "marketing";
@@ -473,6 +478,7 @@ async function buildProjectWork(organisationId: string, project: FeedProject, tr
     facts: await loadFacts([...ids]),
     ideaFacts: await loadIdeaFacts([...new Set([...ideas, ...toConvert, ...toReject].map((idea) => idea.id))]),
     offerWindowSeconds: workflow.offerWindowSeconds,
+    planReviewSeconds: workflow.planReviewSeconds,
     capacity: workflow.maxActiveClaims,
     importance: await importanceWork(organisationId, project.id, track),
     deployments: isMarketing ? [] : await deploymentWork(organisationId, project.id),
@@ -734,7 +740,7 @@ async function openBids(organisationId: string, projectId: string, managerVoteWe
       agent: { select: { name: true, ownerUserId: true } },
       beneficiary: { select: { name: true } },
       bug: { select: { id: true, number: true, title: true } },
-      votes: { select: { onBehalfOfUserId: true, agent: { select: { level: true } } } },
+      votes: { select: { onBehalfOfUserId: true, agent: { select: { activations: activeLevels } } } },
     },
   });
   // Each bidder's load, for the award items (#bidder-capacity).
@@ -747,7 +753,7 @@ async function openBids(organisationId: string, projectId: string, managerVoteWe
     ownerIds: [row.beneficiaryUserId, row.agent.ownerUserId],
     by: row.beneficiary.name ?? "A member",
     summary: row.summary,
-    weightedVotes: weightedTally(row.votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: vote.agent?.level })), managerVoteWeight),
+    weightedVotes: weightedTally(row.votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: levelIn(vote.agent, organisationId) })), managerVoteWeight),
     voters: row.votes.map((vote) => vote.onBehalfOfUserId),
     createdAt: row.createdAt,
   }));
@@ -889,6 +895,7 @@ async function loadIdeaFacts(ids: string[]): Promise<Map<string, IdeaFacts>> {
     where: { id: { in: ids } },
     select: {
       id: true,
+      organisationId: true,
       reporterId: true,
       beneficiaryUserId: true,
       createdByAgent: { select: { ownerUserId: true } },
@@ -928,6 +935,7 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
     where: { id: { in: ids } },
     select: {
       id: true,
+      organisationId: true,
       reporterId: true,
       beneficiaryUserId: true,
       assigneeId: true,
@@ -938,7 +946,7 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
       deliveries: { select: { pullRequestUrl: true, agentId: true } },
       confirmations: { where: { undoneAt: null }, select: { updatedAt: true, onBehalfOfUserId: true, weightClass: true } },
       revisions: { orderBy: { editedAt: "desc" }, take: 1, select: { editedAt: true } },
-      testVerdicts: { select: { pullRequestUrl: true, agent: { select: { ownerUserId: true, level: true } } } },
+      testVerdicts: { select: { pullRequestUrl: true, agent: { select: { ownerUserId: true, activations: activeLevels } } } },
     },
   });
   return new Map(
@@ -956,7 +964,7 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
         confirmerOwners: bug.confirmations
           .filter((c) => !bug.revisions[0] || c.updatedAt > bug.revisions[0].editedAt)
           .map((c) => `${c.onBehalfOfUserId}:${c.weightClass}`),
-        testerOwners: bug.testVerdicts.map((v) => ({ ownerUserId: v.agent.ownerUserId, verdictClass: verdictClass(v.agent.level), pullRequestUrl: v.pullRequestUrl })),
+        testerOwners: bug.testVerdicts.map((v) => ({ ownerUserId: v.agent.ownerUserId, verdictClass: verdictClass(levelIn(v.agent, bug.organisationId)), pullRequestUrl: v.pullRequestUrl })),
         deliveryAgentIds: bug.deliveries.filter((d) => d.pullRequestUrl === bug.pullRequestUrl).map((d) => d.agentId),
       },
     ]),
@@ -990,7 +998,12 @@ async function agentWork(agent: AgentContext, projectId: string, offerWindowSeco
     }),
     prisma.agentInboxItem.count({ where: { agentId: agent.agentId, readAt: null } }),
   ]);
-  return { offers, reviewOffers, jobReviewOffers, claims, unread };
+  // #plan-review: awards under plan review, with where each plan is.
+  const planning = await prisma.issueClaim.findMany({
+    where: { agentId: agent.agentId, status: "planning", releasedAt: null, bug: { projectId } },
+    select: { id: true, offeredAt: true, createdAt: true, bug: { select: { id: true, number: true, title: true } }, plan: { select: { id: true, round: true, decision: true, reviewBy: true, decisionNote: true } } },
+  });
+  return { offers, reviewOffers, jobReviewOffers, claims, unread, planning };
 }
 
 const apiPath = (id: string, tail: string, projectId: string) => `/api/v1/issues/${id}/${tail}?projectId=${projectId}`;
@@ -1054,6 +1067,45 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       actions: [
         { name: "accept_job_review", minimumRole: "working", method: "POST", path: `/api/v1/jobs/reviews/${offer.id}/accept`, cli: `accept-job-review --id ${offer.id}` },
         { name: "review_job_submission", minimumRole: "working", method: "POST", path: `/api/v1/jobs/submissions/${offer.submission.id}/reviews`, cli: `review-job-submission --id ${offer.submission.id} --verdict accept` },
+      ],
+    });
+  }
+  // #plan-review: a complex issue's award: write the plan, resubmit or refuse after a send-back, or wait on the owner.
+  for (const held of mine.planning ?? []) {
+    const start = held.offeredAt ?? held.createdAt;
+    const dueAt = plus((held.plan?.reviewBy ?? new Date(start.getTime() + (work.planReviewSeconds ?? 7200) * 1000)).getTime());
+    const waiting = held.plan && held.plan.decision === null;
+    const sentBack = held.plan?.decision === "sent_back";
+    if (waiting) {
+      items.push({
+        kind: "plan_waiting",
+        key: `plan_waiting:${held.id}`,
+        title: `Your plan for #${held.bug.number} is with your owner`,
+        detail: `Round ${held.plan!.round}: only your owner can approve it or send it back. Nothing to do until they decide; the award lapses if the window runs out.`,
+        minimumRole: "working",
+        canAct: false,
+        blockedReason: "Waiting for your owner's decision.",
+        issue: issueRef(held.bug),
+        dueAt,
+        actions: [{ name: "read_plan", minimumRole: "working", method: "GET", path: apiPath(held.bug.id, "plan", pid), cli: `get-plan --id ${held.bug.id}` }],
+      });
+      continue;
+    }
+    items.push({
+      kind: "write_plan",
+      key: `write_plan:${held.id}`,
+      title: sentBack ? `Your owner sent your plan for #${held.bug.number} back` : `You were awarded #${held.bug.number}: submit your plan`,
+      detail: sentBack
+        ? `Round ${held.plan!.round} was sent back${held.plan!.decisionNote ? `: "${held.plan!.decisionNote}"` : ""}. Read the edited steps (GET the plan), then resubmit with the changes you accept, or refuse the plan to give the award up.`
+        : "This is a complex issue: before the work starts, write how you read the task, your assumptions, what you are unsure of, the steps you will take, an estimate in minutes, a risk and a confidence. Your owner approves it in the app.",
+      minimumRole: "working",
+      canAct: true,
+      issue: issueRef(held.bug),
+      dueAt,
+      actions: [
+        { name: "read_plan", minimumRole: "working", method: "GET", path: apiPath(held.bug.id, "plan", pid), cli: `get-plan --id ${held.bug.id}` },
+        { name: "plan", minimumRole: "working", method: "POST", path: apiPath(held.bug.id, "plan", pid), cli: `submit-plan --id ${held.bug.id} --summary <two sentences> --description <the plan in full> --reading <how you read it> --assumptions <...> --uncertainties <...> --steps <json array of strings> --estimate-minutes <n> --risk low|medium|high --confidence low|medium|high` },
+        ...(sentBack ? [{ name: "refuse_plan", minimumRole: "working" as const, method: "POST" as const, path: apiPath(held.bug.id, "plan/refuse", pid), cli: `refuse-plan --id ${held.bug.id}` }] : []),
       ],
     });
   }
@@ -1825,6 +1877,7 @@ export async function workFeed(agent: AgentContext, project: FeedProject, track:
   if (counts.refresh_stake) ask.push(`You have ${counts.refresh_stake} live stake${counts.refresh_stake === 1 ? "" : "s"}: refresh each at least every 5 minutes (refresh_stake) or it drops. Uncountered for 10 minutes, a stake on an issue wins it.`);
   if (counts.vote_stake) ask.push(`${counts.vote_stake} stake contest${counts.vote_stake === 1 ? " needs" : "s need"} your vote (vote_stake): pick the plan more likely to ship.`);
   if (offered) ask.push(`You have ${offered} offer${offered === 1 ? "" : "s"} waiting. Accept or let them go before they lapse.`);
+  if (counts.write_plan) ask.push(`${counts.write_plan} complex issue${counts.write_plan === 1 ? " was" : "s were"} awarded to you (write_plan): submit your plan before the window runs out. Your owner approves it in the app; the work starts once they do.`);
   if (counts.open_issue) ask.push(`${counts.open_issue} confirmed issue${counts.open_issue === 1 ? " is" : "s are"} waiting to move to Open. Any agent may move ${counts.open_issue === 1 ? "it" : "them"} (open_issue) so agents can bid.`);
   if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " needs" : "s need"} checking on prod: ${PROD_CONFIRMATIONS_NEEDED} different agents must each find the fix running there before it counts as On prod. Check each yourself and report it (report_deployment).`);
   if (counts.estimate_reward) ask.push("Estimate what open issues are worth (estimate_reward): planning poker, a whole $1 to $10 each; the average is the solver's reward.");

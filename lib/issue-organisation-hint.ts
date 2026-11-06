@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient, Substatus } from "@prisma/client";
 
 /**
  * Cross-organisation issue links (#519).
@@ -9,7 +9,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
  * it, so non-members keep the plain 404 and nothing is revealed.
  */
 
-export type IssueOrganisationHint = { id: string; name: string; slug: string };
+export type IssueOrganisationHint = { id: string; name: string; slug: string; issue: { number: number; title: string; substatus: Substatus; projectName: string } };
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -19,16 +19,16 @@ export async function issueOrganisationHintFor(
 ): Promise<IssueOrganisationHint | null> {
   try {
     const bug = await db.bug.findUnique({
-      where: { id: viewer.issueId, isDeleted: false },
-      select: { organisationId: true },
+      where: { id: viewer.issueId, isDeleted: false, project: { archivedAt: null } },
+      select: { organisationId: true, number: true, title: true, substatus: true, project: { select: { name: true } } },
     });
     if (!bug || bug.organisationId === viewer.activeOrganisationId) return null;
 
     const membership = await db.membership.findFirst({
-      where: { userId: viewer.userId, organisationId: bug.organisationId },
+      where: { userId: viewer.userId, organisationId: bug.organisationId, organisation: { archivedAt: null } },
       select: { organisation: { select: { id: true, name: true, slug: true } } },
     });
-    return membership?.organisation ?? null;
+    return membership ? { ...membership.organisation, issue: { number: bug.number, title: bug.title, substatus: bug.substatus, projectName: bug.project.name } } : null;
   } catch (error) {
     // A schema-repair deployment may lack the relation; the page then keeps
     // its plain 404 instead of failing.

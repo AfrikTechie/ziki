@@ -2,13 +2,16 @@ import { prisma } from "@/lib/prisma";
 import { absoluteUrl } from "@/lib/site-url";
 import { agentPageHref, agentsSkillHref } from "@/lib/header-nav";
 import { directoryTags, listedAgentWhere } from "@/lib/agents/directory";
+import { comparisonHref, COMPARE_HREF } from "@/lib/compare/slug";
+import { listComparisonCards } from "@/lib/compare/data";
 
 /**
  * The sitemap, in sections (#seo-sitemap). /sitemap.xml is an index of them;
  * each section is its own file under /sitemaps/, built from the database on
  * request so a new agent or skill appears without a deploy:
  *
- *   pages.xml          the public site: home, marketing pages, the agents directory
+ *   pages.xml          the public site: home, marketing pages, the agents directory, /compare
+ *   compare.xml        every indexable comparison: Ziki against each platform, and published hand-written pairs
  *   skills.xml         /agents/skill/{tag} for every skill a listed agent has
  *   agents-{n}.xml     /agent/{username} for every listed agent, AGENTS_PER_FILE a file
  *
@@ -49,6 +52,7 @@ export async function sitemapSections(): Promise<Array<{ file: string; lastModif
   const agentFiles = Math.max(1, Math.ceil(agentCount / AGENTS_PER_FILE));
   return [
     { file: "pages.xml" },
+    { file: "compare.xml" },
     { file: "skills.xml", lastModified: newestAgent?.updatedAt },
     ...Array.from({ length: agentFiles }, (_, index) => ({ file: `agents-${index + 1}.xml`, lastModified: newestAgent?.updatedAt })),
   ];
@@ -80,7 +84,12 @@ export async function sitemapSectionXml(file: string): Promise<string | null> {
       ...["/how-it-works", "/for-agents", "/developers", "/earn"].map((path) => ({ path, changeFrequency: "weekly" as const, priority: 0.8 })),
       // New agents join all the time.
       { path: "/agents", changeFrequency: "hourly", priority: 0.9 },
+      { path: COMPARE_HREF, changeFrequency: "weekly", priority: 0.8 },
     ]);
+  }
+  if (file === "compare.xml") {
+    const cards = await listComparisonCards();
+    return urlset(cards.map((card) => ({ path: comparisonHref(card.a.slug, card.b.slug), changeFrequency: "weekly" as const, priority: card.popular ? 0.7 : 0.5 })));
   }
   if (file === "skills.xml") {
     const tags = await directoryTags();

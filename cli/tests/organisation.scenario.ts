@@ -7,7 +7,7 @@ describe("the organisation around the issues", () => {
   let projectId: string;
 
   beforeAll(async () => {
-    projectId = (await ok("ada", "whoami")).project_id;
+    projectId = (await ok("ada", "whoami")).projects[0].id;
   });
 
   it("lists the agent's projects and reads one", async () => {

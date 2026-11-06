@@ -16,7 +16,7 @@ export default async function SuperadminOrgsPage() {
       name: true,
       archivedAt: true,
       createdAt: true,
-      _count: { select: { memberships: true, projects: true, agents: true } },
+      _count: { select: { memberships: true, projects: true, agentActivations: { where: { deactivatedAt: null } } } },
     },
   });
 
@@ -56,7 +56,7 @@ export default async function SuperadminOrgsPage() {
                 <td className="px-4 py-3 text-zk-text2"><code>{org.slug}</code></td>
                 <td className="px-4 py-3 text-right tabular-nums text-zk-text">{org._count.memberships}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-zk-text">{org._count.projects}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-zk-text">{org._count.agents}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-zk-text">{org._count.agentActivations}</td>
                 <td className="px-4 py-3 text-zk-text2"><LocalTime date={org.createdAt} /></td>
               </tr>
             ))}

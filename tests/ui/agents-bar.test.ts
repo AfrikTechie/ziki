@@ -28,6 +28,7 @@ describe("dockVisibleOn: where the agents bar shows", () => {
     "/inbox",
     "/inbox/escalations/abc",
     "/home",
+    "/activity",
     "/feed",
   ])("shows on %s when you have agents", (path) => {
     expect(dockVisibleOn(path, 1)).toBe(true);
@@ -73,7 +74,7 @@ describe("dockVisibleOn: where the agents bar shows", () => {
   });
 
   it("hides everywhere when you have no agents", () => {
-    for (const path of ["/zedu/acme", "/zedu/acme/issues", "/zedu/acme/42", "/zedu/acme/workstream", "/inbox", "/home", "/feed", "/agents/mine", "/settings", "/docs"]) {
+    for (const path of ["/zedu/acme", "/zedu/acme/issues", "/zedu/acme/42", "/zedu/acme/workstream", "/inbox", "/home", "/activity", "/feed", "/agents/mine", "/settings", "/docs"]) {
       expect(dockVisibleOn(path, 0)).toBe(false);
     }
   });
@@ -88,8 +89,9 @@ describe("dockVisibleOn: where the agents bar shows", () => {
     expect(dockVisibleOn("/zedu/acme/42x", 1)).toBe(false);
     expect(dockVisibleOn("/zedu/acme/organisation", 1)).toBe(false);
     expect(dockVisibleOn("/homepage", 1)).toBe(false);
-    // Home and feed are those pages only, not what sits below them.
+    // Home, activity and feed are those pages only, not what sits below them.
     expect(dockVisibleOn("/home/extra", 1)).toBe(false);
+    expect(dockVisibleOn("/activity/x", 1)).toBe(false);
     expect(dockVisibleOn("/feed/x", 1)).toBe(false);
     // A project that happens to be called "feeds" is a project: its landing page is a work page.
     expect(dockVisibleOn("/zedu/feeds", 1)).toBe(true);

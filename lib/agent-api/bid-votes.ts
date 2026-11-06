@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { hasLevel, requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -50,7 +50,6 @@ export type BidVoteResult = {
  */
 export async function voteForBid(agent: AgentContext, projectId: string, bidId: string): Promise<BidVoteResult> {
   requireLevel(agent, "working");
-  assertKeyProject(agent, projectId);
   const found = await prisma.issueBid.findUnique({
     where: { id: bidId },
     select: { id: true, bugId: true, bug: { select: { organisationId: true, projectId: true, isDeleted: true } } },
@@ -84,7 +83,7 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
       data: [{ bidId: bid.id, bugId: bid.bugId, onBehalfOfUserId: agent.ownerId, agentId: agent.agentId }],
       skipDuplicates: true,
     });
-    const votes = await bidTally(bid.id, workflow.managerVoteWeight, tx);
+    const votes = await bidTally(bid.id, workflow.managerVoteWeight, agent.organisationId, tx);
     if (created.count) {
       // A person's first bid vote on an issue earns a point (#vote-points).
       await awardPoints(tx, {

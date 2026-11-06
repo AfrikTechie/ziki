@@ -1,0 +1,114 @@
+import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
+import { NextResponse, type NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { resolveSessionUserId } from "@/lib/session-user";
+import { requireAgent } from "@/lib/agents/require-agent";
+import {
+  listForumMessages,
+  createForumMessage,
+  createForumMessageSchema,
+} from "@/lib/forum";
+import type { ForumCategory } from "@/components/forum/message-board";
+
+export const runtime = "nodejs";
+
+/**
+ * GET /api/v1/forum?category=&issueNumber=&status=
+ *
+ * Public Agent Message Board feed.
+ * Accessible to both authenticated autonomous agents and web users.
+ * Agents query this route during their cyclical polling loop to scan for
+ * peer assistance requests before picking up routine backlog tasks.
+ */
+export async function GET(request: NextRequest) {
+  const { searchParams } = request.nextUrl;
+  const category = (searchParams.get("category") || "all") as ForumCategory;
+  const rawIssue = searchParams.get("issueNumber");
+  const issueNumber = rawIssue ? parseInt(rawIssue, 10) : undefined;
+  const rawStatus = searchParams.get("status");
+  const status = rawStatus === "open" || rawStatus === "resolved" ? rawStatus : undefined;
+
+  const messages = await listForumMessages({ category, issueNumber, status });
+
+  return NextResponse.json(
+    { messages, count: messages.length },
+    {
+      headers: {
+        "Cache-Control": "private, no-cache, no-store",
+      },
+    }
+  );
+}
+
+/**
+ * POST /api/v1/forum
+ *
+ * Broadcasts an open coordination message, help request, review call,
+ * or announcement to the entire workspace. Replaces private 1:1 inboxes.
+ */
+export async function POST(request: NextRequest) {
+  let author = {
+    name: "Anonymous",
+    handle: "anon",
+    isAgent: false,
+    role: "Member",
+    avatarColor: "bg-blue-600",
+  };
+
+  // Check if caller is an agent
+  if (request.headers.has("authorization")) {
+    try {
+      const agentCtx = await requireAgent(request);
+      const ctx = agentCtx as { name?: string; agentName?: string; agentId: string };
+      author = {
+        name: ctx.name || ctx.agentName || "Agent",
+        handle: `agent-${ctx.agentId.slice(0, 6)}`,
+        isAgent: true,
+        role: "Agent Worker",
+        avatarColor: "bg-blue-600",
+      };
+    } catch {
+      return NextResponse.json({ error: "Invalid agent credentials." }, { status: 401 });
+    }
+  } else {
+    // Check web session
+    const sessionResult = await resolveSessionUserId();
+    if ("error" in sessionResult) {
+      return NextResponse.json({ error: "Unauthorized. Sign in or provide Agent key." }, { status: 401 });
+    }
+    const dbUser = await prisma.user.findUnique({
+      where: { id: sessionResult.userId },
+      select: { name: true, email: true, role: true },
+    });
+    author = {
+      name: dbUser?.name || "User",
+      handle: dbUser?.email?.split("@")[0] || "user",
+      isAgent: false,
+      role: dbUser?.role === "admin" ? "Admin" : "Member",
+      avatarColor: "bg-purple-600",
+    };
+  }
+
+  try {
+    const json = await request.json();
+    const parsed = createForumMessageSchema.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed.", details: parsed.error.format() },
+        { status: 400 }
+      );
+    }
+
+    const message = await createForumMessage(author, parsed.data);
+    return NextResponse.json({ message }, { status: 201 });
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+}
+
+const apiMethodNotAllowed = createMethodNotAllowed(["GET", "POST", "HEAD", "OPTIONS"]);
+const apiOptions = createOptions(["GET", "POST", "HEAD", "OPTIONS"]);
+export const PUT = apiMethodNotAllowed;
+export const PATCH = apiMethodNotAllowed;
+export const DELETE = apiMethodNotAllowed;
+export const OPTIONS = apiOptions;

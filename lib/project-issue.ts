@@ -56,50 +56,50 @@ export const findProjectIssue = cache(async (orgParam: string, projectParam: str
   if (isReservedProjectSlug(orgSlug)) return null;
   const inUrl = { slug: projectSlug, organisation: { slug: orgSlug } };
   const scope = await viewerBugScope();
-  const resolved = await resolveSessionUserId();
-  const userId = "userId" in resolved ? resolved.userId : undefined;
-
-  if (userId) {
-    const inUrlRow = await prisma.bug.findFirst({
-      where: {
-        number,
-        project: {
-          ...inUrl,
-          archivedAt: null,
-          organisation: { archivedAt: null },
-          OR: [
-            { visibility: "public" },
-            { memberships: { some: { userId } } },
-            { organisation: { memberships: { some: { userId } } } },
-          ],
-        },
-      },
-      select,
-    });
-    if (inUrlRow) return { kind: "found", issue: toIssue(inUrlRow) };
-  }
-
   if (!("organisationId" in scope)) {
-    const rows = await prisma.bug.findMany({ where: { number, project: inUrl }, select, take: 2 });
+    const rows = await prisma.bug.findMany({ where: { number, isDeleted: false, project: { ...inUrl, archivedAt: null }, organisation: { archivedAt: null } }, select, take: 2 });
     return rows.length === 1 ? { kind: "found", issue: toIssue(rows[0]) } : null;
   }
 
-  const row = await prisma.bug.findFirst({ where: { number, ...scope }, select });
+  // The active workspace's issue page also hosts authorized Restore controls.
+  // Keep deleted rows here; cross-workspace previews below still exclude them.
+  const row = await prisma.bug.findFirst({ where: { number, ...scope, project: { archivedAt: null }, organisation: { archivedAt: null } }, select });
   if (row && row.project.slug === projectSlug && row.project.organisation.slug === orgSlug) return { kind: "found", issue: toIssue(row) };
 
-  if (userId) {
+  const resolved = await resolveSessionUserId();
+  if ("userId" in resolved) {
     const other = await prisma.bug.findFirst({
       where: {
         number,
         isDeleted: false,
-        project: inUrl,
+        project: { ...inUrl, archivedAt: null },
         ...(typeof scope.organisationId === "string" ? { organisationId: { not: scope.organisationId } } : {}),
-        organisation: { memberships: { some: { userId } } },
+        organisation: { archivedAt: null, memberships: { some: { userId: resolved.userId } } },
       },
       select: { id: true },
     });
     if (other) return { kind: "elsewhere", issueId: other.id };
   }
 
-  return row ? { kind: "moved", issue: toIssue(row) } : null;
+  if ("userId" in resolved) {
+    const accessible = await prisma.bug.findFirst({
+      where: {
+        number, isDeleted: false,
+        project: {
+          ...inUrl,
+          archivedAt: null,
+          OR: [
+            { visibility: "public" },
+            { memberships: { some: { userId: resolved.userId } } },
+          ],
+        },
+        organisation: { archivedAt: null },
+      }, select,
+    });
+    if (accessible) return { kind: "found", issue: toIssue(accessible) };
+  }
+
+  // Never replace a link into an inaccessible workspace with a same-numbered
+  // issue from the active workspace. Only project moves within the named org.
+  return row && row.project.organisation.slug === orgSlug ? { kind: "moved", issue: toIssue(row) } : null;
 });

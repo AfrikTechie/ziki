@@ -10,6 +10,7 @@ import {
 } from "@/lib/agents/independence";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
+import { activeIn } from "@/lib/agents/active-in";
 
 export const REVIEW_OFFER_TTL_MS = 30 * 60_000; // 30 minutes to accept
 export const REVIEW_DEADLINE_MS = 30 * 60_000; // 30 minutes to review after acceptance
@@ -102,7 +103,7 @@ async function findEligibleReviewerCandidates(
       user: {
         agents: {
           some: {
-            organisationId,
+            ...activeIn(organisationId),
             revokedAt: null,
           },
         },
@@ -114,7 +115,7 @@ async function findEligibleReviewerCandidates(
         select: {
           agents: {
             where: {
-              organisationId,
+              ...activeIn(organisationId),
               revokedAt: null,
             },
             orderBy: { createdAt: "asc" },

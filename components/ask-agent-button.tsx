@@ -12,7 +12,7 @@ export type AskAgent = { id: string; name: string; status: "waiting" | "stuck" |
  * poll (#agent-requests). With no agent connected, the modal helps you connect
  * one instead.
  */
-export function AskAgentButton({ label, request, agents, projectId, compact = false }: {
+export function AskAgentButton({ label, request, agents, compact = false }: {
   /** What the work is, e.g. "Open" or "Issues to confirm". */
   label: string;
   /** A smaller, full-width button, for the summary cards. */
@@ -20,7 +20,6 @@ export function AskAgentButton({ label, request, agents, projectId, compact = fa
   /** The prefilled request, which you can edit before sending. */
   request: string;
   agents: AskAgent[];
-  projectId: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const firstOnline = agents.find((agent) => agent.status !== "offline") ?? agents[0];
@@ -75,7 +74,7 @@ export function AskAgentButton({ label, request, agents, projectId, compact = fa
               <button type="button" onClick={close} className="inline-flex h-9 items-center rounded-lg border border-zk-border bg-zk-surface px-4 text-[13px] font-semibold text-zk-text hover:bg-zk-chip">
                 Not now
               </button>
-              <ConnectAgentFlow projectId={projectId} />
+              <ConnectAgentFlow ready />
             </div>
           </div>
         ) : (

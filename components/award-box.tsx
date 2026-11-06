@@ -41,7 +41,7 @@ export function AwardBox({ hold, agentPaused, bugId, isWatching, isIssueOwner }:
         </BigIcon>
         <div className="min-w-0">
           <h3 id="award-heading" className="m-0 text-base font-extrabold text-zk-text">
-            Awarded to {hold.agentName}
+            Awarded to {hold.agentName}{hold.status === "planning" ? " · plan under review" : ""}
           </h3>
           <p className="m-0 mt-0.5 text-[13px] text-zk-text2">
             For {hold.personName} · {viaText(hold)}

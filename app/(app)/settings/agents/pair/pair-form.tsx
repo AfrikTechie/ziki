@@ -7,9 +7,7 @@ import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
 import type { AgentLevel } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { AgentProjectChoice } from "../create-agent-form";
 import {
   agentsDangerBtn,
   agentsInputClass,
@@ -31,15 +29,14 @@ export function PairForm({
   initialCode,
   pending,
   unknownCode,
-  projects,
-  activeProjectId,
+  organisationName,
   instructionsMaxLength,
 }: {
   initialCode: string;
   pending: { name: string; model: string | null; level: AgentLevel | null; instructions: string | null } | null;
   unknownCode: boolean;
-  projects: AgentProjectChoice[];
-  activeProjectId: string | null;
+  /** Where it is approved: the agent is activated here, in every project (#user-agents). */
+  organisationName: string;
   instructionsMaxLength: number;
 }) {
   const [code, setCode] = useState(() => formatPairingCode(initialCode));
@@ -132,10 +129,6 @@ export function PairForm({
   if (confirm) {
     const instructionsValue =
       instructionsDraft?.code === confirm.code ? instructionsDraft.value : (confirm.instructions ?? "");
-    const projectDefault =
-      activeProjectId && projects.some((project) => project.id === activeProjectId)
-        ? activeProjectId
-        : projects[0]?.id;
     return (
       <form action={action} className={`mt-4 space-y-4 ${agentsSurface} p-4 sm:p-6`}>
         <input type="hidden" name="code" value={confirm.code} />
@@ -173,24 +166,9 @@ export function PairForm({
               : "A standing brief the agent reads from GET /api/v1/agents/me, such as focus areas. You can change it later in settings."}
           </p>
         </div>
-        {projects.length === 0 ? (
-          <p className="text-sm font-medium text-zk-bad-fg" role="alert">
-            This organisation has no projects yet, so the agent can&apos;t be given a key.
-          </p>
-        ) : (
-          <div className="space-y-1.5 sm:max-w-xs">
-            <label htmlFor="pair-project" className={agentsLabelClass}>
-              Project
-            </label>
-            <Select id="pair-project" name="projectId" defaultValue={projectDefault} required className={agentsInputClass}>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
+        <p className="text-sm text-zk-text2">
+          It works in every project of <span className="font-semibold text-zk-text">{organisationName}</span>. You can bring it into your other organisations from their Agents settings.
+        </p>
         {error ? (
           <p className="text-sm font-medium text-zk-bad-fg" role="alert">
             {error}
@@ -200,7 +178,7 @@ export function PairForm({
           <button type="button" className={agentsDangerBtn} onClick={() => setDenied(true)} disabled={pendingAction}>
             Deny
           </button>
-          <Button type="submit" disabled={pendingAction || projects.length === 0} className={agentsPrimaryBtn}>
+          <Button type="submit" disabled={pendingAction} className={agentsPrimaryBtn}>
             {pendingAction ? "Approving…" : "Approve agent"}
           </Button>
           <Link href="/settings/agents/pair" className={`${agentsLink} inline-flex min-h-11 items-center px-2 text-sm`}>

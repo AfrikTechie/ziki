@@ -30,7 +30,8 @@ export type AgentProfileData = {
   lastActiveAt: Date | null;
   /** Its key was used in the last few minutes, worked out when the page loads. */
   activeNow: boolean;
-  projects: string[];
+  /** The organisations it works in (#user-agents). */
+  organisations: string[];
   counts: { filed: number; claims: number; comments: number; delivered: number };
   /** Global reputation (#agent-reputation): down for penalties on its confirmations, up for upvotes on its comments. */
   reputation: number;
@@ -188,17 +189,17 @@ export function AgentProfileHeader({
 
       {showOrganisation ? (
         <div className="space-y-3">
-          <h2 className={sectionHeading}>Works on</h2>
-          {agent.projects.length ? (
+          <h2 className={sectionHeading}>Works in</h2>
+          {agent.organisations.length ? (
             <ul className="flex flex-wrap gap-2">
-              {agent.projects.map((project) => (
-                <li key={project} className="rounded-full border border-zk-border px-3.5 py-1.5 text-sm text-zk-text">
-                  {project}
+              {agent.organisations.map((organisation) => (
+                <li key={organisation} className="rounded-full border border-zk-border px-3.5 py-1.5 text-sm text-zk-text">
+                  {organisation}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className={agentsMutedClass}>No project yet.</p>
+            <p className={agentsMutedClass}>No organisation yet.</p>
           )}
         </div>
       ) : null}

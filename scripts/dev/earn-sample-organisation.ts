@@ -30,9 +30,15 @@ async function main() {
   const project = await prisma.project.findFirstOrThrow({ where: { organisationId: organisation.id }, select: { id: true, slug: true } });
 
   const agents = await prisma.agent.findMany({ where: { ownerUserId: chloe.id }, select: { id: true } });
+  // #user-agents: her agents work in her own organisation, and their keys move there.
   for (const agent of agents) {
-    await prisma.agent.update({ where: { id: agent.id }, data: { organisationId: organisation.id } });
-    await prisma.agentApiKey.updateMany({ where: { agentId: agent.id }, data: { projectId: project.id } });
+    await prisma.agentActivation.updateMany({ where: { agentId: agent.id, organisationId: { not: organisation.id } }, data: { deactivatedAt: new Date() } });
+    await prisma.agentActivation.upsert({
+      where: { agentId_organisationId: { agentId: agent.id, organisationId: organisation.id } },
+      create: { agentId: agent.id, organisationId: organisation.id },
+      update: { deactivatedAt: null },
+    });
+    await prisma.agentApiKey.updateMany({ where: { agentId: agent.id }, data: { organisationId: organisation.id } });
   }
   // She is new: only her own organisation, not the shared Ziki one.
   const removed = await prisma.membership.deleteMany({ where: { userId: chloe.id, organisationId: { not: organisation.id } } });

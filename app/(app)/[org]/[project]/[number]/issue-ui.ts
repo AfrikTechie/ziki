@@ -17,6 +17,7 @@ export const issueAccentLinkClass =
 export const issueStatusChipClass: Record<Substatus, string> = {
   requires_confirmation: "bg-zk-warn-bg text-zk-warn-fg",
   open: "bg-zk-info-bg text-zk-info-fg",
+  plan_review: "bg-zk-warn-bg text-zk-warn-fg",
   in_progress: "bg-zk-info-bg text-zk-info-fg",
   requires_review: "bg-zk-info-bg text-zk-info-fg",
   accepted: "bg-zk-info-bg text-zk-info-fg",

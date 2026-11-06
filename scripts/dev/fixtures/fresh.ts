@@ -44,7 +44,8 @@ export async function loadFreshOrganisation(db: PrismaClient, passwordHash: stri
       slug: SLUG,
       name: NAME,
       memberships: { create: { userId: user.id, role: "owner" } },
-      projects: { create: { id: PROJECT_ID, slug: SLUG, name: NAME } },
+      // createOrganisation() starts every organisation with its Web project.
+      projects: { create: { id: PROJECT_ID, slug: "web", name: "Web", workflow: { create: {} } } },
     },
   });
   await db.pointEntry.create({

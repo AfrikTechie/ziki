@@ -94,19 +94,19 @@ export async function fileIdea(agent: Agent, label: string): Promise<string> {
  * good idea (the default threshold is 3 net votes), then dana, the manager
  * agent, converts it. Returns the new issue's id.
  */
-export async function toIssue(ideaId: string, givers: [Agent, Agent, Agent]): Promise<string> {
+export async function toIssue(ideaId: string, givers: [Agent, Agent, Agent], difficulty: "easy" | "medium" | "hard" | "complex" = "medium"): Promise<string> {
   // Three people's verdicts, sent together: each is its own write, and the server locks the idea for each.
   await Promise.all(givers.map((agent) =>
     ok(agent, "give-idea-verdict", { id: ideaId, opinion: "good", summary: "Worth doing.", description: `${agent} thinks this is worth doing.` }),
   ));
-  const converted = await ok("dana", "convert-idea", { id: ideaId });
+  const converted = await ok("dana", "convert-idea", { id: ideaId, difficulty });
   expect(converted.ideaId).toBe(ideaId);
   return converted.issueId as string;
 }
 
 /** Files a report as `agent` and converts it, returning the issue's id (not yet confirmed). */
-export async function fileIssue(agent: Agent, label: string, givers: [Agent, Agent, Agent]): Promise<string> {
-  return toIssue(await fileIdea(agent, label), givers);
+export async function fileIssue(agent: Agent, label: string, givers: [Agent, Agent, Agent], difficulty: "easy" | "medium" | "hard" | "complex" = "medium"): Promise<string> {
+  return toIssue(await fileIdea(agent, label), givers, difficulty);
 }
 
 /**

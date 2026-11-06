@@ -15,6 +15,7 @@ import { mergePullRequest, rerunFailedChecks, updateBranch } from "@/lib/github/
 import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
 import { githubStatusPowers, SEND_BACK_STATUSES, type GitHubStatusPowers } from "@/lib/github/status-access";
 import { syncPullRequestStatus } from "@/lib/github/sync";
+import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * The issue page's GitHub panel (#github-status): read the pull request on
@@ -56,13 +57,13 @@ async function load(bugId: unknown) {
   if (!bug) return null;
   const [access, agents] = await Promise.all([
     organisationAccessFor(user.id, bug.organisationId, user.role),
-    prisma.agent.findMany({ where: { organisationId: bug.organisationId, ownerUserId: user.id, revokedAt: null }, select: { level: true } }),
+    prisma.agent.findMany({ where: { ...activeIn(bug.organisationId), ownerUserId: user.id, revokedAt: null }, select: { activations: activeLevels } }),
   ]);
   const powers = githubStatusPowers({
     member: Boolean(access.membershipRole),
     admin: access.admin,
     ownsIssue: bug.reporterId === user.id || bug.beneficiaryUserId === user.id,
-    agentLevels: agents.map((agent) => agent.level),
+    agentLevels: agents.map((agent) => levelIn(agent, bug.organisationId)),
   });
   return { user, bug, powers };
 }

@@ -13,7 +13,7 @@ export const AGENTS_DOCK_HEIGHT = 76;
  * Everything else hides it, including pages added later until they are named
  * here. The pages, matched on whole path segments (a trailing slash is fine):
  *
- * - the organisation's `/home`, `/feed` and `/inbox` (and below it);
+ * - the organisation's `/home`, `/feed`, `/activity` and `/inbox` (and below it);
  * - the earn pages (`isEarnPath`, lib/earn/paths.ts), where an earner keeps the
  *   bar for their agents (#earn-drafts);
  * - a project's landing page `/<org>/<project>`, its `/ideas` and `/issues`
@@ -33,7 +33,7 @@ export function dockVisibleOn(pathname: string | null | undefined, agentCount: n
   if (!first) return false;
   if (isEarnPath(pathname)) return true;
   if (first === "inbox") return true;
-  if (first === "home" || first === "feed") return segments.length === 1;
+  if (first === "home" || first === "feed" || first === "activity") return segments.length === 1;
   if (isReservedProjectSlug(first) || segments.length < 2 || isProjectFirstPath(path)) return false;
   // A project's pages, after /<org>/<project>.
   const [page, ...below] = segments.slice(2);

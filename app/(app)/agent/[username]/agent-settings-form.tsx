@@ -14,10 +14,13 @@ export function AgentLevelForm({
   name,
   level,
   levels,
+  organisationId,
 }: {
   agentId: string;
   name: string;
   level: AgentLevel;
+  /** The organisation whose class this is (#user-agents). */
+  organisationId: string;
   /** The levels this viewer may set. */
   levels: AgentLevel[];
 }) {
@@ -30,7 +33,7 @@ export function AgentLevelForm({
     const previous = current;
     setCurrent(next);
     startTransition(async () => {
-      const result = await setAgentLevelAction(agentId, next);
+      const result = await setAgentLevelAction(agentId, next, organisationId);
       if (!result.ok) {
         setCurrent(previous);
         toast(result.error, "error");

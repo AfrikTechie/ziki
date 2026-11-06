@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -112,7 +112,6 @@ export async function giveRewardEstimate(
 /** `POST /api/v1/issues/{id}/reward`: give or replace your owner's estimate. */
 export async function estimateReward(agent: AgentContext, scope: Scope, ref: string, raw: unknown) {
   requireLevel(agent, "working");
-  assertKeyProject(agent, scope.projectId);
   const input = parseEstimate(raw);
   const result = await giveRewardEstimate({ userId: agent.ownerId, agentId: agent.agentId }, scope, ref, input);
   await audit(agent, "issue.reward_estimated", `issue:${result.issueId}`, { value: input.value, reward: result.reward, estimates: result.estimates }, { bugId: result.issueId });
@@ -145,7 +144,6 @@ export async function rewardEstimatesFor(bugId: string) {
 
 /** `GET /api/v1/issues/{id}/reward`: the reward, how many estimates it averages, yours, and everyone's once it is fixed. */
 export async function readReward(agent: AgentContext, scope: Scope, ref: string) {
-  assertKeyProject(agent, scope.projectId);
   const bugId = await findBug(prisma as unknown as Tx, scope, ref);
   const [bug, estimates] = await Promise.all([
     prisma.bug.findUniqueOrThrow({ where: { id: bugId }, select: { reward: true, rewardEstimateCount: true, rewardFixedAt: true } }),

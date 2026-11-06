@@ -1,5 +1,6 @@
 import type { AgentLevel, Prisma, PrismaClient } from "@prisma/client";
 import { issueHref } from "@/lib/issue-ref";
+import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -44,17 +45,17 @@ export async function teamAgentsForMembers(
   if (ownerUserIds.length === 0) return result;
 
   const agents = await db.agent.findMany({
-    where: { organisationId, ownerUserId: { in: ownerUserIds }, revokedAt: null },
+    where: { ...activeIn(organisationId), ownerUserId: { in: ownerUserIds }, revokedAt: null },
     orderBy: { createdAt: "asc" },
     select: {
       id: true,
       ownerUserId: true,
       name: true,
       model: true,
-      level: true,
+      activations: activeLevels,
       // #1123: any authenticated request counts as being seen, not only a
       // claim heartbeat. requireAgent stamps lastUsedAt, at most once a minute.
-      apiKeys: { where: { revokedAt: null }, select: { lastUsedAt: true } },
+      apiKeys: { where: { revokedAt: null, organisationId }, select: { lastUsedAt: true } },
       claims: {
         where: {
           status: "active",
@@ -129,7 +130,7 @@ export async function teamAgentsForMembers(
       id: agent.id,
       name: agent.name,
       model: agent.model,
-      level: agent.level,
+      level: levelIn(agent, organisationId),
       online: isTeamAgentOnline(lastSeen, now),
       acceptedFixes: fixesByAgent.get(agent.id)?.size ?? 0,
       currentWork,

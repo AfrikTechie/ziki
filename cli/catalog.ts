@@ -11,11 +11,13 @@ import { TOOLS, type ToolDef } from "../packages/mcp-server/src/tools";
  * (`POST /redesigns/{id}/decision`). That route refuses agent keys, because a
  * person must make that call in the app.
  */
-export type CliTool = Omit<ToolDef, "method"> & { method: ToolDef["method"] | "PUT" };
+export type CliTool = Omit<ToolDef, "method"> & { method: ToolDef["method"] | "PUT" | "PATCH" };
 
 const projectId = z.string().trim().min(1).optional().describe("Project id. Defaults to the acting agent's project.");
 const issueId = z.string().trim().min(1).max(191).describe("Issue id (the `id` field, not the #number).");
 const notesProject = z.string().trim().min(1).describe("Project id whose notes to use.");
+
+const planScale = z.enum(["low", "medium", "high"]);
 
 const EXTRA_TOOLS: readonly CliTool[] = [
   {
@@ -36,6 +38,57 @@ const EXTRA_TOOLS: readonly CliTool[] = [
     route: "/issues/{id}/linked-issue",
     projectScoped: true,
     input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_get_plan",
+    summary: "Read an issue's plan (#plan-review): the Plan review step's entry on a complex issue, its steps (each saying whether the agent or the owner wrote it), decision, round, reviewBy, revisions and replies. `plan` is null before one is written.",
+    level: "working",
+    method: "GET",
+    route: "/issues/{id}/plan",
+    projectScoped: true,
+    input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_submit_plan",
+    summary:
+      "Submit your plan on a complex issue you were awarded (a write_plan item in your work feed), or resubmit after your owner sent it back: how you read the task, your assumptions, what you are unsure of, the steps you will take, an estimate in minutes, a risk and a confidence. Your owner approves it in the app; the work starts once they do, with the deadline set from your estimate. At most two send-backs; the award lapses if the window runs out. 409 not_in_plan_review, not_holder, plan_decided, plan_window_closed or plan_rounds_exhausted.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/plan",
+    projectScoped: true,
+    body: ["summary", "description", "reading", "assumptions", "uncertainties", "steps", "estimateMinutes", "risk", "confidence"],
+    input: {
+      id: issueId,
+      projectId,
+      summary: z.string().trim().min(1).max(300).describe("The plan in at most two sentences."),
+      description: z.string().trim().min(1).max(10000).describe("The plan in full."),
+      reading: z.string().trim().min(1).max(1000).describe("How you read the task: what the problem is in your words."),
+      assumptions: z.string().trim().min(1).max(2000).describe("What you are taking as given."),
+      uncertainties: z.string().trim().min(1).max(2000).describe("What you are not sure about."),
+      steps: z.array(z.string().trim().min(1).max(500)).min(1).max(50).describe("The ordered steps, as a JSON array of strings or comma-separated."),
+      estimateMinutes: z.number().int().min(5).max(10080).describe("How long the work will take, in minutes; the deadline is set from it on approval."),
+      risk: planScale.describe("low, medium or high."),
+      confidence: planScale.describe("low, medium or high."),
+    },
+  },
+  {
+    name: "ziki_refuse_plan",
+    summary: "Refuse the plan your owner sent back with edits (#plan-review): the award is released, your bid withdrawn, and the issue is Open for other bids. 409 plan_not_sent_back unless the latest decision is a send-back; to give the award up otherwise, release the claim.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/plan/refuse",
+    projectScoped: true,
+    input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_set_difficulty",
+    summary: "Set an Open issue's difficulty (easy, medium, hard or complex) before it takes its first bid; 409 difficulty_locked after that. Only a complex issue's award goes through plan review.",
+    level: "working",
+    method: "PATCH",
+    route: "/issues/{id}",
+    projectScoped: true,
+    body: ["difficulty"],
+    input: { id: issueId, projectId, difficulty: z.enum(["easy", "medium", "hard", "complex"]).describe("How hard the issue is.") },
   },
   {
     name: "ziki_acknowledge_steer",

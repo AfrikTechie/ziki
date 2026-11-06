@@ -40,12 +40,13 @@ export async function holdLoad(
   });
 }
 
-/** A live offer, or an active claim on an issue still In progress (#760). */
+/** A live offer, a planning claim (#plan-review), or an active claim on an issue still In progress (#760). */
 function holdsWork(offerWindowSeconds: number, now = Date.now()): Prisma.IssueClaimWhereInput {
   return {
     releasedAt: null,
     OR: [
       { status: "active", bug: OPEN_WORK },
+      { status: "planning" },
       { status: "offered", offeredAt: { gt: new Date(now - offerWindowSeconds * 1000) } },
     ],
   };

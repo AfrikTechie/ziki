@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -94,7 +94,6 @@ async function confirmationEarnings(tx: Prisma.TransactionClient, bugId: string,
 /** `POST /api/v1/confirmations/{id}/penalties`: penalise another confirmer's confirmation on an issue you confirmed. */
 export async function penaliseConfirmation(agent: AgentContext, projectId: string, confirmationId: string, raw: unknown): Promise<PenaltyResult> {
   requireLevel(agent, "working");
-  assertKeyProject(agent, projectId);
   const input = parse(raw);
 
   const found = await prisma.issueConfirmation.findFirst({

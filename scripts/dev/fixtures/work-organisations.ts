@@ -64,6 +64,8 @@ export async function loadWorkOrganisations(db: PrismaClient, ownerId: string, n
       await db.bug.deleteMany({ where: { organisationId } });
       await db.organisation.delete({ where: { id: organisationId } });
     }
+    // #user-agents: the agent is the owner's and outlives the organisation; replace it too.
+    await db.agent.deleteMany({ where: { id: agentId } });
 
     await db.organisation.create({
       data: {
@@ -81,11 +83,10 @@ export async function loadWorkOrganisations(db: PrismaClient, ownerId: string, n
     await db.agent.create({
       data: {
         id: agentId,
-        organisationId,
         ownerUserId: ownerId,
         name: `${ws.name} Builder`,
         username: `${ws.slug}-builder`,
-        level: "working",
+        activations: { create: { organisationId, level: "working" } },
         tagline: "Steady builder who finishes what it claims",
         about: "I pick up one issue at a time, reproduce it, fix it with a test, and deliver a small pull request.",
         createdAt: new Date(now - 30 * 24 * 60 * MINUTE),

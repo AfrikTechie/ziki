@@ -5,7 +5,7 @@ import { audit } from "@/lib/agents/audit";
 import { generateApiKey, generateDeviceCode, generateUserCode, hashSecret, normalizeUserCode } from "@/lib/agents/keys";
 import { organisationForOwner } from "@/lib/agents/membership";
 import { DEFAULT_AGENT_LEVEL, SELF_REGISTRATION_LEVELS, normalizeAgentLevel } from "@/lib/agents/levels";
-import { agentModelSchema, agentNameSchema, insertAgentWithKey, type Actor, type IssuedKey } from "@/lib/agents/registry";
+import { agentModelSchema, agentNameSchema, countActiveAgents, insertAgentWithKey, type Actor, type IssuedKey } from "@/lib/agents/registry";
 import { AGENT_LIMIT_MESSAGE, MAX_ACTIVE_AGENTS_PER_OWNER } from "@/lib/agents/registry-limits";
 import { logger } from "@/lib/logger";
 import { AGENT_INSTRUCTIONS_MAX } from "@/lib/agent-messages";
@@ -120,7 +120,6 @@ export async function findPendingPairing(userCode: string, now = new Date()): Pr
 export type ApprovePairingResult = { ok: true; name: string } | { ok: false; error: string };
 
 const CODE_NOT_FOUND = "That code doesn't match a waiting agent. It may have expired; ask the agent for a new one.";
-const PROJECT_REQUIRED = "Choose a project in this organisation.";
 const NO_ORGANISATION = "Join or create a team before you register agents.";
 
 /**
@@ -149,7 +148,6 @@ export async function approvePairing(
   owner: Actor,
   userCode: string,
   now = new Date(),
-  projectId = "",
   organisationId?: string | null,
   instructions?: unknown,
 ): Promise<ApprovePairingResult> {
@@ -161,26 +159,14 @@ export async function approvePairing(
   const organisation = await organisationForApproval(owner.id, organisationId);
   if (!organisation) return { ok: false, error: NO_ORGANISATION };
 
-  // Checked before the pairing is claimed, so a bad project doesn't burn the code (#742).
-  const project = projectId
-    ? await prisma.project.findFirst({
-        where: { id: projectId, organisationId: organisation },
-        select: { id: true },
-      })
-    : null;
-  if (!project) return { ok: false, error: PROJECT_REQUIRED };
-
   const codeHash = hashSecret(code);
   const result = await prisma.$transaction(async (tx) => {
     // Checked before the pairing is claimed, so hitting the cap does not burn
     // the code the person already typed (#511).
-    const active = await tx.agent.count({
-      where: { organisationId: organisation, ownerUserId: owner.id, revokedAt: null },
-    });
-    if (active >= MAX_ACTIVE_AGENTS_PER_OWNER) return { ok: false, error: AGENT_LIMIT_MESSAGE } as const;
+    if ((await countActiveAgents(tx, owner.id)) >= MAX_ACTIVE_AGENTS_PER_OWNER) return { ok: false, error: AGENT_LIMIT_MESSAGE } as const;
     const approved = await tx.agentPairing.updateMany({
       where: { codeHash, approvedAt: null, ownerUserId: null, expiresAt: { gt: now }, OR: [{ proposedLevel: null }, { proposedLevel: { in: [...SELF_REGISTRATION_LEVELS] } }] },
-      data: { ownerUserId: owner.id, organisationId: organisation, projectId: project.id, approvedAt: now },
+      data: { ownerUserId: owner.id, organisationId: organisation, approvedAt: now },
     });
     if (approved.count !== 1) return { ok: false, error: CODE_NOT_FOUND } as const;
     const pairing = await tx.agentPairing.findUnique({
@@ -252,13 +238,13 @@ async function attachApprovedAgent(
   if (!requested.ok) throw new Error(requested.error);
   const created = await tx.agent.create({
     data: {
-      organisationId: pairing.organisationId,
       ownerUserId: pairing.ownerUserId,
       name: pairing.proposedName,
       // #agent-profile: its @username starts as its name; it can change it.
       username: await freeUsername(tx, pairing.organisationId, pairing.proposedName),
       model: pairing.proposedModel,
-      level: pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL,
+      // #user-agents: active in the organisation that approved it.
+      activations: { create: { organisationId: pairing.organisationId, level: pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL } },
       ...(pairing.instructions ? { instructions: pairing.instructions } : {}),
     },
     select: { id: true },
@@ -290,7 +276,7 @@ async function attachApprovedAgent(
 }
 
 export type CollectResult =
-  | { status: "issued"; key: IssuedKey; projectId: string }
+  | { status: "issued"; key: IssuedKey; organisationId: string }
   | { status: "pending" }
   | { status: "expired" }
   | { status: "used" }
@@ -314,7 +300,6 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
       consumedAt: true,
       ownerUserId: true,
       organisationId: true,
-      projectId: true,
       agentId: true,
     },
   });
@@ -329,10 +314,6 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
   if (pairing.expiresAt.getTime() + PAIRING_TTL_MS <= now.getTime()) return { status: "expired" };
 
   const { ownerUserId, organisationId, agentId } = pairing;
-  // Resolved before the code is consumed, so a missing project doesn't burn it.
-  // Older approvals have no project; those keys use the organisation's oldest project.
-  const projectId = await projectForIssuedKey(organisationId, pairing.projectId);
-  if (!projectId) return { status: "invalid" };
 
   return prisma.$transaction(async (tx) => {
     // Two polls racing: only one marks it consumed and gets the key.
@@ -344,15 +325,18 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
     if (agentId) {
       // The owner may have changed the agent's level after approval; report
       // the level the key actually works at, not the one asked for (#1182).
-      const agent = await tx.agent.findUnique({ where: { id: agentId }, select: { level: true } });
+      const activation = await tx.agentActivation.findUnique({
+        where: { agentId_organisationId: { agentId, organisationId } },
+        select: { level: true },
+      });
       const key = generateApiKey();
       await tx.agentApiKey.create({
-        data: { agentId, projectId, keyHash: key.hash, prefix: key.prefix },
+        data: { agentId, organisationId, keyHash: key.hash, prefix: key.prefix },
       });
       return {
         status: "issued",
-        key: { agentId, name: pairing.proposedName, level: agent?.level ?? pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL, rawKey: key.raw, prefix: key.prefix },
-        projectId,
+        key: { agentId, name: pairing.proposedName, level: activation?.level ?? pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL, rawKey: key.raw, prefix: key.prefix },
+        organisationId,
       } as const;
     }
     const key = await insertAgentWithKey(tx, {
@@ -361,35 +345,17 @@ export async function collectPairing(deviceCode: unknown, now = new Date()): Pro
       name: pairing.proposedName,
       model: pairing.proposedModel,
       level: pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL,
-      projectId,
     });
     await tx.agentPairing.update({ where: { id: pairing.id }, data: { agentId: key.agentId } });
     await audit(
       { agentId: key.agentId, organisationId },
       "agent.created",
       `agent:${key.agentId}`,
-      { name: key.name, model: pairing.proposedModel, level: pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL, projectId, via: "pairing" },
+      { name: key.name, model: pairing.proposedModel, level: pairing.proposedLevel ?? DEFAULT_AGENT_LEVEL, via: "pairing" },
       { actorUserId: ownerUserId, db: tx },
     );
-    return { status: "issued", key, projectId } as const;
+    return { status: "issued", key, organisationId } as const;
   });
-}
-
-/** The project a collected key is limited to. A missing id falls back to the oldest project. */
-async function projectForIssuedKey(organisationId: string, projectId: string | null): Promise<string | null> {
-  if (projectId) {
-    const chosen = await prisma.project.findFirst({
-      where: { id: projectId, organisationId },
-      select: { id: true },
-    });
-    return chosen?.id ?? null;
-  }
-  const oldest = await prisma.project.findFirst({
-    where: { organisationId },
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-  });
-  return oldest?.id ?? null;
 }
 
 /**

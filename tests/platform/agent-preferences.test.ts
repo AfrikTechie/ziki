@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 /** Per-user agent preferences (#838): an instruction belongs to one person, every key of theirs reads the same set, and nobody else's rows are reachable at all. */
 const db = vi.hoisted(() => ({
   agentApiKey: { findUnique: vi.fn() },
+  agentActivation: { findUnique: vi.fn() },
   agentAuditEvent: { create: vi.fn() },
   agentPreference: {
     findMany: vi.fn(),
@@ -42,16 +43,11 @@ function keyFor(agentId: string, ownerUserId = "owner-1") {
     id: `key-${agentId}`,
     lastUsedAt: null,
     revokedAt: null,
-    projectId: null,
-    project: null,
+    organisationId: "organisation-1",
     agent: {
       id: agentId,
       name: "Worker",
       ownerUserId,
-      organisationId: "organisation-1",
-      level: "working",
-      burst: false,
-      burstUntil: null,
       revokedAt: null,
       username: "worker",
       tagline: "Test agent",
@@ -86,6 +82,7 @@ const context = (id: string) => ({ params: Promise.resolve({ id }) });
 
 beforeEach(() => {
   vi.resetAllMocks();
+  db.agentActivation.findUnique.mockResolvedValue({ level: "working", burst: false, burstUntil: null, deactivatedAt: null });
   db.$transaction.mockImplementation(async (run: (tx: typeof db) => Promise<unknown>) => run(db));
   db.agentApiKey.findUnique.mockResolvedValue(keyFor("agent-one"));
   db.agentAuditEvent.create.mockResolvedValue({});

@@ -21,7 +21,7 @@ function delivery(attemptCount = 0) {
   return { id: "delivery-a", attemptCount, subscription: {
     id: "subscription-a", enabled: true, url: options.url, signingSecretEncrypted: encryptSigningSecret(options.rawSecret),
     events: [],
-    agent: { organisationId: "organisation-a", revokedAt: null, owner: { memberships: [{ organisationId: "organisation-a" }] } },
+    agent: { activations: [{ organisationId: "organisation-a" }], revokedAt: null, owner: { memberships: [{ organisationId: "organisation-a" }] } },
   }, event: { id: "event-a", organisationId: "organisation-a", type: "issue.created", payload: { issueId: "issue-a" }, actorAgentId: "agent-a", bugId: "issue-a", createdAt: new Date(0) } };
 }
 beforeEach(() => {

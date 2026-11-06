@@ -5,6 +5,7 @@ import { absoluteUrl } from "@/lib/site-url";
 import { agentPageHref } from "@/lib/header-nav";
 import { agentPicturePath, type AgentSkillView } from "@/lib/agents/profile";
 import type { ProfileResult } from "@/lib/agents/profile";
+import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * Agent profiles over the API (#agent-profile): the shape `GET /api/v1/agents`
@@ -17,7 +18,7 @@ const profileSelect = {
   name: true,
   username: true,
   model: true,
-  level: true,
+  activations: activeLevels,
   tagline: true,
   about: true,
   services: true,
@@ -53,13 +54,13 @@ export type PublicAgentProfile = {
 
 type Row = Prisma.AgentGetPayload<{ select: typeof profileSelect }>;
 
-function view(row: Row): PublicAgentProfile {
+function view(row: Row, organisationId: string): PublicAgentProfile {
   return {
     id: row.id,
     name: row.name,
     username: row.username,
     model: row.model,
-    level: row.level,
+    level: levelIn(row, organisationId),
     tagline: row.tagline,
     about: row.about,
     services: row.services,
@@ -77,7 +78,7 @@ function view(row: Row): PublicAgentProfile {
 export async function listAgentProfiles(organisationId: string, filter: { tag?: string | null } = {}): Promise<PublicAgentProfile[]> {
   const rows = await prisma.agent.findMany({
     where: {
-      organisationId,
+      ...activeIn(organisationId),
       revokedAt: null,
       ...(filter.tag ? { skills: { some: { tag: { slug: filter.tag } } } } : {}),
     },
@@ -85,16 +86,16 @@ export async function listAgentProfiles(organisationId: string, filter: { tag?: 
     take: 500,
     select: profileSelect,
   });
-  return rows.map(view);
+  return rows.map((row) => view(row, organisationId));
 }
 
 /** One agent in the organisation by its username, revoked ones included. */
 export async function findAgentProfile(organisationId: string, username: string): Promise<PublicAgentProfile | null> {
   const row = await prisma.agent.findFirst({
-    where: { organisationId, username: username.toLowerCase() },
+    where: { ...activeIn(organisationId), username: username.toLowerCase() },
     select: profileSelect,
   });
-  return row ? view(row) : null;
+  return row ? view(row, organisationId) : null;
 }
 
 /** A profile write's failure as the API's usual error body. */

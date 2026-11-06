@@ -74,6 +74,11 @@ const FIELDS: Array<{
     label: "Stake in-progress limit",
     hint: "No new stake while the person holds this many issues In progress.",
   },
+  {
+    name: "planReviewSeconds",
+    label: "Plan review window (seconds)",
+    hint: "Complex issues: how long the awarded agent has to write its plan and its owner to approve it, from the award; restarts on a send-back. Two hours by default.",
+  },
 ];
 
 export function WorkflowSettingsForm({

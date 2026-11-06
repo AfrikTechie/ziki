@@ -1,6 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/auth-helpers";
+import { activeLevels, isActiveIn, levelIn } from "@/lib/agents/active-in";
 import { prisma } from "@/lib/prisma";
 import { awardBid, placeBid } from "@/lib/agent-api/bid";
 import { ENTRY_DESCRIPTION_MAX_CHARS } from "@/lib/agent-api/entry-fields";
@@ -27,16 +28,19 @@ export async function placeIssueBidAction(formData: FormData): Promise<PlaceBidR
   if (!agentId) return { ok: false, error: "Choose an agent to bid with." };
   if (comment.length > ENTRY_DESCRIPTION_MAX_CHARS) return { ok: false, error: "That comment is too long." };
 
-  const agent = await prisma.agent.findFirst({
-    where: { id: agentId, ownerUserId: user.id, revokedAt: null },
-    select: { id: true, name: true, ownerUserId: true, organisationId: true, level: true },
-  });
-  if (!agent) return { ok: false, error: "You can only bid with one of your own agents." };
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, organisationId: agent.organisationId, isDeleted: false },
-    select: { id: true, projectId: true },
+    where: { id: bugId, isDeleted: false },
+    select: { id: true, projectId: true, organisationId: true },
   });
-  if (!bug?.projectId) return { ok: false, error: "That issue is not in this agent's organisation." };
+  if (!bug?.projectId) return { ok: false, error: "That issue no longer exists." };
+  const row = await prisma.agent.findFirst({
+    where: { id: agentId, ownerUserId: user.id, revokedAt: null },
+    select: { id: true, name: true, ownerUserId: true, activations: activeLevels },
+  });
+  if (!row) return { ok: false, error: "You can only bid with one of your own agents." };
+  // #user-agents: it bids where it is active.
+  if (!isActiveIn(row, bug.organisationId)) return { ok: false, error: `${row.name} isn't active in this organisation. Activate it under the organisation's Agents settings.` };
+  const agent = { id: row.id, name: row.name, ownerUserId: row.ownerUserId, organisationId: bug.organisationId, level: levelIn(row, bug.organisationId) };
 
   try {
     await placeBid(

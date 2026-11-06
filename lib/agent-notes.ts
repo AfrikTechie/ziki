@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import type { NotesActor } from "@/lib/project-notes";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * An agent's own notes on a project (#agent-notes): what it learned and wants
@@ -52,7 +53,7 @@ export async function deleteAgentNote(actor: NotesActor, noteId: string) {
 /** The person's agents in this organisation, for the Notes sidebar, with how many notes each keeps on the project. */
 export async function ownAgentsWithNotes(userId: string, organisationId: string, projectId: string) {
   const agents = await prisma.agent.findMany({
-    where: { ownerUserId: userId, organisationId, revokedAt: null },
+    where: { ownerUserId: userId, ...activeIn(organisationId), revokedAt: null },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, _count: { select: { agentNotes: { where: { projectId } } } } },
   });

@@ -15,6 +15,7 @@ import { agentProfileJsonLd, agentProfileMetadata } from "@/lib/seo/agents";
 import { JsonLd } from "@/components/json-ld";
 import { AgentKeyPanel } from "./agent-key-panel";
 import { loadOwnerKey } from "./owner-key";
+import { AgentActivationButton } from "@/app/(app)/settings/agents/agent-activation-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
@@ -38,31 +39,35 @@ export default async function AgentProfilePage({
 }) {
   if (!isAgentPlatformEnabled()) notFound();
   const { username } = await params;
-  const found = await findAgentByUsername(username);
-  if (!found) notFound();
   const viewer = await optionalUser();
+  const found = await findAgentByUsername(username, viewer?.id ?? null);
+  if (!found) notFound();
+  const organisationId = found.organisationId;
 
   const isOwner = viewer?.id === found.ownerUserId;
-  const [isAdmin, membership] = viewer
+  // #user-agents: members of the organisation the page shows it in see what it did there.
+  const [isAdmin, membership] = viewer && organisationId
     ? await Promise.all([
-        isAdminOfOrganisation(viewer, found.organisationId),
-        prisma.membership.findUnique({ where: { organisationId_userId: { organisationId: found.organisationId, userId: viewer.id } }, select: { userId: true } }),
+        isAdminOfOrganisation(viewer, organisationId),
+        prisma.membership.findUnique({ where: { organisationId_userId: { organisationId, userId: viewer.id } }, select: { userId: true } }),
       ])
     : [false, null];
   const isMember = Boolean(membership) || isAdmin;
   const canEdit = isOwner || isAdmin;
 
-  const profile = await loadAgentProfile(found.id, viewer?.id ?? null);
+  const profile = await loadAgentProfile(found.id, viewer?.id ?? null, organisationId);
   if (!profile) notFound();
   const [reviews, ownAgents] = await Promise.all([
     isMember ? loadReviews(found.id, profile.deliveredBugIds) : Promise.resolve([]),
-    viewer ? loadOwnAgents(viewer.id, profile.organisationId, found.id) : Promise.resolve([]),
+    viewer ? loadOwnAgents(viewer.id, found.id) : Promise.resolve([]),
   ]);
   const reviewCount = isMember ? reviews.length : 0;
   // #seo-agents: structured data for a public (set-up, not revoked) profile only.
   const jsonLd = await agentProfileJsonLd(username);
-  // Its key is its owner's alone: not even a team admin is shown it.
-  const ownerKey = isOwner && !profile.agent.revokedAt ? await loadOwnerKey(found.id, found.organisationId) : null;
+  // Its key is its owner's alone: not even a team admin is shown it. It is the key for the organisation you are in.
+  const viewerOrganisation = found.viewerOrganisation;
+  const ownerKey =
+    isOwner && !profile.agent.revokedAt && viewerOrganisation && found.activeForViewer ? await loadOwnerKey(found.id, viewerOrganisation.id) : null;
   const missing = missingProfileFields({ ...profile.agent, skillCount: profile.agent.skills.length });
   const blocked = !profile.agent.revokedAt && missing.length > 0;
 
@@ -105,15 +110,27 @@ export default async function AgentProfilePage({
           blocked={canEdit && blocked}
           showActivity={isMember}
           keyPanel={
-            ownerKey ? (
+            ownerKey && viewerOrganisation ? (
               <AgentKeyPanel
                 agentId={found.id}
                 agentName={profile.agent.name}
                 liveKey={ownerKey.liveKey}
                 startOpen={(await searchParams).connect === "1"}
-                projectId={ownerKey.projectId}
-                projectName={ownerKey.projectName}
+                organisationName={viewerOrganisation.name}
               />
+            ) : isOwner && !profile.agent.revokedAt && viewerOrganisation ? (
+              <section className={`${agentsSurface} space-y-3 p-5 sm:p-6`} aria-label={`Bring ${profile.agent.name} into ${viewerOrganisation.name}`}>
+                <p className={agentsMutedClass}>
+                  {profile.agent.name} doesn&apos;t work in {viewerOrganisation.name}. Bring it in to work in every project here.
+                </p>
+                <AgentActivationButton
+                  agentId={found.id}
+                  agentName={profile.agent.name}
+                  organisationId={viewerOrganisation.id}
+                  organisationName={viewerOrganisation.name}
+                  active={false}
+                />
+              </section>
             ) : null
           }
           editControl={

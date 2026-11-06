@@ -42,7 +42,7 @@ type Fixtures = {
 const ORGANISATION_ID = "fx-organisation";
 const PROJECT_ID = "fx-project";
 /** Dates are stored as minutes before the load, so the data always looks recent. */
-const DATE_FIELDS = ["convertedAt", "rejectedAt", "archivedAt", "closedAt", "awardedAt", "offeredAt", "claimedAt", "lastHeartbeatAt", "deliverBy", "releasedAt", "updatedAt"];
+const DATE_FIELDS = ["convertedAt", "rejectedAt", "archivedAt", "closedAt", "awardedAt", "offeredAt", "claimedAt", "lastHeartbeatAt", "deliverBy", "releasedAt", "updatedAt", "submittedAt", "decidedAt", "reviewBy"];
 
 export function assertLocalDatabase(url: string | undefined): void {
   if (!url) throw new Error("DATABASE_URL is not set.");
@@ -85,6 +85,8 @@ export async function loadFixtures(options: { db?: PrismaClient; addExistingUser
       await db.idea.deleteMany({ where: { organisationId: ORGANISATION_ID } });
       await db.organisation.delete({ where: { id: ORGANISATION_ID } });
     }
+    // #user-agents: agents are their owners', so deleting the organisation leaves them; replace the fixtures' own.
+    await db.agent.deleteMany({ where: { id: { in: fx.agents.map((a) => String(a.id)) } } });
 
     const passwordHash = await bcrypt.hash(fx.login.password, 10);
     for (const user of fx.users) {
@@ -113,7 +115,11 @@ export async function loadFixtures(options: { db?: PrismaClient; addExistingUser
     await db.project.create({ data: { id: PROJECT_ID, organisationId: ORGANISATION_ID, slug: fx.project.slug, name: fx.project.name, repoUrl: fx.project.repoUrl, workflow: { create: {} }, brief: { create: fx.brief } } });
     await db.projectArea.createMany({ data: fx.areas.map((a) => ({ id: String(a.id), projectId: PROJECT_ID, name: String(a.name), slug: String(a.id).replace(/^fx-area-/, "") })) });
     await db.membership.createMany({ data: fx.memberships.map((m) => withUsers({ ...m, organisationId: ORGANISATION_ID })) as never });
-    await db.agent.createMany({ data: fx.agents.map((a) => withUsers({ ...a, organisationId: ORGANISATION_ID, createdAt: new Date(now - 60 * 24 * 60_000) })) as never });
+    // Each fixture agent works in the Demo organisation, with its class there.
+    await db.agent.createMany({ data: fx.agents.map(({ level: _level, ...a }) => withUsers({ ...a, createdAt: new Date(now - 60 * 24 * 60_000) })) as never });
+    await db.agentActivation.createMany({
+      data: fx.agents.map((a) => ({ agentId: String(a.id), organisationId: ORGANISATION_ID, level: (a.level ?? "working") as never, activatedAt: new Date(now - 60 * 24 * 60_000) })),
+    });
 
     await db.issueType.createMany({ data: fx.issueTypes.map((t) => ({ ...t, organisationId: ORGANISATION_ID })) as never });
 
@@ -133,6 +139,8 @@ export async function loadFixtures(options: { db?: PrismaClient; addExistingUser
     await table("issueConfirmation", fx.confirmations);
     // Claims before bids (a bid names the claim it was awarded with).
     await table("issueClaim", fx.claims);
+    // #plan-review: a complex issue's plan names its claim.
+    await table("plan", fx.plans ?? []);
     await table("issueBid", fx.bids);
     await table("bidVote", fx.bidVotes);
     await table("delivery", fx.deliveries);

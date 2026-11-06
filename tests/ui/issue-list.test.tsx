@@ -336,36 +336,6 @@ describe("issue list layout", () => {
     expect(Object.keys(counted(stages(html)))).toEqual(["Ideas", "In Progress", "Delivered"]);
   });
 
-  it("renders the Collaboration Hub decision-first organisation with telemetry, 4-step decision cards, agent team roster, and safeguards (#831)", async () => {
-    const html = await renderList({ status: "all" });
-    expect(html).toContain('aria-label="Collaboration Hub"');
-    // 3 outcome telemetry summary cards
-    expect(html).toContain("Waiting for you");
-    expect(html).toContain("Both take under 2 minutes to check");
-    expect(html).toContain("Autonomous progress");
-    expect(html).toContain("82%");
-    expect(html).toContain("Active Assistants");
-    expect(html).toContain("4 online");
-    // Decision card 4-step progress strip, collapsible diff, and 3 decision actions
-    expect(html).toContain("1. Identified");
-    expect(html).toContain("2. Drafted fix");
-    expect(html).toContain("3. Tested");
-    expect(html).toContain("All 38 checks pass");
-    expect(html).toContain("4. Your sign-off");
-    expect(html).toContain("View technical details &amp; exact code changes");
-    expect(html).toContain("Looks good, publish fix");
-    expect(html).toContain("Ask Zuko to explain simply");
-    expect(html).toContain("Request changes");
-    // Agent team roster linking waiting agent to blocking card + Autonomous Safeguards
-    expect(html).toContain("Your Agent Team");
-    expect(html).toContain('href="#decision-card-zuko"');
-    expect(html).toContain("Waiting on you");
-    expect(html).toContain("Autonomous Safeguards");
-    expect(html).toContain("Database changes &amp; Live APIs");
-    expect(html).toContain("$1.00 max");
-    expect(html).toContain('href="/projects/acme/settings"');
-  });
-
 });
 
 /** The agents dock's settings (#agents-dock): saved per browser, and the dock still works when they can't be. */

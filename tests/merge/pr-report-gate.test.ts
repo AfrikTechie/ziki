@@ -5,6 +5,10 @@ const db = vi.hoisted(() => {
   const tx = {
     pullRequestReport: { create: vi.fn() },
     bug: { updateMany: vi.fn() },
+    delivery: { updateMany: vi.fn() },
+    testVerdict: { updateMany: vi.fn() },
+    mergeReview: { updateMany: vi.fn() },
+    reviewOffer: { updateMany: vi.fn() },
   };
   return {
     bug: { findFirst: vi.fn() },
@@ -23,6 +27,7 @@ vi.mock("@/lib/agent-notifications", () => ({ notifyMergeFailed: vi.fn() }));
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { reportPullRequestStatus } from "@/lib/agent-api/pull-request-report";
 import { prGate, type GateReport } from "@/lib/agent-api/pr-gate";
+import { repairPullRequestLink } from "@/lib/agent-api/repair-pull-request";
 
 const PR = "https://github.com/emerjent/ziki/pull/552";
 const scope = { organisationId: "t1", projectId: "p1" };
@@ -195,4 +200,102 @@ describe("prGate (#pr-reports)", () => {
     expect(prGate(report({ state: "closed" }), issue())).toMatchObject({ broken: "closed_unmerged", canDeliver: false });
   });
 
+});
+
+describe("repairPullRequestLink (#edit-pr-link)", () => {
+  it("lets the claim holder update their submitted pull request URL to a new PR in the project's repository", async () => {
+    db.bug.findFirst.mockResolvedValue(
+      bug({
+        status: "done",
+        proofLinks: [PR],
+        project: { repoUrl: "https://github.com/emerjent/ziki" },
+        claims: [{ status: "active", releasedAt: null, agentId: "agent-cara", beneficiaryUserId: "cara", dispatcherUserId: null, agent: { ownerUserId: "cara" } }],
+        deliveries: [{ id: "d1", pullRequestUrl: PR, agentId: "agent-cara", beneficiaryUserId: "cara", agent: { ownerUserId: "cara" } }],
+      }),
+    );
+    db.tx.delivery.updateMany.mockResolvedValue({ count: 1 });
+    const nextPr = "https://github.com/emerjent/ziki/pull/560";
+
+    const result = await repairPullRequestLink(checker("cara", "working"), scope, "bug1", { pullRequestUrl: nextPr });
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        repaired: true,
+        issueId: "bug1",
+        previousPullRequestUrl: PR,
+        pullRequestUrl: nextPr,
+        pullRequestHeadSha: null,
+        samePullRequest: false,
+        moved: { judgements: 0, mergeReviews: 0, deliveries: 1, reviewOffers: 0 },
+      },
+    });
+    expect(db.tx.bug.updateMany).toHaveBeenCalledWith({
+      where: { id: "bug1", pullRequestUrl: PR },
+      data: { pullRequestUrl: nextPr, pullRequestHeadSha: null, proofLinks: [nextPr] },
+    });
+    expect(db.tx.delivery.updateMany).toHaveBeenCalledWith({
+      where: {
+        bugId: "bug1",
+        pullRequestUrl: PR,
+        OR: [
+          { agentId: "agent-cara" },
+          { beneficiaryUserId: "cara" },
+          { agent: { ownerUserId: "cara" } },
+        ],
+      },
+      data: { pullRequestUrl: nextPr, headSha: null },
+    });
+  });
+
+  it("refuses former deliverer after another contributor claims and delivers, preserving manager repair", async () => {
+    const currentPr = PR;
+    const oldPr = "https://github.com/emerjent/ziki/pull/550";
+    const newPr = "https://github.com/emerjent/ziki/pull/560";
+    db.bug.findFirst.mockResolvedValue(
+      bug({
+        status: "done",
+        pullRequestUrl: currentPr,
+        assigneeId: "bob",
+        project: { repoUrl: "https://github.com/emerjent/ziki" },
+        claims: [{ status: "active", releasedAt: null, agentId: "agent-bob", beneficiaryUserId: "bob", dispatcherUserId: null, agent: { ownerUserId: "bob" } }],
+        deliveries: [
+          { id: "d1", pullRequestUrl: oldPr, agentId: "agent-cara", beneficiaryUserId: "cara", agent: { ownerUserId: "cara" } },
+          { id: "d2", pullRequestUrl: currentPr, agentId: "agent-bob", beneficiaryUserId: "bob", agent: { ownerUserId: "bob" } },
+        ],
+      }),
+    );
+
+    // Former deliverer Cara attempts replacement with a new PR
+    const formerAttempt = await repairPullRequestLink(checker("cara", "working"), scope, "bug1", {
+      pullRequestUrl: newPr,
+    });
+    expect(formerAttempt).toMatchObject({ status: 403, body: { error: "insufficient_level" } });
+
+    // Independent manager Dave repairs the link to canonical PR
+    const managerRepair = await repairPullRequestLink(checker("dave", "manager"), scope, "bug1", {
+      pullRequestUrl: newPr,
+    });
+    expect(managerRepair).toMatchObject({
+      status: 200,
+      body: { repaired: true, pullRequestUrl: newPr, samePullRequest: false, moved: { deliveries: 0 } },
+    });
+  });
+
+  it("rejects a pull request from another repository or an unrelated working agent", async () => {
+    db.bug.findFirst.mockResolvedValue(
+      bug({
+        status: "done",
+        project: { repoUrl: "https://github.com/emerjent/ziki" },
+      }),
+    );
+    const wrongRepo = await repairPullRequestLink(checker("cara", "working"), scope, "bug1", {
+      pullRequestUrl: "https://github.com/other/repo/pull/10",
+    });
+    expect(wrongRepo).toMatchObject({ status: 422, body: { error: "wrong_repository" } });
+
+    const unrelated = await repairPullRequestLink(checker("erin", "working"), scope, "bug1", {
+      pullRequestUrl: "https://github.com/emerjent/ziki/pull/560",
+    });
+    expect(unrelated).toMatchObject({ status: 403, body: { error: "insufficient_level" } });
+  });
 });

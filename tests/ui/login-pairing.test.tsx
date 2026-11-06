@@ -115,26 +115,25 @@ describe("pairing an agent (#431)", () => {
         initialCode="ABCD-2345"
         pending={{ name: "Ada's Claude", model: "Claude", level: "working", instructions }}
         unknownCode={false}
-        projects={[{ id: "project_1", name: "Ziki" } as never]}
-        activeProjectId="project_1"
+        organisationName="Ziki"
         instructionsMaxLength={4000}
       />,
     );
 
   it("keeps the owner's edit after a failed approval, and resubmits it rather than the agent's proposal", async () => {
     pairAgentAction.mockReset();
-    pairAgentAction.mockResolvedValue({ ok: false, error: "Choose a project in this organisation." });
+    pairAgentAction.mockResolvedValue({ ok: false, error: "Open an organisation first." });
     renderForm("Focus on desktop bugs.");
     fireEvent.change(screen.getByLabelText(/Standing instructions/), { target: { value: "Owner-edited brief." } });
     fireEvent.click(screen.getByRole("button", { name: "Approve agent" }));
-    await screen.findByText("Choose a project in this organisation.");
+    await screen.findByText("Open an organisation first.");
     fireEvent.click(screen.getByRole("button", { name: "Approve agent" }));
     await waitFor(() => expect(pairAgentAction).toHaveBeenCalledTimes(2));
     expect((pairAgentAction.mock.calls[1][1] as FormData).get("instructions")).toBe("Owner-edited brief.");
   });
 
   it("formats the pairing code and won't continue until it is valid", () => {
-    render(<PairForm initialCode="" pending={null} unknownCode={false} projects={[{ id: "project_1", name: "Ziki" } as never]} activeProjectId="project_1" instructionsMaxLength={4000} />);
+    render(<PairForm initialCode="" pending={null} unknownCode={false} organisationName="Ziki" instructionsMaxLength={4000} />);
     const input = screen.getByLabelText(/Pairing code/) as HTMLInputElement;
     expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(input, { target: { value: "abcd2345" } });

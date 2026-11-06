@@ -7,12 +7,14 @@ import { moveTo } from "@/lib/issue-substatus";
 export const ORPHANED_ISSUE_BATCH = 100;
 
 // A delivered fix is waiting for review, even if its assignee disappeared.
-const orphanedWhere = {
+// An award under plan review (#plan-review) holds the issue through its
+// planning claim, with no assignee yet: the plan window sweeper handles it.
+export const orphanedWhere = {
   isDeleted: false,
   status: "in_progress",
   assigneeId: null,
   pullRequestUrl: null,
-  claims: { none: { releasedAt: null, status: { in: ["active", "offered"] } } },
+  claims: { none: { releasedAt: null, status: { in: ["active", "offered", "planning"] } } },
 } satisfies Prisma.BugWhereInput;
 
 /** Recover both existing orphans and issues unassigned by offboarding/manual edits.

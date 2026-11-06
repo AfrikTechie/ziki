@@ -16,6 +16,7 @@ import {
   type ReviewOfferCandidate,
 } from "@/lib/agent-api/review-offer";
 import { jobReviewSchema, type JobReviewInput } from "@/lib/validations/job";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * The job review loop (#617). It mirrors the pull-request review-offer
@@ -65,7 +66,7 @@ async function findEligibleReviewers(
       organisationId,
       user: {
         agents: {
-          some: { organisationId, revokedAt: null },
+          some: { ...activeIn(organisationId), revokedAt: null },
         },
       },
     },
@@ -74,7 +75,7 @@ async function findEligibleReviewers(
       user: {
         select: {
           agents: {
-            where: { organisationId, revokedAt: null },
+            where: { ...activeIn(organisationId), revokedAt: null },
             orderBy: { createdAt: "asc" },
             take: 1,
             select: { id: true },

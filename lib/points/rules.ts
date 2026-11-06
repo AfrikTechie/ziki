@@ -150,7 +150,21 @@ export const POINT_AWARD_MAX = 10_000;
 /** Largest goal, in $, a super admin can store. */
 export const POINT_TARGET_MAX = 1_000_000;
 
-export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup" | "comment" | "vote";
+export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup" | "comment" | "vote" | "plan";
+
+/**
+ * The plan's award on a complex issue (#plan-review): $1 to the owner whose
+ * agent's approved plan the delivering claim ran under. Nothing at approval
+ * (approving your own agent's plan earns nothing on its own): it is held with
+ * the solver's reward when the work is resolved and released once enough
+ * people report it deployed, or paid on a marketing accept.
+ */
+export const PLAN_POINTS = 1;
+
+/** Idempotency key for a plan's points: once per issue and person, however many awards, plans or claims they go through. */
+export function planSourceKey(bugId: string, userId: string): string {
+  return `plan:${bugId}:${userId}`;
+}
 
 /** Paid for a person's first importance mark on an issue, and their first bid vote on an issue (#vote-points). */
 export const VOTE_POINTS = 0.01;

@@ -1,5 +1,7 @@
+import type { AgentLevel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AGENT_LEVELS } from "@/lib/agents/levels";
+import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * The agent a person awards bids through, from the issue page (#award-bids):
@@ -11,11 +13,12 @@ import { AGENT_LEVELS } from "@/lib/agents/levels";
  */
 export async function awardingAgentOf(userId: string, organisationId: string) {
   const agents = await prisma.agent.findMany({
-    where: { ownerUserId: userId, organisationId, revokedAt: null },
+    where: { ownerUserId: userId, ...activeIn(organisationId), revokedAt: null },
     orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, ownerUserId: true, organisationId: true, level: true },
+    select: { id: true, name: true, ownerUserId: true, activations: activeLevels },
   });
-  const rank = (level: (typeof agents)[number]["level"]) => AGENT_LEVELS.indexOf(level);
+  const ranked = agents.map(({ activations, ...agent }) => ({ ...agent, organisationId, level: levelIn({ activations }, organisationId) }));
+  const rank = (level: AgentLevel) => AGENT_LEVELS.indexOf(level);
   // Highest level first; among equals, the oldest (the query's order).
-  return agents.reduce<(typeof agents)[number] | null>((best, agent) => (!best || rank(agent.level) > rank(best.level) ? agent : best), null);
+  return ranked.reduce<(typeof ranked)[number] | null>((best, agent) => (!best || rank(agent.level) > rank(best.level) ? agent : best), null);
 }

@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { weightedTally } from "@/lib/governance";
+import { activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * Merge reviews as votes (#vote-governance). In a threshold-only project any
@@ -30,7 +31,7 @@ export async function mergeReviewVotes(db: Db, bug: ReviewedPullRequest, manager
   const rows = await db.mergeReview.findMany({
     where: { bugId: bug.id, pullRequestUrl: bug.pullRequestUrl },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-    select: { verdict: true, headSha: true, onBehalfOfUserId: true, agent: { select: { level: true } } },
+    select: { verdict: true, headSha: true, onBehalfOfUserId: true, bug: { select: { organisationId: true } }, agent: { select: { activations: activeLevels } } },
   });
   const current = rows.filter((row) => !bug.pullRequestHeadSha || !row.headSha || row.headSha === bug.pullRequestHeadSha);
   const latest = new Map<string, string>();
@@ -39,7 +40,7 @@ export async function mergeReviewVotes(db: Db, bug: ReviewedPullRequest, manager
     weightedTally(
       current
         .filter((row) => row.verdict === verdict && latest.get(row.onBehalfOfUserId) === verdict)
-        .map((row) => ({ ownerId: row.onBehalfOfUserId, level: row.agent.level })),
+        .map((row) => ({ ownerId: row.onBehalfOfUserId, level: levelIn(row.agent, row.bug.organisationId) })),
       managerVoteWeight,
     );
   return { accepts: tally("accept"), rejects: tally("reject"), reviewers: [...latest.keys()] };

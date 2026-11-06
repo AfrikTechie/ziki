@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentLevel, IdeaOpinion, Prisma, WorkTrack } from "@prisma/client";
+import type { AgentLevel, Difficulty, IdeaOpinion, Prisma, WorkTrack } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
@@ -22,7 +22,7 @@ import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision 
 /** Recorded on a conversion that skipped the verdicts because the person who filed the idea said it was already vetted. */
 export type VettedDecision = { via: "already_vetted"; decidedByUserId: string; decidedByAgentId: string; vettedNote: string };
 import { moveTo } from "@/lib/issue-substatus";
-import { moveIdeaStakesToIssue } from "@/lib/agent-api/stakes";
+import { dropIdeaStakes, moveIdeaStakesToIssue } from "@/lib/agent-api/stakes";
 import { trackRules } from "@/lib/marketing/track";
 
 /**
@@ -348,7 +348,7 @@ export async function listIdeaVerdicts(scope: Scope, ideaRef: string) {
  * work then needs confirming; marketing work opens immediately and pays its
  * reporter at conversion.
  */
-export async function convertIdea(agent: AgentContext, projectId: string, ideaRef: string) {
+export async function convertIdea(agent: AgentContext, projectId: string, ideaRef: string, difficulty: Difficulty) {
   const { ideaThreshold } = await workflowFor(projectId);
   const converted = await prisma.$transaction(async (tx) => {
     const scope = { organisationId: agent.organisationId, projectId };
@@ -358,13 +358,13 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
       const message = `This idea has a score of ${locked.score}; it needs ${ideaThreshold} before it can be converted.`;
       throw new IssueApiError(409, message, { error: "below_threshold", message, ideaScore: locked.score, ideaThreshold });
     }
-    return convertLocked(tx, scope, locked, { userId: agent.ownerId, agentId: agent.agentId }, ideaThreshold);
+    return convertLocked(tx, scope, locked, { userId: agent.ownerId, agentId: agent.agentId }, ideaThreshold, undefined, difficulty);
   });
   await audit(
     agent,
     "idea.converted",
     `idea:${converted.ideaId}`,
-    { issueId: converted.issueId, ideaScore: converted.ideaScore, ideaThreshold: converted.ideaThreshold },
+    { issueId: converted.issueId, ideaScore: converted.ideaScore, ideaThreshold: converted.ideaThreshold, difficulty },
     { bugId: converted.issueId },
   );
   return converted;
@@ -377,13 +377,13 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
  * issue is still confirmed on its own. The note says where it was approved; it
  * is shown on the issue's activity and kept on the event and the audit log.
  */
-export async function convertVettedIdea(tx: Tx, agent: AgentContext, projectId: string, ideaId: string, vettedNote: string) {
+export async function convertVettedIdea(tx: Tx, agent: AgentContext, projectId: string, ideaId: string, vettedNote: string, difficulty: Difficulty) {
   const scope = { organisationId: agent.organisationId, projectId };
   const { ideaThreshold } = await workflowFor(projectId, tx);
   const locked = await lockedIdea(tx, scope, ideaId);
   assertOpenIdea(locked);
   const by = { userId: agent.ownerId, agentId: agent.agentId };
-  return convertLocked(tx, scope, locked, by, ideaThreshold, { via: "already_vetted", decidedByUserId: by.userId, decidedByAgentId: agent.agentId, vettedNote });
+  return convertLocked(tx, scope, locked, by, ideaThreshold, { via: "already_vetted", decidedByUserId: by.userId, decidedByAgentId: agent.agentId, vettedNote }, difficulty);
 }
 
 /**
@@ -391,15 +391,17 @@ export async function convertVettedIdea(tx: Tx, agent: AgentContext, projectId: 
  * from the idea's report and files, marks the idea converted by `by.agentId`
  * (null for a person's deciding verdict) and publishes `issue.converted`. An
  * agent's convert and, in a threshold-only project, the deciding verdict
- * (`decision`) both end here.
+ * (`decision`) both end here. `difficulty` (#plan-review) is the converter's
+ * call: easy, medium, hard or complex; a deciding verdict leaves it medium.
  */
-async function convertLocked(
+export async function convertLocked(
   tx: Tx,
   scope: Scope,
   locked: LockedIdea,
   by: { userId: string; agentId: string | null },
   ideaThreshold: number,
   decision?: ThresholdDecision | VettedDecision,
+  difficulty: Difficulty = "medium",
 ) {
   const { projectId } = scope;
   const idea = await tx.idea.findUniqueOrThrow({
@@ -424,6 +426,7 @@ async function convertLocked(
       reporterId: idea.reporterId,
       beneficiaryUserId: idea.beneficiaryUserId,
       createdByAgentId: idea.createdByAgentId,
+      difficulty,
       track: locked.track,
       ...moveTo(rules.convertsTo),
       watches: { create: { userId: idea.reporterId } },
@@ -459,7 +462,9 @@ async function convertLocked(
     data: { status: "converted", convertedAt: at, convertedByAgentId: by.agentId, issueId: issue.id },
   });
   // #stakes: the idea's stakes move to the issue, and their 10-minute window (or contest) starts now.
-  await moveIdeaStakesToIssue(tx, locked.id, { id: issue.id, number: issue.number, organisationId: scope.organisationId, projectId }, at);
+  // #plan-review: a complex issue can't be staked, so its idea's stakes end instead of moving.
+  if (difficulty === "complex") await dropIdeaStakes(tx, locked.id, at);
+  else await moveIdeaStakesToIssue(tx, locked.id, { id: issue.id, number: issue.number, organisationId: scope.organisationId, projectId }, at);
   await publish(tx, {
     organisationId: scope.organisationId,
     type: "issue.converted",
@@ -473,6 +478,7 @@ async function convertLocked(
       projectId,
       ideaScore: locked.score,
       ideaThreshold,
+      difficulty,
       ...(decision ?? {}),
     },
   });
@@ -484,6 +490,7 @@ async function convertLocked(
     convertedAt: at.toISOString(),
     ideaScore: locked.score,
     ideaThreshold,
+    difficulty,
   };
 }
 

@@ -1,3 +1,4 @@
+import { MergerTransparencyCard } from "@/components/merger-transparency-card";
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -5,7 +6,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The issue page's stage panels: bids with their votes and the Award control only where it may be used, confirmations and their banner, and judgements and merge reviews with their replies. */
-const mocks = vi.hoisted(() => ({ addComment: vi.fn() }));
+const mocks = vi.hoisted(() => ({ addComment: vi.fn(), editPullRequestUrl: vi.fn(), switchWorkspace: vi.fn() }));
+vi.mock("@/app/(app)/organisations/issue-switch-action", () => ({ switchIssueWorkspaceAction: mocks.switchWorkspace }));
 const libraryRefresh = vi.hoisted(() => vi.fn());
 vi.mock("@/app/(app)/[org]/[project]/marketing/output-box/actions", () => ({ refreshLibrary: libraryRefresh }));
 vi.mock("next/navigation", () => ({
@@ -14,7 +16,10 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ org: "acme", project: "demo" }),
   usePathname: () => "/demo/1",
 }));
-vi.mock("@/app/actions/issues", () => ({ addCommentAction: mocks.addComment }));
+vi.mock("@/app/actions/issues", () => ({
+  addCommentAction: mocks.addComment,
+  editPullRequestUrlAction: mocks.editPullRequestUrl,
+}));
 vi.mock("@/app/actions/issue-bids", () => ({ awardIssueBidAction: vi.fn() }));
 vi.mock("@/app/actions/confirmations", () => ({ giveConfirmationAction: vi.fn() }));
 vi.mock("@/app/actions/watch", () => ({ setWatchingAction: vi.fn() }));
@@ -24,6 +29,11 @@ vi.mock("@/app/actions/your-decision", () => ({ respondToCloseAction: decisionAc
 import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVerdictView } from "@/components/issue-review-entries";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
 import { IssueConfirmationsPanel, type ConfirmationEntryView, type ConfirmationsData } from "@/components/issue-confirmations";
+import { IssueOrganisationSwitch } from "@/components/issue-organisation-hint";
+import { IssueLinks } from "@/components/issue-links";
+import { CopyIssueSummaryButton } from "@/components/copy-issue-summary-button";
+import { formatIssueSummary } from "@/lib/issue-share-summary";
+import { ToastProvider } from "@/components/ui/toast";
 import { Library } from "@/components/marketing/library/library";
 import { deliveryFiles, filterLibrary, type LibraryItem } from "@/components/marketing/library/model";
 import { MarketingTaskHeader } from "@/components/marketing/marketing-task-header";
@@ -65,6 +75,27 @@ const review: MergeReviewView = {
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => cleanup());
+
+describe("shared issue workspace switch", () => {
+  it("submits the exact issue, workspace, query and anchor, and allows retry after failure", async () => {
+    mocks.switchWorkspace.mockResolvedValue({ error: "Switch failed. Try again." });
+    window.history.replaceState(null, "", "/engineering/app/73?comment=c1#comment-c1");
+    const user = userEvent.setup();
+    render(<IssueOrganisationSwitch issueId="internal" currentWorkspace="Design" destination="/engineering/app/73?comment=c1" organisation={{ id: "eng", name: "Engineering", slug: "engineering", issue: { number: 73, title: "Preserve shared links", substatus: "open", projectName: "Web" } }} />);
+    const button = screen.getByRole("button", { name: /Switch to Engineering and open #73/ });
+    expect(screen.getByRole("link", { name: "Stay in Design" })).toHaveAttribute("href", "/home");
+    await user.click(button);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Switch failed. Try again."));
+    const submitted = mocks.switchWorkspace.mock.calls[0][1] as FormData;
+    expect(submitted.get("issueId")).toBe("internal");
+    expect(submitted.get("organisationId")).toBe("eng");
+    expect(submitted.get("returnTo")).toBe("/engineering/app/73?comment=c1#comment-c1");
+    expect(button).toBeEnabled();
+    await user.click(button);
+    await waitFor(() => expect(mocks.switchWorkspace).toHaveBeenCalledTimes(2));
+    window.history.replaceState(null, "", "/");
+  });
+});
 
 describe("Library approved deliverables", () => {
   const items: LibraryItem[] = [
@@ -338,6 +369,178 @@ describe("IssueConfirmationsPanel past Requires confirmation", () => {
   });
 });
 
+describe("IssueLinks (#edit-pr-link)", () => {
+  it("lets the contributor edit and replace a submitted pull request link, and hides Edit from other viewers", async () => {
+    mocks.editPullRequestUrl.mockResolvedValue({ ok: true });
+    const user = userEvent.setup();
+    const nextPr = "https://github.com/emerjent/ziki/pull/99";
+
+    const { unmount } = render(<IssueLinks links={[PR]} linkedPullRequestUrl={PR} bugId="bug1" canEditPullRequest={false} />);
+    expect(screen.queryByRole("button", { name: "Edit pull request link" })).toBeNull();
+    unmount();
+
+    render(<IssueLinks links={[PR]} linkedPullRequestUrl={PR} bugId="bug1" canEditPullRequest />);
+    await user.click(screen.getByRole("button", { name: "Edit pull request link" }));
+    const input = screen.getByRole("textbox", { name: "Pull request URL" });
+    expect(input).toHaveValue(PR);
+    await user.clear(input);
+    await user.type(input, nextPr);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocks.editPullRequestUrl).toHaveBeenCalledTimes(1));
+    const [bugId, formData] = mocks.editPullRequestUrl.mock.calls[0] as [string, FormData];
+    expect(bugId).toBe("bug1");
+    expect(formData.get("pullRequestUrl")).toBe(nextPr);
+    expect(screen.getByRole("link", { name: "emerjent/ziki #99 · PR" })).toHaveAttribute("href", nextPr);
+  });
+
+  it("shows a validation error when the replacement pull request URL is rejected", async () => {
+    mocks.editPullRequestUrl.mockResolvedValue({
+      field: "pullRequestUrl",
+      fieldErrors: { pullRequestUrl: "That pull request is not in this project's repository." },
+    });
+    const user = userEvent.setup();
+    render(<IssueLinks links={[PR]} linkedPullRequestUrl={PR} bugId="bug1" canEditPullRequest />);
+    await user.click(screen.getByRole("button", { name: "Edit pull request link" }));
+    const input = screen.getByRole("textbox", { name: "Pull request URL" });
+    await user.clear(input);
+    await user.type(input, "https://github.com/other/repo/pull/10");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("That pull request is not in this project's repository."));
+  });
+});
+
+describe("CopyIssueSummaryButton (#copy-issue-summary)", () => {
+  it("formats a readable summary with title, status, link and excerpt", () => {
+    const text = formatIssueSummary({
+      number: 123,
+      title: "Navigation bar overlaps content on mobile",
+      substatus: "in_progress",
+      projectSlug: "zedu",
+      url: "https://ziki.dev/zedu/123",
+      assigneeName: "Ada Lovelace",
+      summary: "Mobile viewport has sticky header collision.",
+      pullRequestUrl: "https://github.com/emerjent/ziki/pull/45",
+    });
+
+    expect(text).toContain("[ZEDU #123] Navigation bar overlaps content on mobile");
+    expect(text).toContain("Status: In progress | Assignee: Ada Lovelace");
+    expect(text).toContain("Link: https://ziki.dev/zedu/123");
+    expect(text).toContain("PR: https://github.com/emerjent/ziki/pull/45");
+    expect(text).toContain("Summary: Mobile viewport has sticky header collision.");
+  });
+
+  it("constructs canonical workspace route when org and project differ", () => {
+    const text = formatIssueSummary({
+      number: 42,
+      title: "Export button unresponsive",
+      substatus: "open",
+      orgSlug: "acme-corp",
+      projectSlug: "platform",
+    });
+
+    expect(text).toContain("[PLATFORM #42] Export button unresponsive");
+    expect(text).toContain("Link: /acme-corp/platform/42");
+  });
+
+  it("copies formatted issue summary to clipboard and shows feedback", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+
+    render(
+      <CopyIssueSummaryButton
+        issue={{
+          number: 42,
+          title: "Fix broken redirect",
+          substatus: "open",
+          orgSlug: "acme",
+          projectSlug: "zedu",
+          canonicalPath: "/acme/zedu/42",
+          summary: "Redirect misses return parameter.",
+        }}
+      />,
+    );
+
+    const button = screen.getByTestId("copy-issue-summary");
+    expect(button).toHaveTextContent("Copy issue summary");
+    await user.click(button);
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toContain("[ZEDU #42] Fix broken redirect");
+    expect(writeText.mock.calls[0][0]).toContain("/acme/zedu/42");
+    expect(button).toHaveTextContent("Copied to clipboard");
+  });
+
+  it("falls back to execCommand when async clipboard API rejects with permission denied", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error("Permission denied")),
+      },
+      writable: true,
+      configurable: true,
+    });
+    const execCommand = vi.fn().mockReturnValue(true);
+    document.execCommand = execCommand;
+
+    render(
+      <CopyIssueSummaryButton
+        issue={{
+          number: 10,
+          title: "Fallback test",
+          substatus: "open",
+          projectSlug: "test",
+        }}
+      />,
+    );
+
+    const button = screen.getByTestId("copy-issue-summary");
+    await user.click(button);
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(button).toHaveTextContent("Copied to clipboard");
+  });
+
+  it("does not report success when clipboard copy fails", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error("Not allowed")),
+      },
+      writable: true,
+      configurable: true,
+    });
+    const execCommand = vi.fn().mockReturnValue(false);
+    document.execCommand = execCommand;
+
+    render(
+      <ToastProvider>
+        <CopyIssueSummaryButton
+          issue={{
+            number: 11,
+            title: "Failure test",
+            substatus: "open",
+            projectSlug: "test",
+          }}
+        />
+      </ToastProvider>,
+    );
+
+    const button = screen.getByTestId("copy-issue-summary");
+    await user.click(button);
+
+    expect(button).not.toHaveTextContent("Copied to clipboard");
+    expect(button).toHaveTextContent("Copy issue summary");
+    expect(screen.getByText("Could not copy issue summary.")).toBeInTheDocument();
+  });
+});
+
 describe("Marketing task detail (M-UI-4)", () => {
   it("deduplicates badge when taskType name is Marketing", () => {
     render(
@@ -533,5 +736,19 @@ describe("A decision about your work (#your-decisions)", () => {
     render(<DecisionCard issueId="bug1" decision={decide({ ...closed, closeAgreedAt: new Date("2026-11-05T11:00:00Z") }, "alice")!} />);
     expect(screen.getByTestId("decision-agreed")).toHaveTextContent(/You agreed with this decision/);
     expect(screen.queryByRole("button", { name: "Respond" })).toBeNull();
+  });
+});
+
+describe("MergerTransparencyCard (#merger-transparency)", () => {
+  it("renders live queue position, total in queue, estimated wait and merger agent name", () => {
+    render(
+      <MergerTransparencyCard queuePosition={2} totalInQueue={5} estimatedWaitMinutes={6} mergerAgentName="merger-bot" precedingPrNumber={123} />
+    );
+    expect(screen.getByRole("heading", { name: /Merger Queue & Pre-Flight Status/ })).toBeInTheDocument();
+    expect(screen.getByText("#2")).toBeInTheDocument();
+  });
+  it("handles head of queue cleanly", () => {
+    render(<MergerTransparencyCard queuePosition={1} totalInQueue={1} estimatedWaitMinutes={0} />);
+    expect(screen.getByText("#1")).toBeInTheDocument();
   });
 });

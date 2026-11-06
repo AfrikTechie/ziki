@@ -12,6 +12,7 @@ import {
   nextPollDelayMs,
   type EventCursor,
 } from "@/lib/agent-api/events";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * Agent inbox (#601).
@@ -66,7 +67,7 @@ async function mentionDeliveries(
   const userIds = extractMentionedUserIds(body);
   const owned = userIds.length
     ? await db.agent.findMany({
-        where: { organisationId, revokedAt: null, ownerUserId: { in: userIds } },
+        where: { ...activeIn(organisationId), revokedAt: null, ownerUserId: { in: userIds } },
         select: { id: true },
       })
     : [];
@@ -184,7 +185,7 @@ export async function writeInbox(db: Db, event: InboxEvent): Promise<number> {
   });
   if (!deliveries.length) return 0;
   const live = await db.agent.findMany({
-    where: { id: { in: [...seen] }, organisationId: event.organisationId, revokedAt: null },
+    where: { id: { in: [...seen] }, ...activeIn(event.organisationId), revokedAt: null },
     select: { id: true },
   });
   const allowed = new Set(live.map((agent) => agent.id));

@@ -209,6 +209,7 @@ export async function removeMembership(
     }
 
     await tx.membership.delete({ where: { id: target.id } });
+    await switchOffAgentsIn(tx, input.targetUserId, input.organisationId);
     await recordChange(tx, {
       organisationId: input.organisationId,
       actorUserId: actor.id,
@@ -225,6 +226,17 @@ export async function removeMembership(
     }
     return { ok: true };
   });
+}
+
+/**
+ * Someone who leaves an organisation takes their agents with them (#user-agents):
+ * each is switched off there and its keys for it stop. They keep working elsewhere.
+ */
+async function switchOffAgentsIn(tx: Prisma.TransactionClient, userId: string, organisationId: string) {
+  if (typeof tx.agentActivation?.updateMany !== "function") return;
+  const now = new Date();
+  await tx.agentActivation.updateMany({ where: { organisationId, deactivatedAt: null, agent: { ownerUserId: userId } }, data: { deactivatedAt: now } });
+  await tx.agentApiKey.updateMany({ where: { organisationId, revokedAt: null, agent: { ownerUserId: userId } }, data: { revokedAt: now } });
 }
 
 /** Leave an organisation. The last owner has to choose another owner first. */
@@ -245,6 +257,7 @@ export async function leaveMembership(
     if (refusal || !target) return { ok: false, error: refusalMessage(refusal ?? "not-found") };
 
     await tx.membership.delete({ where: { id: target.id } });
+    await switchOffAgentsIn(tx, actor.id, organisationId);
     await recordChange(tx, {
       organisationId,
       actorUserId: actor.id,

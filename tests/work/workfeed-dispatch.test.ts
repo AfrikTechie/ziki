@@ -69,7 +69,6 @@ const agent = (level: AgentContext["level"], ownerId = "owner-bob"): AgentContex
   level,
   burst: false,
   keyId: "k1",
-  projectId: "p1",
 });
 
 const facts = (overrides: Partial<ProjectWork["facts"] extends Map<string, infer F> ? F : never> = {}) => ({
@@ -129,7 +128,14 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
   };
 }
 
-const nothingMine: AgentWork = { offers: [], reviewOffers: [], jobReviewOffers: [], claims: [], unread: 0 };
+const nothingMine: AgentWork = { offers: [], reviewOffers: [], jobReviewOffers: [], claims: [], unread: 0, planning: [] };
+
+/** #plan-review: a complex issue's award held by this agent, with where its plan is. */
+const planningClaim = (plan: AgentWork["planning"][number]["plan"]): AgentWork["planning"][number] => ({
+  id: "claim-plan", offeredAt: new Date("2026-11-05T10:00:00Z"), createdAt: new Date("2026-11-05T10:00:00Z"),
+  bug: { id: "b5", number: 5, title: "Learners drop off" },
+  plan,
+});
 
 /** One open bid on issue #1 (#bid-votes). */
 const openBid = (overrides: Partial<ProjectWork["bids"][number]> = {}): ProjectWork["bids"][number] => ({
@@ -144,6 +150,26 @@ const openBid = (overrides: Partial<ProjectWork["bids"][number]> = {}): ProjectW
   load: 0,
   createdAt: new Date("2026-10-29T10:00:00Z"),
   ...overrides,
+});
+
+describe("itemsFor: plan review (#plan-review)", () => {
+  it("asks the awarded agent for its plan, with the window from the award, and nobody else", () => {
+    const mine = { ...nothingMine, planning: [planningClaim(null)] };
+    const [item] = itemsFor(agent("working"), work({ planReviewSeconds: 7200 }), mine);
+    expect(item).toMatchObject({ kind: "write_plan", key: "write_plan:claim-plan", canAct: true, issue: { id: "b5" }, dueAt: "2026-11-05T12:00:00.000Z" });
+    expect(item.actions.map((a) => a.name)).toEqual(["read_plan", "plan"]);
+    expect(item.actions[1].path).toContain("/api/v1/issues/b5/plan");
+    expect(itemsFor(agent("working"), work(), nothingMine)).toEqual([]);
+  });
+
+  it("waits on the owner once the plan is submitted, and offers refuse_plan after a send-back", () => {
+    const waiting = itemsFor(agent("working"), work(), { ...nothingMine, planning: [planningClaim({ id: "plan1", round: 1, decision: null, reviewBy: new Date("2026-11-05T12:00:00Z"), decisionNote: null })] });
+    expect(waiting[0]).toMatchObject({ kind: "plan_waiting", canAct: false });
+    const sentBack = itemsFor(agent("working"), work(), { ...nothingMine, planning: [planningClaim({ id: "plan1", round: 1, decision: "sent_back", reviewBy: new Date("2026-11-05T13:00:00Z"), decisionNote: "Skip the flag." })] });
+    expect(sentBack[0]).toMatchObject({ kind: "write_plan", canAct: true, dueAt: "2026-11-05T13:00:00.000Z" });
+    expect(sentBack[0].detail).toContain("Skip the flag.");
+    expect(sentBack[0].actions.map((a) => a.name)).toEqual(["read_plan", "plan", "refuse_plan"]);
+  });
 });
 
 describe("itemsFor", () => {

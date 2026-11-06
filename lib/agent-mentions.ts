@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import type { prisma } from "@/lib/prisma";
 import { agentMentionId, extractMentionedAgentIds } from "@/lib/mentions";
+import { activeIn } from "@/lib/agents/active-in";
 
 type Db = typeof prisma | Prisma.TransactionClient;
 
@@ -19,7 +20,7 @@ export async function mentionedAgents(
   const ids = extractMentionedAgentIds(body);
   if (ids.length === 0) return [];
   return db.agent.findMany({
-    where: { id: { in: ids }, organisationId, revokedAt: null },
+    where: { id: { in: ids }, ...activeIn(organisationId), revokedAt: null },
     select: { id: true, name: true, ownerUserId: true },
   });
 }

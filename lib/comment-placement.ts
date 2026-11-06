@@ -9,6 +9,7 @@ export type CommentPlacementInput = {
   deliveryId?: string;
   testVerdictId?: string;
   mergeReviewId?: string;
+  planId?: string;
   parentId?: string;
 };
 
@@ -18,6 +19,7 @@ export type CommentPlacement = {
   deliveryId: string | null;
   testVerdictId: string | null;
   mergeReviewId: string | null;
+  planId: string | null;
   parentId: string | null;
   /** Whom the comment answers: the entry's or the parent comment's author, for notifications. */
   parentAuthorId: string | null;
@@ -52,15 +54,16 @@ export async function placeComment(
     deliveryId: input.deliveryId ?? null,
     testVerdictId: input.testVerdictId ?? null,
     mergeReviewId: input.mergeReviewId ?? null,
+    planId: input.planId ?? null,
     parentId: input.parentId ?? null,
     parentAuthorId: null,
   };
-  const entries = [placement.confirmationId, placement.bidId, placement.deliveryId, placement.testVerdictId, placement.mergeReviewId].filter(Boolean);
+  const entries = [placement.confirmationId, placement.bidId, placement.deliveryId, placement.testVerdictId, placement.mergeReviewId, placement.planId].filter(Boolean);
   if (entries.length > 1 || (entries.length === 1 && placement.parentId)) {
     throw new CommentPlacementError(
       422,
       "one_place",
-      "Send one place for the comment: one of confirmationId, bidId, deliveryId, testVerdictId, mergeReviewId or parentId.",
+      "Send one place for the comment: one of confirmationId, bidId, deliveryId, testVerdictId, mergeReviewId, planId or parentId.",
     );
   }
 
@@ -89,6 +92,11 @@ export async function placeComment(
     if (!review) throw new CommentPlacementError(422, "not_found", "That merge review is not on this issue.");
     return { ...placement, parentAuthorId: review.onBehalfOfUserId };
   }
+  if (placement.planId) {
+    const plan = await db.plan.findFirst({ where: { id: placement.planId, bugId: bug.id }, select: { ownerId: true } });
+    if (!plan) throw new CommentPlacementError(422, "not_found", "That plan is not on this issue.");
+    return { ...placement, parentAuthorId: plan.ownerId };
+  }
 
   if (placement.parentId) {
     // Replies are one level deep, under a comment on the issue itself.
@@ -103,6 +111,7 @@ export async function placeComment(
         deliveryId: null,
         testVerdictId: null,
         mergeReviewId: null,
+        planId: null,
       },
       select: { authorId: true },
     });

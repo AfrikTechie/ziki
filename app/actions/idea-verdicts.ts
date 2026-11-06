@@ -180,7 +180,7 @@ async function ideaDecision(formData: FormData, decide: "approve" | "reject"): P
   let issueNumber: number | null = null;
   try {
     if (decide === "approve") {
-      const converted = await convertIdea(context, idea.projectId, idea.id);
+      const converted = await convertIdea(context, idea.projectId, idea.id, "medium");
       const issue = await prisma.bug.findUnique({ where: { id: converted.issueId }, select: { number: true } });
       issueNumber = issue?.number ?? null;
     } else {

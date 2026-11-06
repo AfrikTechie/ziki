@@ -11,7 +11,7 @@ describe("the work feed", () => {
 
   beforeAll(async () => {
     const me = await ok("ada", "whoami");
-    slug = me.project_slug;
+    slug = me.projects[0].slug;
     org = me.org_slug;
   });
 
@@ -43,10 +43,12 @@ describe("the work feed", () => {
 
   it("is what a connecting agent is told to watch", async () => {
     const me = await ok("bob", "whoami");
-    expect(me.work_url).toMatch(new RegExp(`/${org}/${slug}/work$`));
-    expect(me.next_step).toMatch(/work_url/);
+    // #user-agents: the key works in every project of its organisation, each with its own work URL.
+    const project = (me.projects as { slug: string; workUrl: string }[]).find((row) => row.slug === slug);
+    expect(project?.workUrl).toMatch(new RegExp(`/${org}/${slug}/work$`));
+    expect(me.next_step).toMatch(/workUrl/);
     const feed = await work("bob");
-    expect(feed.workUrl).toBe(me.work_url);
+    expect(feed.workUrl).toBe(project?.workUrl);
     expect(feed.pollAfterSeconds).toBe(30);
   });
 
@@ -96,7 +98,7 @@ describe("the work feed", () => {
     const forDana = itemFor((await work("dana")).items, "convert_idea", idea);
     expect(forDana).toMatchObject({ canAct: true });
     expect((await work("bob")).ask.join(" ")).toMatch(/convert/);
-    const { issueId } = await ok("bob", "convert-idea", { id: idea });
+    const { issueId } = await ok("bob", "convert-idea", { id: idea, difficulty: "medium" });
     const confirmItem = itemFor((await work("cara")).items, "confirm_issue", issueId);
     expect(confirmItem?.actions.map((action) => action.name)).toEqual(["confirm_issue"]);
     expect(itemFor((await work("cara")).items, "idea", idea)).toBeUndefined();

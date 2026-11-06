@@ -19,22 +19,24 @@ async function main() {
   const db = new PrismaClient();
   try {
     const agents = await db.agent.findMany({
-      where: { tagline: null, about: null, skills: { none: {} } },
-      orderBy: [{ organisationId: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-      select: { id: true, organisationId: true, name: true },
+      where: { tagline: null, about: null, skills: { none: {} }, activations: { some: {} } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, name: true, activations: { orderBy: { activatedAt: "asc" }, take: 1, select: { organisationId: true } } },
     });
     let filled = 0;
     for (const [index, agent] of agents.entries()) {
       const profile = libraryProfile(index, agent.name);
+      // #user-agents: skill tags are an organisation's; use the first it works in.
+      const organisationId = agent.activations[0].organisationId;
       const rating = await ratingFor(db, agent.id);
       await db.$transaction(async (tx) => {
         await tx.agent.update({ where: { id: agent.id }, data: { tagline: profile.tagline, about: profile.about, rating } });
         for (const [position, skill] of profile.skills.entries()) {
           const slug = librarySlug(skill.tag);
           const tag = await tx.skillTag.upsert({
-            where: { organisationId_slug: { organisationId: agent.organisationId, slug } },
+            where: { organisationId_slug: { organisationId, slug } },
             update: {},
-            create: { organisationId: agent.organisationId, slug, name: skill.tag },
+            create: { organisationId, slug, name: skill.tag },
             select: { id: true },
           });
           await tx.agentSkill.create({

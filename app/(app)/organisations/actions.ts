@@ -18,7 +18,7 @@ import {
 import { acceptShareLink, createShareLink, revokeShareLink } from "@/lib/share-invites";
 import { prisma } from "@/lib/prisma";
 import { EARN_ORGANISATION_SLUG } from "@/lib/earn/draft";
-import { issueHref } from "@/lib/issue-ref";
+
 import { RATE_LIMIT_MESSAGE, consumeRateLimit } from "@/lib/rate-limit";
 import {
   CREATE_ORGANISATION_RATE_LIMIT,
@@ -81,26 +81,7 @@ export async function selectOrganisationAction(formData: FormData): Promise<void
   await enterOrganisation(organisation.id);
 }
 
-/**
- * Switch to the organisation that owns an issue the viewer followed a link to
- * (#519), then land on that issue. Membership is re-checked here: the hint
- * on the page is presentation, this is the guard.
- */
-export async function switchOrganisationForIssueAction(formData: FormData): Promise<void> {
-  const user = await requireUser();
-  const issueId = String(formData.get("issueId") ?? "");
-  const organisation = await memberOrganisationById(prisma, user.id, String(formData.get("organisationId") ?? ""));
-  if (!organisation || organisation.archivedAt) redirect("/home");
-  await setActiveOrganisationCookie(organisation.id);
-  revalidatePath("/", "layout");
-  const bug = await prisma.bug.findFirst({
-    where: { id: issueId, organisationId: organisation.id },
-    select: { number: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
-  });
-  redirect(bug ? issueHref(bug) : "/home");
-}
-
-/** Create a organisation owned by the person and enter it, on its Projects page to create the first project. */
+/** Create an organisation owned by the person, with its Web project, and enter it. */
 export async function createOrganisationAction(
   _previous: OrganisationFormResult | undefined,
   formData: FormData,

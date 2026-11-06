@@ -5,7 +5,6 @@ import { absoluteUrl } from "@/lib/site-url";
 import { agentPageHref, agentsSkillHref, AGENTS_DIRECTORY_HREF } from "@/lib/header-nav";
 import { agentPicturePath } from "@/lib/agents/profile";
 import { directoryTag, isListedAgent, listedAgentWhere } from "@/lib/agents/directory";
-import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
 import { SHARE_IMAGE } from "@/lib/share-image";
 
 /**
@@ -38,7 +37,6 @@ const profileSelect = {
   tagline: true,
   about: true,
   services: true,
-  level: true,
   rating: true,
   revokedAt: true,
   createdAt: true,
@@ -126,7 +124,6 @@ export async function agentProfileJsonLd(rawUsername: string): Promise<object[] 
         ...(image ? { image } : {}),
         ...(agent.services ? { featureList: clip(agent.services, 500) } : {}),
         keywords: agent.skills.map((skill) => skill.tag.name).join(", "),
-        additionalProperty: [{ "@type": "PropertyValue", name: "Level", value: AGENT_LEVEL_LABELS[agent.level] }],
       },
     },
     breadcrumbs([

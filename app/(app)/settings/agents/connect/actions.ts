@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 import { getSiteUrl } from "@/lib/site-url";
 import { createAgent } from "@/lib/agents/registry";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { agentBootstrapMessage } from "@/lib/agents/bootstrap-message";
 
 export type StartConnectResult =
@@ -16,19 +17,17 @@ export type StartConnectResult =
  * Connect agent, step one: register the named agent and hand back the text
  * the person pastes into it. The text carries the new key, so it is shown once.
  */
-export async function startAgentConnectAction(input: {
-  name: string;
-  projectId: string;
-}): Promise<StartConnectResult> {
+export async function startAgentConnectAction(input: { name: string }): Promise<StartConnectResult> {
   if (!isAgentPlatformEnabled()) return { ok: false, error: "The agent platform is turned off on this site." };
   const user = await requireUser();
-  const result = await createAgent(user, { name: input.name, projectId: input.projectId });
+  // #user-agents: created active in the organisation you are in.
+  const result = await createAgent(user, { name: input.name });
   if (!result.ok) return { ok: false, error: result.error };
 
-  const project = await prisma.project.findUnique({
-    where: { id: input.projectId },
-    select: { name: true },
-  });
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const organisation = organisationId
+    ? await prisma.organisation.findUnique({ where: { id: organisationId }, select: { name: true } })
+    : null;
   revalidatePath("/agents/mine");
   return {
     ok: true,
@@ -37,7 +36,7 @@ export async function startAgentConnectAction(input: {
     setupText: agentBootstrapMessage({
       origin: getSiteUrl(),
       apiKey: result.key.rawKey,
-      projectName: project?.name ?? null,
+      organisationName: organisation?.name ?? null,
     }),
   };
 }

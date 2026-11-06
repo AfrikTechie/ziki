@@ -83,7 +83,8 @@ vi.mock("@/lib/agent-api/create-policy", async (importOriginal) => ({
 
 const db = vi.hoisted(() => {
   const tx = {
-    bug: { update: vi.fn() },
+    bug: { update: vi.fn(), updateMany: vi.fn() },
+    delivery: { updateMany: vi.fn() },
     bugActivity: { create: vi.fn() },
     bugRevision: { create: vi.fn() },
     issueConfirmation: { deleteMany: vi.fn() },
@@ -112,10 +113,11 @@ const db = vi.hoisted(() => {
 
 vi.mock("@/lib/prisma", () => ({ prisma: db.prisma }));
 
-import { editBugContentAction } from "@/app/actions/issues";
+import { editBugContentAction, editPullRequestUrlAction } from "@/app/actions/issues";
 import { structureIssue } from "@/lib/agent-api/structure";
-import { canEditTicket } from "@/lib/ticket-editing";
+import { canEditTicket, TICKET_EDIT_ERRORS } from "@/lib/ticket-editing";
 import { buildVersions } from "@/lib/issue-revisions";
+import { requireUser } from "@/lib/auth-helpers";
 
 function existingBug(overrides: Record<string, unknown> = {}) {
   return {
@@ -352,5 +354,37 @@ describe("agent structure edit history (#589)", () => {
 
     expect(db.tx.bugRevision.create).not.toHaveBeenCalled();
     expect(db.tx.bug.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("editPullRequestUrlAction (#edit-pr-link)", () => {
+  it("refuses former deliverer when another contributor holds active claim and delivered current PR", async () => {
+    const formerDelivererId = "past-owner";
+    (requireUser as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: formerDelivererId, role: "user" });
+    db.prisma.bug.findUnique.mockResolvedValue({
+      id: "bug-1",
+      status: "done",
+      pullRequestUrl: "https://github.com/emerjent/ziki/pull/2",
+      pullRequestHeadSha: "sha-2",
+      proofLinks: [],
+      reporterId: "reporter-1",
+      assigneeId: "new-owner",
+      isDeleted: false,
+      project: { repoUrl: "https://github.com/emerjent/ziki" },
+      claims: [
+        { beneficiaryUserId: "new-owner", agent: { ownerUserId: "new-owner" }, status: "active", releasedAt: null },
+      ],
+      deliveries: [
+        { beneficiaryUserId: formerDelivererId, pullRequestUrl: "https://github.com/emerjent/ziki/pull/1", agent: { ownerUserId: formerDelivererId } },
+        { beneficiaryUserId: "new-owner", pullRequestUrl: "https://github.com/emerjent/ziki/pull/2", agent: { ownerUserId: "new-owner" } },
+      ],
+    });
+
+    const formData = new FormData();
+    formData.set("pullRequestUrl", "https://github.com/emerjent/ziki/pull/3");
+
+    const result = await editPullRequestUrlAction("bug-1", formData);
+    expect(result).toEqual({ error: TICKET_EDIT_ERRORS.unauthorized });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,7 @@ import { undoAuditEventAction } from "@/app/actions/audit";
 import { parseIssueRef } from "@/lib/duplicates";
 import { issueHref } from "@/lib/issue-ref";
 import { AUDIT_PAGE_SIZE, auditPageHref, splitAuditPage } from "@/lib/agent-audit/paging";
+import { activeIn } from "@/lib/agents/active-in";
 
 export const metadata = { title: "Agent audit log" };
 
@@ -44,7 +45,7 @@ export default async function AuditLogPage({ searchParams }: Props) {
   const organisation = organisationId ? { organisationId, role: membership?.role } : null;
   const owned = organisation
     ? await prisma.agent.findMany({
-        where: { ownerUserId: user.id, organisationId: organisation.organisationId },
+        where: { ownerUserId: user.id, ...activeIn(organisation.organisationId) },
         select: { id: true },
       })
     : [];
@@ -103,8 +104,8 @@ export default async function AuditLogPage({ searchParams }: Props) {
     prisma.agent.findMany({
       where:
         access.kind === "all"
-          ? { organisationId: access.organisationId }
-          : { organisationId: access.organisationId, id: { in: [...access.agentIds] } },
+          ? activeIn(access.organisationId)
+          : { ...activeIn(access.organisationId), id: { in: [...access.agentIds] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),

@@ -12,7 +12,7 @@ type VerdictRow = {
   headSha?: string | null;
   createdAt: Date;
   updatedAt: Date;
-  agent: { id: string; ownerUserId: string };
+  agent: { id: string; ownerUserId: string; activations: { organisationId: string; level: "working" | "manager" | "merger" }[] };
 };
 
 const state = vi.hoisted(() => ({
@@ -25,6 +25,8 @@ const db = vi.hoisted(() => ({
   bugActivity: { create: vi.fn() },
   comment: { create: vi.fn() },
   testVerdict: { findMany: vi.fn() },
+  // #plan-review: the accept looks for the delivering claim's approved plan; none here.
+  plan: { findFirst: vi.fn(async () => null) },
   mergeReview: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
   pullRequestReport: { findFirst: vi.fn() },
   issueConfirmation: { findMany: vi.fn() },
@@ -147,7 +149,7 @@ function verdict(
     onBehalfOfUserId,
     createdAt: new Date(),
     updatedAt: new Date(),
-    agent: { id: agentId, ownerUserId: ownerId },
+    agent: { id: agentId, ownerUserId: ownerId, activations: [] },
   });
 }
 

@@ -4,7 +4,6 @@ import { useActionState, useEffect, useState, type ReactNode } from "react";
 import { createAgentAction, type CreateAgentActionResult } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import {
@@ -21,8 +20,6 @@ import {
   agentsPrimaryBtn,
   agentsSurface,
 } from "./agents-ui";
-
-export type AgentProjectChoice = { id: string; name: string };
 
 const LEVEL_ICONS: Partial<Record<AgentLevel, ReactNode>> = {
   working: (
@@ -48,12 +45,11 @@ const ADMIN_ONLY: ReadonlySet<AgentLevel> = new Set(["manager", "merger"]);
 
 /** Register an agent; its key is shown here once and never again (#427). */
 export function CreateAgentForm({
-  projects,
-  activeProjectId = null,
+  organisationName,
   levels = SELF_REGISTRATION_LEVELS,
 }: {
-  projects: AgentProjectChoice[];
-  activeProjectId?: string | null;
+  /** Where it is created: active here, in every project (#user-agents). */
+  organisationName: string;
   levels?: readonly AgentLevel[];
 }) {
   const toast = useToast();
@@ -119,16 +115,6 @@ export function CreateAgentForm({
     );
   }
 
-  if (projects.length === 0) {
-    return (
-      <p className={`mt-3 ${agentsMutedClass}`}>
-        This organisation has no projects yet, so a key can&apos;t be limited to one.
-      </p>
-    );
-  }
-
-  const selectedProject = projects.find((project) => project.id === activeProjectId) ?? projects[0];
-
   return (
     <form action={action} className="mt-4 space-y-5" noValidate>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -166,30 +152,7 @@ export function CreateAgentForm({
         </div>
       </div>
 
-      <div className="space-y-1.5 sm:max-w-sm">
-        <label htmlFor="agent-project" className={agentsLabelClass}>
-          Project
-        </label>
-        <Select
-          id="agent-project"
-          name="projectId"
-          defaultValue={
-            activeProjectId && projects.some((project) => project.id === activeProjectId)
-              ? activeProjectId
-              : projects[0]?.id
-          }
-          required
-          className={agentsInputClass}
-          aria-invalid={error?.field === "projectId" || undefined}
-        >
-          {projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </Select>
-        <p className="text-xs text-zk-muted">The key only works in this project.</p>
-      </div>
+      <p className="text-xs text-zk-muted">It works in every project of {organisationName}.</p>
 
       <fieldset className="space-y-3">
         <legend className={agentsLabelClass}>Agent class</legend>
@@ -238,7 +201,7 @@ export function CreateAgentForm({
         </div>
         <p className="text-xs text-zk-muted">
           Registering as {AGENT_LEVEL_LABELS[selectedLevel]}
-          {selectedProject ? ` in ${selectedProject.name}` : ""}
+          {` in ${organisationName}`}
         </p>
       </fieldset>
 

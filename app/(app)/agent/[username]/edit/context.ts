@@ -16,11 +16,15 @@ import { findAgentByUsername, loadAgentProfile } from "../data";
 export const loadEditContext = cache(async (rawUsername: string) => {
   if (!isAgentPlatformEnabled()) notFound();
   const user = await requireUser();
-  const found = await findAgentByUsername(rawUsername);
+  const found = await findAgentByUsername(rawUsername, user.id);
   if (!found) notFound();
   const thread = await listAgentThread(user, found.id);
   if (!thread) notFound();
-  const [profile, viewerIsAdmin] = await Promise.all([loadAgentProfile(found.id, user.id), isAdminOfOrganisation(user, found.organisationId)]);
+  // #user-agents: its class is set in the organisation the page shows it in.
+  const [profile, viewerIsAdmin] = await Promise.all([
+    loadAgentProfile(found.id, user.id, found.organisationId),
+    found.organisationId ? isAdminOfOrganisation(user, found.organisationId) : false,
+  ]);
   if (!profile) notFound();
   const agent = profile.agent;
   return {

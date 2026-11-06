@@ -26,8 +26,7 @@ export function ConnectAgentModalButton({
   agentId,
   agentName,
   apiKey,
-  projectId,
-  projectName,
+  organisationName,
   label = "Connect agent",
   className = agentsSecondaryBtn,
   startOpen = false,
@@ -36,9 +35,8 @@ export function ConnectAgentModalButton({
   agentName: string;
   /** Its live key when it can still be shown; null gets a new one on opening. */
   apiKey: string | null;
-  /** The project a new key is for. */
-  projectId: string | null;
-  projectName: string | null;
+  /** The organisation its key works in: the one you are in (#user-agents). */
+  organisationName: string | null;
   label?: string;
   className?: string;
   /** Open on arrival (the agent's page from a Connect agent link). */
@@ -86,7 +84,7 @@ export function ConnectAgentModalButton({
   }, [step, router]);
 
   function show(rawKey: string) {
-    setText(agentBootstrapMessage({ origin: window.location.origin, apiKey: rawKey, projectName }));
+    setText(agentBootstrapMessage({ origin: window.location.origin, apiKey: rawKey, organisationName }));
   }
 
   function openModal() {
@@ -101,12 +99,8 @@ export function ConnectAgentModalButton({
     }
     // No key to show: get one now (nothing stops working, it had none).
     setText("");
-    if (!projectId) {
-      setError("Create a project first: an agent's key works in one project.");
-      return;
-    }
     startTransition(async () => {
-      const result = await regenerateAgentKeyAction(agentId, projectId);
+      const result = await regenerateAgentKeyAction(agentId);
       if (!result.ok) {
         setError(result.error);
         return;

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { activeIn } from "@/lib/agents/active-in";
 import type { AgentContext } from "@/lib/agents/require-agent";
-import { AgentProjectError } from "@/lib/agents/require-agent";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { writeInbox } from "@/lib/agent-api/inbox";
@@ -86,6 +86,11 @@ export const AGENT_EVENT_TYPES = [
   "job.created",
   "job.review.requested",
   "job.submission.reviewed",
+  "plan.approved",
+  "plan.expired",
+  "plan.refused",
+  "plan.sent_back",
+  "plan.submitted",
   "project.mistake_recorded",
   "question.answered",
   "question.asked",
@@ -234,7 +239,7 @@ export async function publish(
     select: { id: true },
   });
   const subscriptions = await db.webhookSubscription.findMany({
-    where: { enabled: true, agent: { organisationId: params.organisationId, revokedAt: null,
+    where: { enabled: true, agent: { ...activeIn(params.organisationId), revokedAt: null,
       owner: { memberships: { some: { organisationId: params.organisationId } } } },
       // Empty filter = every event; otherwise only the subscribed types (#512).
       OR: [{ events: { isEmpty: true } }, { events: { has: params.type } }] },
@@ -443,48 +448,27 @@ export function parseEventFilters(params: URLSearchParams): EventFilters | Event
 // ---------------------------------------------------------------------------
 
 /**
- * Enforces the key's project on event filters (#405).
- *
- * A key issued for one project must never receive another project's events,
- * the same promise the issue and job routes already make. For a scoped
- * key:
- * - an explicit `projectId` for another project throws `AgentProjectError`
- *   (the wrapper answers `403 project_forbidden`);
- * - a `bugId` is looked up only inside the caller's organisation, so an
- *   unknown id and another organisation's id are indistinguishable (both 404);
- *   a same-organisation bug outside the key's project throws `AgentProjectError`
- *   (403); events for a bug are only written for issues in the key's project;
- * - with no explicit `projectId`, the poll is filtered to the key's project
- *   so an unfiltered poll cannot sweep the whole organisation.
- *
- * A legacy key (no `projectId`) keeps today's organisation-wide behavior.
- * Body note: `scopeEventFilters` narrows to the key's project exactly, so
- * organisation-level events that carry no `projectId` at all (`goal.*`, #405
- * follow-up) are not visible to scoped keys until they persist one.
+ * Checks event filters against the caller's organisation (#405). A key works
+ * in every project of its organisation (#user-agents), so polls aren't
+ * narrowed to a project; a `bugId` is looked up only inside the caller's
+ * organisation, so an unknown id and another organisation's look the same
+ * (both 404).
  */
 export type ScopedEventFilters = { filters: EventFilters } | { status: number; error: string };
 
-/** Applies the rules documented on `ScopedEventFilters`/(#405) above; never mutates `filters`. */
 export async function scopeEventFilters(
-  agent: Pick<AgentContext, "organisationId" | "projectId" | "projectSlug">,
+  agent: Pick<AgentContext, "organisationId">,
   filters: EventFilters,
   db: Pick<typeof prisma, "bug"> = prisma,
 ): Promise<ScopedEventFilters> {
-  if (!agent.projectId) return { filters };
-  if (filters.projectId && filters.projectId !== agent.projectId) {
-    throw new AgentProjectError(agent.projectSlug);
-  }
   if (filters.bugId) {
-    // Organisation-bound lookup: an id from another organisation must look exactly like a
-    // missing one, so the lookup never confirms a cross-organisation bug exists.
     const bug = await db.bug.findFirst({
       where: { id: filters.bugId, organisationId: agent.organisationId },
-      select: { projectId: true },
+      select: { id: true },
     });
     if (!bug) return { status: 404, error: "Issue not found." };
-    if (bug.projectId !== agent.projectId) throw new AgentProjectError(agent.projectSlug);
   }
-  return { filters: { ...filters, projectId: agent.projectId } };
+  return { filters };
 }
 
 // ---------------------------------------------------------------------------

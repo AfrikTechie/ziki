@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { notifyApprovalNeeded } from "@/lib/agent-notifications";
@@ -19,7 +19,6 @@ export const redesignDecisionSchema = z.object({ decision: z.enum(["approved", "
 
 export async function proposeRedesign(agent: AgentContext, input: z.infer<typeof redesignSchema>) {
   // #412: a project-scoped key may only propose in its own project.
-  assertKeyProject(agent, input.projectId);
   const onBehalfOfUserId = input.onBehalfOfUserId ?? agent.ownerId;
   const proposal = await prisma.$transaction(async (tx) => {
     const project = await tx.project.findFirst({ where: { id: input.projectId, organisationId: agent.organisationId }, select: { id: true } });

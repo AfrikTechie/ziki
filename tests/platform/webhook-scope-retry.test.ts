@@ -1,51 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Event scope, subscriptions and SSRF (#405, #498, #512): event filters stay inside the key's project and organisation, subscriptions are capped per agent, and no webhook URL may reach a private address. */
+/** Event scope, subscriptions and SSRF (#405, #498, #512): event filters stay inside the key's organisation, subscriptions are capped per agent, and no webhook URL may reach a private address. */
 const findFirst = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prisma", () => ({ prisma: { bug: { findFirst } } }));
 
-import { AgentProjectError } from "@/lib/agents/require-agent";
 import { scopeEventFilters, type EventFilters } from "@/lib/agent-api/events";
 import { createSubscriptionRecord, MAX_SUBSCRIPTIONS_PER_AGENT } from "@/lib/webhooks/manage";
 import { checkSsrf } from "@/lib/webhooks/ssrf";
 
-const scoped = { organisationId: "organisation-a", projectId: "proj-ziki", projectSlug: "ziki" };
-const legacy = { organisationId: "organisation-a", projectId: null as string | null, projectSlug: null as string | null };
+const caller = { organisationId: "organisation-a" };
 
-describe("scopeEventFilters project scope (#405)", () => {
+describe("scopeEventFilters organisation scope (#405, #user-agents)", () => {
   beforeEach(() => {
     findFirst.mockReset();
   });
 
-  it("passes a legacy key's filters through untouched", async () => {
-    const filters: EventFilters = { projectId: "proj-web", bugId: "issue-1" };
-    await expect(scopeEventFilters(legacy, filters)).resolves.toEqual({ filters });
-    expect(findFirst).not.toHaveBeenCalled();
-  });
-
-  it("rejects a foreign projectId and a same-organisation foreign bugId with AgentProjectError", async () => {
-    await expect(scopeEventFilters(scoped, { projectId: "proj-web" })).rejects.toBeInstanceOf(AgentProjectError);
-    findFirst.mockResolvedValue({ projectId: "proj-web" });
-    await expect(scopeEventFilters(scoped, { bugId: "issue-web" })).rejects.toBeInstanceOf(AgentProjectError);
-    await expect(scopeEventFilters(scoped, { projectId: "proj-ziki", bugId: "issue-web" })).rejects.toBeInstanceOf(AgentProjectError);
+  it("passes filters through: a key reads events from every project of its organisation", async () => {
+    const filters: EventFilters = { projectId: "proj-web" };
+    await expect(scopeEventFilters(caller, filters)).resolves.toEqual({ filters });
+    findFirst.mockResolvedValue({ id: "issue-1" });
+    await expect(scopeEventFilters(caller, { projectId: "proj-web", bugId: "issue-1" })).resolves.toEqual({ filters: { projectId: "proj-web", bugId: "issue-1" } });
   });
 
   it("answers 404 for a bugId that does not exist or belongs to another organisation", async () => {
     findFirst.mockResolvedValue(null);
-    await expect(scopeEventFilters(scoped, { bugId: "issue-missing" })).resolves.toEqual({ status: 404, error: "Issue not found." });
-    await expect(scopeEventFilters(scoped, { bugId: "issue-other-organisation" })).resolves.toEqual({ status: 404, error: "Issue not found." });
-    expect(findFirst).toHaveBeenCalledWith({ where: { id: "issue-other-organisation", organisationId: "organisation-a" }, select: { projectId: true } });
-  });
-
-  it("accepts its own project and filters unfiltered polls to it", async () => {
-    findFirst.mockResolvedValue({ projectId: "proj-ziki" });
-    await expect(scopeEventFilters(scoped, {})).resolves.toEqual({ filters: { projectId: "proj-ziki" } });
-    await expect(scopeEventFilters(scoped, { projectId: "proj-ziki", bugId: "issue-ziki" })).resolves.toEqual({
-      filters: { projectId: "proj-ziki", bugId: "issue-ziki" },
-    });
-    await expect(scopeEventFilters(scoped, { bugId: "issue-ziki" })).resolves.toEqual({
-      filters: { bugId: "issue-ziki", projectId: "proj-ziki" },
-    });
+    await expect(scopeEventFilters(caller, { bugId: "issue-missing" })).resolves.toEqual({ status: 404, error: "Issue not found." });
+    await expect(scopeEventFilters(caller, { bugId: "issue-other-organisation" })).resolves.toEqual({ status: 404, error: "Issue not found." });
+    expect(findFirst).toHaveBeenCalledWith({ where: { id: "issue-other-organisation", organisationId: "organisation-a" }, select: { id: true } });
   });
 });
 

@@ -7,6 +7,7 @@ import { BreakdownCard, RangePicker, Stat, WeeklyChart } from "./dashboard-parts
 import { orgPath, projectRef } from "@/lib/project-paths";
 import { loadOrg } from "./org-context";
 import { OrgPageHeader, oneParam } from "./org-ui";
+import { activeIn } from "@/lib/agents/active-in";
 
 /* Static on purpose: a title built from the name could leak into shared history. */
 export const metadata: Metadata = { title: "Organisation" };
@@ -17,7 +18,7 @@ async function orgCounts(organisationId: string) {
     const [members, projects, agents] = await Promise.all([
       prisma.membership.count({ where: { organisationId } }),
       prisma.project.count({ where: { organisationId, archivedAt: null } }),
-      prisma.agent.count({ where: { organisationId, revokedAt: null } }),
+      prisma.agent.count({ where: { ...activeIn(organisationId), revokedAt: null } }),
     ]);
     return { members, projects, agents };
   } catch (error) {

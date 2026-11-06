@@ -27,6 +27,7 @@ import {
 import { absoluteUrl } from "@/lib/site-url";
 import { issuePath } from "@/lib/issue-ref";
 import { refOf } from "@/lib/project-paths";
+import { activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * The manager's triage view (#triage): one read that says, for every issue in
@@ -457,13 +458,14 @@ async function openBidsOn(bugId: string, managerVoteWeight: number): Promise<Tri
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true, beneficiaryUserId: true, agent: { select: { ownerUserId: true } },
-      votes: { select: { onBehalfOfUserId: true, agent: { select: { level: true } } } },
+      bug: { select: { organisationId: true } },
+      votes: { select: { onBehalfOfUserId: true, agent: { select: { activations: activeLevels } } } },
     },
   });
   return rows
     .map((row) => ({
       id: row.id,
-      votes: weightedTally(row.votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: vote.agent?.level })), managerVoteWeight),
+      votes: weightedTally(row.votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: levelIn(vote.agent, row.bug.organisationId) })), managerVoteWeight),
       ownerIds: [row.beneficiaryUserId, row.agent.ownerUserId],
     }))
     .sort((a, b) => b.votes - a.votes);

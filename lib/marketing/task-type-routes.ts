@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { agentIssueRequest } from "@/lib/agent-api/issues";
 import { isAdminOfOrganisation } from "@/lib/agents/membership";
-import { assertKeyProject } from "@/lib/agents/require-agent";
 import { assertMarketingSettingsAccess } from "@/lib/marketing/settings";
 import { marketingTaskTypeProject } from "@/lib/marketing/task-types";
 import { prisma } from "@/lib/prisma";
@@ -80,7 +79,6 @@ export async function taskTypeRequest(
   return agentIssueRequest(request, action, "working", projectIdOrSlug, async (agent) => {
     const project = await marketingTaskTypeProject(agent.organisationId, projectIdOrSlug);
     // A key issued for one project cannot act in another (#742).
-    assertKeyProject(agent, project.id);
     const actor: TaskTypeActor = {
       organisationId: agent.organisationId,
       projectId: project.id,

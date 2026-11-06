@@ -2,13 +2,14 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resumeAfterWait } from "@/lib/claim-deadline";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { notifyAgentQuestion } from "@/lib/agent-notifications";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import type { WorkTrack } from "@prisma/client";
 import { escalationTrackWhere } from "@/lib/my-work-filter";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * An agent asking its owner a question (#446). The agent stores the question
@@ -22,6 +23,11 @@ import { escalationTrackWhere } from "@/lib/my-work-filter";
  */
 
 const id = z.string().trim().min(1).max(191);
+
+/** A question in the organisation: about one of its issues, or asked there by an agent active in it (#user-agents). */
+function questionIn(organisationId: string): Prisma.AgentQuestionWhereInput {
+  return { OR: [{ bug: { organisationId } }, { bugId: null, agent: activeIn(organisationId) }] };
+}
 
 export const escalationTypeValues = [
   "question",
@@ -75,7 +81,6 @@ export async function askAgentQuestion(agent: AgentContext, input: AskAgentQuest
       if (!bug) throw new IssueApiError(404, "Linked issue not found.");
       // #412: a project-scoped key may only link its own project's issues,
       // checked before anything (like the title) goes back to the caller.
-      assertKeyProject(agent, bug.projectId);
       bugTitle = bug.title;
     }
 
@@ -183,7 +188,7 @@ export async function answerAgentQuestion(userId: string, organisationId: string
     if (!member) throw new IssueApiError(403, "Organisation membership required.");
 
     const question = await tx.agentQuestion.findFirst({
-      where: { id: questionId, agent: { organisationId } },
+      where: { id: questionId, ...questionIn(organisationId) },
       select: { id: true, agentId: true, bugId: true, ownerUserId: true },
     });
     if (!question) throw new IssueApiError(404, "Question not found.");
@@ -244,7 +249,7 @@ async function resumeWaitingClaim(tx: Prisma.TransactionClient, agentId: string,
 /** The owner's list, unanswered questions first. */
 export async function listOwnerQuestions(userId: string, organisationId: string, track: WorkTrack | "all" = "all") {
   return prisma.agentQuestion.findMany({
-    where: { ownerUserId: userId, agent: { organisationId }, ...escalationTrackWhere(track) },
+    where: { ownerUserId: userId, AND: [questionIn(organisationId), escalationTrackWhere(track)] },
     orderBy: [{ answeredAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
     take: 100,
     select: {
@@ -266,7 +271,7 @@ export async function countPendingEscalations(userId: string, organisationId: st
     where: {
       ownerUserId: userId,
       answeredAt: null,
-      agent: { organisationId },
+      ...questionIn(organisationId),
     },
   });
 }
@@ -276,7 +281,7 @@ export async function listBugEscalations(bugId: string, organisationId: string) 
   return prisma.agentQuestion.findMany({
     where: {
       bugId,
-      agent: { organisationId },
+      ...questionIn(organisationId),
     },
     orderBy: [{ answeredAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
     select: {
@@ -388,7 +393,7 @@ export function classifyEscalation(body: string): EscalationType {
 /** One question for its owner, or `null` so the page can 404 anyone else. */
 export async function ownerQuestion(userId: string, organisationId: string, questionId: string) {
   return prisma.agentQuestion.findFirst({
-    where: { id: questionId, ownerUserId: userId, agent: { organisationId } },
+    where: { id: questionId, ownerUserId: userId, ...questionIn(organisationId) },
     select: {
       id: true,
       body: true,

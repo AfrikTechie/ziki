@@ -32,6 +32,7 @@ import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
 import { searchWorkItems } from "@/lib/search-index";
 import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 import { convertVettedIdea } from "@/lib/agent-api/idea-verdicts";
+import { difficultySchema } from "@/lib/difficulty";
 
 /** How many ideas one person's agents may file as already vetted in 24 hours. */
 export const VETTED_IDEAS_PER_DAY = 5;
@@ -63,6 +64,8 @@ export const createIdeaSchema = createBugSchema
     alreadyVetted: z.boolean().optional(),
     /** Where and by whom it was approved, for example "Approved by Mark, sheet row 42". Shown on the issue. */
     vettedNote: z.string().trim().min(5).max(300).optional(),
+    /** #plan-review: the issue's difficulty when `alreadyVetted` converts it at once; medium if left out. */
+    difficulty: difficultySchema.optional(),
     attachmentIds: attachmentIdsSchema,
     // Up to three plain lines a person can read at a glance (#report-summary).
     summary: reportSummarySchema,
@@ -404,7 +407,7 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
       // Already vetted: the idea becomes an issue now, and the note goes on the audit log with it.
       if (input.alreadyVetted && input.vettedNote) {
         await audit(agent, "idea.vetted", `idea:${idea.id}`, { vettedNote: input.vettedNote, number: idea.number }, { db: tx });
-        const made = await convertVettedIdea(tx, agent, scope.projectId, idea.id, input.vettedNote);
+        const made = await convertVettedIdea(tx, agent, scope.projectId, idea.id, input.vettedNote, input.difficulty ?? "medium");
         converted = { issueId: made.issueId, issueNumber: made.issueNumber };
       }
       return idea;

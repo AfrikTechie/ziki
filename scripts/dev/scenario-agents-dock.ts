@@ -75,9 +75,9 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     const demo = await prisma.user.findUnique({ where: { email: DEMO_EMAIL }, select: { id: true } });
-    const claim = await prisma.issueClaim.findUnique({ where: { id: WORKING_CLAIM }, select: { agent: { select: { organisationId: true } } } });
+    const claim = await prisma.issueClaim.findUnique({ where: { id: WORKING_CLAIM }, select: { bug: { select: { organisationId: true } } } });
     if (!demo || !claim) throw new Error("The Demo organisation isn't loaded. Run `pnpm db:fixtures` first.");
-    const organisationId = claim.agent.organisationId;
+    const organisationId = claim.bug.organisationId;
     const now = new Date();
     // Held, or with --all let go of so nobody is at work; any other run takes them up again.
     const held = ALL ? { status: "released" as const, releasedAt: now } : { status: "active" as const, releasedAt: null };
@@ -109,8 +109,8 @@ async function main() {
       // Stuck: holds #114 (no pull request yet) but went quiet two hours ago.
       prisma.agent.upsert({
         where: { id: STUCK_AGENT },
-        create: { id: STUCK_AGENT, organisationId, ownerUserId: demo.id, name: "Demo Fixer", avatar: "tangerine" },
-        update: { revokedAt: null },
+        create: { id: STUCK_AGENT, ownerUserId: demo.id, name: "Demo Fixer", avatar: "tangerine", activations: { create: { organisationId } } },
+        update: { revokedAt: null, activations: { upsert: { where: { agentId_organisationId: { agentId: STUCK_AGENT, organisationId } }, create: { organisationId }, update: { deactivatedAt: null } } } },
       }),
       prisma.issueClaim.update({
         where: { id: STUCK_CLAIM },
@@ -132,7 +132,7 @@ async function main() {
             // Not every fixture agent has a key, so idle gives each of the three one of its own.
             ...(ALL === "idle"
               ? [BUILDER, WAITING_AGENT, STUCK_AGENT].map((agentId, i) =>
-                  prisma.agentApiKey.create({ data: { id: `${KEYS}-${i}`, agentId, keyHash: `${KEYS}-${i}-hash`, prefix: `zk_scn${i}`, lastUsedAt } }),
+                  prisma.agentApiKey.create({ data: { id: `${KEYS}-${i}`, agentId, organisationId, keyHash: `${KEYS}-${i}-hash`, prefix: `zk_scn${i}`, lastUsedAt } }),
                 )
               : []),
           ]
@@ -141,14 +141,14 @@ async function main() {
       ...(THREE ? [] : [prisma.agent.create({
         data: {
           id: `${P}-idle`,
-          organisationId,
           ownerUserId: demo.id,
           name: "Demo Scout",
-          apiKeys: { create: { id: `${P}-idle-key`, keyHash: `${P}-idle-key-hash`, prefix: "zk_scout", lastUsedAt: new Date(now.getTime() - 60_000) } },
+          activations: { create: { organisationId } },
+          apiKeys: { create: { id: `${P}-idle-key`, organisationId, keyHash: `${P}-idle-key-hash`, prefix: "zk_scout", lastUsedAt: new Date(now.getTime() - 60_000) } },
         },
       }),
       // Offline: never seen.
-      prisma.agent.create({ data: { id: `${P}-offline`, organisationId, ownerUserId: demo.id, name: "Demo Tester" } })]),
+      prisma.agent.create({ data: { id: `${P}-offline`, ownerUserId: demo.id, name: "Demo Tester", activations: { create: { organisationId } } } })]),
     ]);
     if (ALL) {
       console.log(`[scenario] Demo agents: Builder, Lead and Fixer all ${ALL}${THREE ? "" : ", Scout idle, Tester offline"}. Sign in as demo@fixtures.local.`);

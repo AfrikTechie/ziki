@@ -27,6 +27,7 @@ vi.mock("@/lib/organisation-context", async (importOriginal) => ({
   currentOrganisationIdFor: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/points/signup-bonus", () => ({ awardSignupBonus: vi.fn(async () => undefined) }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@/lib/notify", () => ({ notifyLater: vi.fn() }));
 // Tidying an idea with Claude is a network call: as with no API key, it leaves the text as typed.
@@ -89,6 +90,19 @@ const report = form({
   description: "Clicking Login on the sign-in page does nothing at all, on Chrome and Firefox.",
   proofLinks: "",
   projectId: "project-zedu",
+});
+
+describe("creating an organisation", () => {
+  it("makes the creator its owner and starts it with a Web project, so no first project is asked for", async () => {
+    const { createOrganisation } = await import("@/lib/organisations");
+    const create = vi.fn(async ({ data }: { data: { slug: string; name: string } }) => ({ id: "org-new", slug: data.slug, name: data.name }));
+    const db = { membership: { findFirst: vi.fn(async () => null) }, organisation: { create } };
+    const result = await createOrganisation(db as never, { id: "ada" }, { name: "Acme Labs" });
+    expect(result).toMatchObject({ ok: true, organisation: { id: "org-new" } });
+    const data = (create.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data.memberships).toEqual({ create: { userId: "ada", role: "owner" } });
+    expect(data.projects).toEqual({ create: { name: "Web", slug: "web", workflow: { create: {} } } });
+  });
 });
 
 describe("issue actions are organisation-scoped (#425)", () => {

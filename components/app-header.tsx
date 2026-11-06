@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMarketingArea } from "@/components/marketing/marketing-area";
-import { ideasPath, orgPath, type ProjectRef } from "@/lib/project-paths";
+import { ideasPath, type ProjectRef } from "@/lib/project-paths";
 import { useProjectRef } from "@/lib/use-project-ref";
 import { SignOutButton } from "@/components/sign-out-button";
 import { OrganisationSwitcher, type OrganisationOption, type ExternalProjectChoice } from "@/components/organisation-switcher";
@@ -154,6 +154,11 @@ function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlu
           <path d="m9 12 2 2 4-4" />
         </NavIcon>
       </TopNavLink>
+      <TopNavLink href="/forum" active={isNavItemActive(pathname, "/forum")} label="Forum">
+        <NavIcon>
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </NavIcon>
+      </TopNavLink>
     </nav>
   );
 }
@@ -279,7 +284,6 @@ export function AppHeader({
   externalProjects = [],
   activeOrganisationId = null,
   reportFormUrl,
-  organisationAdmin = false,
   defaultProjectSlug = null,
   earned = null,
   inEarnOrganisation = false,
@@ -308,8 +312,6 @@ export function AppHeader({
   externalProjects?: ExternalProjectChoice[];
   activeOrganisationId?: string | null;
   reportFormUrl?: string;
-  /** Owner or admin of the current organisation, or the site super admin: shows /org in the menus. */
-  organisationAdmin?: boolean;
 }) {
   const pathname = usePathname();
   const projectSlug = useProjectRef() ?? defaultProjectSlug;
@@ -346,8 +348,6 @@ export function AppHeader({
             organisationOptions={organisationOptions}
             externalProjects={externalProjects}
             activeOrganisationId={activeOrganisationId}
-            canManage={organisationAdmin}
-            orgHref={projectSlug ? orgPath(projectSlug) : null}
             tone="bar"
             className={`min-w-0 max-sm:max-w-44 ${earnQuiet ? "max-sm:hidden" : ""}`}
           />
@@ -400,6 +400,10 @@ export function AppHeader({
                 />
                 <AccountThemeSelector />
                 <div className="mx-2 h-px bg-zk-divider" />
+                {/* What your agents are doing and what needs you (#849). */}
+                <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
+                  Activity
+                </MenuLink>
                 <MenuLink href={MANAGE_AGENTS_HREF} active={Boolean(pathname?.startsWith(MANAGE_AGENTS_HREF))}>
                   Manage agents
                 </MenuLink>

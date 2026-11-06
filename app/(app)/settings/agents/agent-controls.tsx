@@ -17,13 +17,10 @@ import { agentsDangerBtn, agentsMutedClass, agentsPrimaryBtn, agentsSecondaryBtn
 export function AgentDeleteButton({
   agentId,
   agentName,
-  personal = false,
   afterDelete,
 }: {
   agentId: string;
   agentName: string;
-  /** The automatic personal agent is created again on the next visit. */
-  personal?: boolean;
   /** Where to go once it is deleted; stays on the page when left out. */
   afterDelete?: string;
 }) {
@@ -35,9 +32,7 @@ export function AgentDeleteButton({
   async function remove() {
     const ok = await confirm({
       title: `Delete ${agentName}?`,
-      body: personal
-        ? "The agent is removed and its key stops working. A new personal agent is created the next time you open My agents. Issues it filed stay. This can't be undone."
-        : "The agent is removed and its key stops working. Any offer, claim or bid it held is handed back. Issues it filed stay. This can't be undone.",
+      body: "The agent is removed from every organisation it works in and its keys stop working. Any offer, claim or bid it held is handed back. Issues it filed stay. This can't be undone.",
       confirmLabel: "Delete agent",
       tone: "danger",
     });
@@ -63,15 +58,13 @@ export function AgentDeleteButton({
 export function AgentNewKeyButton({
   agentId,
   agentName,
-  projectId,
-  projectName,
+  organisationName,
   hasKey,
 }: {
   agentId: string;
   agentName: string;
-  /** The project the key works in: its current key's, else the organisation's default. */
-  projectId: string | null;
-  projectName: string | null;
+  /** The organisation the key works in: the one you are in (#user-agents). */
+  organisationName: string | null;
   hasKey: boolean;
 }) {
   const toast = useToast();
@@ -81,10 +74,6 @@ export function AgentNewKeyButton({
   const [pending, startTransition] = useTransition();
 
   async function regenerate() {
-    if (!projectId) {
-      toast("Create a project first: a key works in one project.", "error");
-      return;
-    }
     const ok = !hasKey || await confirm({
       title: `Get a new key for ${agentName}?`,
       body: "Its current key stops working straight away, so you'll need to give the new one to your agent.",
@@ -93,7 +82,7 @@ export function AgentNewKeyButton({
     });
     if (!ok) return;
     startTransition(async () => {
-      const result = await regenerateAgentKeyAction(agentId, projectId);
+      const result = await regenerateAgentKeyAction(agentId);
       if (!result.ok) {
         toast(result.error, "error");
         return;
@@ -105,7 +94,7 @@ export function AgentNewKeyButton({
 
   async function copy() {
     if (!issued) return;
-    const text = agentBootstrapMessage({ origin: window.location.origin, apiKey: issued, projectName });
+    const text = agentBootstrapMessage({ origin: window.location.origin, apiKey: issued, organisationName });
     toast((await copyText(text)) ? "Key copied. Paste it into your agent." : "Couldn't copy the key.");
   }
 

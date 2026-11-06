@@ -44,6 +44,7 @@ const ROLE_LABEL: Record<PointRole, string> = {
   signup: "Signup bonus",
   comment: "Comment upvoted by someone",
   vote: "Voted",
+  plan: "Plan approved",
 };
 /** Small, repeatable actions: the ones farming leans on. */
 const SMALL_KINDS = new Set(["idea", "comment-upvote", "importance", "bid-vote", "triager-clear", "duplicate-marker", "reviewer-confirm"]);

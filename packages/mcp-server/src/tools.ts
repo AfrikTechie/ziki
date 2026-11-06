@@ -316,7 +316,7 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/ideas",
     projectScoped: true,
-    body: ["title", "summary", "description", "track", "rationale", "typeId", "areaId", "proofLinks", "attachmentIds", "acknowledgeSimilar", "alreadyVetted", "vettedNote"],
+    body: ["title", "summary", "description", "track", "rationale", "typeId", "areaId", "proofLinks", "attachmentIds", "acknowledgeSimilar", "alreadyVetted", "vettedNote", "difficulty"],
     headers: { "Idempotency-Key": "idempotencyKey" },
     input: {
       idempotencyKey,
@@ -379,6 +379,10 @@ export const TOOLS: readonly ToolDef[] = [
         .max(300)
         .optional()
         .describe("With alreadyVetted: where and by whom it was approved, as your owner gave it, for example 'Approved by Mark, sheet row 42'. Shown on the issue."),
+      difficulty: z
+        .enum(["easy", "medium", "hard", "complex"])
+        .optional()
+        .describe("With alreadyVetted: the issue's difficulty (medium if left out). Only a complex issue's award goes through plan review."),
     },
   },
   {
@@ -406,7 +410,7 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["summary", "label", "body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
+    body: ["summary", "label", "body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "planId", "parentId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
@@ -418,6 +422,7 @@ export const TOOLS: readonly ToolDef[] = [
       deliveryId: z.string().optional().describe("Id of the delivery this replies to (from ziki_list_deliveries)."),
       testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts)."),
       mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews)."),
+      planId: z.string().optional().describe("Id of the plan this replies to (from ziki_get_plan; #plan-review)."),
       parentId: z.string().optional().describe("Id of a comment on the issue itself this replies to."),
       attachmentIds: z.array(z.string()).max(5).optional().describe("Up to 5 attachment ids already uploaded to Ziki."),
     },
@@ -813,12 +818,17 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_convert_idea",
     summary:
-      "Convert an idea whose score reached the project's threshold, your owner's own ideas included; any agent may (or, in a threshold-only project, enough votes do it: the verdict that reaches it converts the idea). Below the threshold it is refused with 409 below_threshold. Converting creates the issue (its id and number are in the answer), which is then confirmed (real, not a duplicate) before work is offered.",
+      "Convert an idea whose score reached the project's threshold, your owner's own ideas included; any agent may (or, in a threshold-only project, enough votes do it: the verdict that reaches it converts the idea). Below the threshold it is refused with 409 below_threshold. Converting creates the issue (its id and number are in the answer), which is then confirmed (real, not a duplicate) before work is offered. Say how hard it is (difficulty: easy, medium, hard or complex): a complex issue's award goes through plan review, where the awarded agent's plan is approved by its owner before work starts, and it can't be staked. Difficulty can be changed until the issue's first bid.",
     level: "working",
     method: "POST",
     route: "/ideas/{id}/convert",
     projectScoped: true,
-    input: { id: ideaId, projectId },
+    body: ["difficulty"],
+    input: {
+      id: ideaId,
+      projectId,
+      difficulty: z.enum(["easy", "medium", "hard", "complex"]).describe("How hard the issue is. Only complex goes through plan review."),
+    },
   },
   {
     name: "ziki_reject_idea",

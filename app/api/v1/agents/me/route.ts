@@ -6,9 +6,9 @@ import { agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
 import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
 import { listAgentProjectSummaries, organisationSlugOf } from "@/lib/agent-api/projects";
-import { projectPath, projectRef } from "@/lib/project-paths";
 import { readAgentInstructions } from "@/lib/agent-messages";
-import { readProjectBrief } from "@/lib/marketing/brief";
+import { prisma } from "@/lib/prisma";
+import { projectPath, projectRef } from "@/lib/project-paths";
 import { readAgentProfile, updateAgentProfile } from "@/lib/agents/profile";
 import { profileErrorResponse } from "@/lib/agent-api/agent-profiles";
 import { agentIssueRequest } from "@/lib/agent-api/issues";
@@ -18,7 +18,8 @@ import { agentWorkStatus } from "@/lib/agents/work-gate";
  * GET /api/v1/agents/me — who this key belongs to (#427). Any level may call
  * it; it is the quickest way for an agent to check its key works. It also
  * lists the organisation's projects (#607) so an agent can pick the `projectId`
- * every issue route needs, and the owner's standing `instructions` (#605).
+ * every issue route needs (each with its `workUrl`), the organisations the
+ * agent is active in (#user-agents), and the owner's standing `instructions` (#605).
  */
 export async function GET(req: NextRequest) {
   try {
@@ -30,13 +31,17 @@ export async function GET(req: NextRequest) {
       "read",
     );
     if (!budget.allowed) return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
-    const [projects, instructions, brief, profile, orgSlug] = await Promise.all([
+    const [projects, instructions, profile, orgSlug, activations] = await Promise.all([
       listAgentProjectSummaries(agent.organisationId),
       readAgentInstructions(agent.agentId),
-      // M-API-8: a key for every project has no one brief; it reads each project's on its marketing feed.
-      agent.projectId ? readProjectBrief(agent.projectId) : null,
       readAgentProfile(agent.agentId),
       organisationSlugOf(agent.organisationId),
+      // #user-agents: every organisation its owner switched it on in. This key works in this one.
+      prisma.agentActivation.findMany({
+        where: { agentId: agent.agentId, deactivatedAt: null },
+        orderBy: { activatedAt: "asc" },
+        select: { level: true, organisation: { select: { id: true, slug: true, name: true } } },
+      }),
     ]);
     return withAgentBudgetHeaders(
       NextResponse.json({
@@ -48,16 +53,22 @@ export async function GET(req: NextRequest) {
         org_slug: orgSlug,
         level: agent.level,
         paused: agent.pausedAt !== null,
-        project_id: agent.projectId ?? null,
-        project_slug: agent.projectSlug ?? null,
-        // #work-feed: the one URL to watch. A key for every project finds each one's under `projects`.
-        work_url: agent.projectSlug ? absoluteUrl(projectPath(projectRef(orgSlug, agent.projectSlug), "/work")) : null,
+        // #user-agents: where it is active. A key works in its own organisation, in every project there.
+        activations: activations.map((row) => ({
+          organisation_id: row.organisation.id,
+          org_slug: row.organisation.slug,
+          name: row.organisation.name,
+          level: row.level,
+        })),
         // #owner-history: the owner's entries and comments, newest first, with how to replace each.
         history_url: absoluteUrl("/api/v1/agents/me/history"),
         next_step: WATCH_WORK_MESSAGE,
-        projects,
+        // #work-feed: each project's `workUrl` is the URL to watch. The key works in all of them (#user-agents).
+        projects: projects.map((project) => ({
+          ...project,
+          workUrl: orgSlug ? absoluteUrl(projectPath(projectRef(orgSlug, project.slug), "/work")) : null,
+        })),
         instructions,
-        brief,
         // #agent-profile: who it says it is. Set with PATCH here, /me/skills and /me/picture.
         profile: profile
           ? { ...profile, picture_url: profile.picture_url ? absoluteUrl(profile.picture_url) : null }

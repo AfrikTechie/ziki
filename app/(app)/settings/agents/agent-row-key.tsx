@@ -9,13 +9,12 @@ import { agentBootstrapMessage } from "@/lib/agents/bootstrap-message";
 export function AgentRowKey({
   apiKey,
   prefix,
-  projectId,
-  projectName,
+  organisationName,
 }: {
   apiKey: string | null;
   prefix: string;
-  projectId: string | null;
-  projectName: string | null;
+  /** The organisation the key works in (#user-agents). */
+  organisationName: string | null;
 }) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
@@ -23,20 +22,18 @@ export function AgentRowKey({
   async function copy() {
     if (!apiKey) return;
     const origin = window.location.origin;
-    const value = projectId
-      ? agentBootstrapMessage({ origin, apiKey, projectName })
-      : apiKey;
+    const value = agentBootstrapMessage({ origin, apiKey, organisationName });
     const ok = await copyText(value);
     if (!ok) {
       toast("Couldn't copy the key.", "error");
       return;
     }
-    toast(projectId ? "Agent setup copied. Paste it into that agent." : "Key copied.");
+    toast("Agent setup copied. Paste it into that agent.");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
-  const where = projectName ?? (projectId ? "this project" : "every project");
+  const where = organisationName ?? "its organisation";
 
   if (!apiKey) {
     return (

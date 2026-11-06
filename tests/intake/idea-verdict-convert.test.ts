@@ -276,8 +276,8 @@ describe("convertIdea", () => {
   });
 
   it("creates the issue from the idea's report, moves its files, and marks the idea converted", async () => {
-    const result = await convertIdea(agentOf("working"), "p1", "7");
-    expect(result).toMatchObject({ ideaId: "i1", ideaNumber: 7, issueId: "b9", issueNumber: 42, ideaScore: 3, ideaThreshold: 3 });
+    const result = await convertIdea(agentOf("working"), "p1", "7", "complex");
+    expect(result).toMatchObject({ ideaId: "i1", ideaNumber: 7, issueId: "b9", issueNumber: 42, ideaScore: 3, ideaThreshold: 3, difficulty: "complex" });
     expect(db.bug.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         organisationId: "t1",
@@ -289,6 +289,8 @@ describe("convertIdea", () => {
         beneficiaryUserId: "ada",
         createdByAgentId: "agent-ada",
         status: "open", substatus: "requires_confirmation",
+        // #plan-review: the converter's call; a complex issue's award goes through plan review.
+        difficulty: "complex",
       }),
     }));
     expect(db.attachment.updateMany).toHaveBeenCalledWith({ where: { ideaId: "i1" }, data: { bugId: "b9" } });
@@ -307,7 +309,7 @@ describe("convertIdea", () => {
   it("converts marketing ideas straight to Open and pays the beneficiary from project reporter rewards", async () => {
     db.$queryRaw.mockResolvedValue([idea({ track: "marketing" })]);
 
-    const result = await convertIdea(agentOf("working"), "p1", "7");
+    const result = await convertIdea(agentOf("working"), "p1", "7", "medium");
 
     expect(result).toMatchObject({ issueId: "b9", issueNumber: 42 });
     expect(db.bug.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -334,9 +336,9 @@ describe("convertIdea", () => {
 
   it("needs an open idea and a score at the threshold", async () => {
     db.$queryRaw.mockResolvedValue([idea({ score: 2 })]);
-    await expect(convertIdea(agentOf("working"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "below_threshold", ideaScore: 2, ideaThreshold: 3 } });
+    await expect(convertIdea(agentOf("working"), "p1", "i1", "medium")).rejects.toMatchObject({ status: 409, body: { error: "below_threshold", ideaScore: 2, ideaThreshold: 3 } });
     db.$queryRaw.mockResolvedValue([idea({ status: "converted" })]);
-    await expect(convertIdea(agentOf("working"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
+    await expect(convertIdea(agentOf("working"), "p1", "i1", "medium")).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
     expect(db.bug.create).not.toHaveBeenCalled();
     expect(db.idea.update).not.toHaveBeenCalled();
   });
@@ -348,7 +350,7 @@ describe("convertVettedIdea", () => {
 
   it("converts an idea with no verdicts, says it was vetted on the issue's activity and on the event, and nothing else is skipped", async () => {
     db.$queryRaw.mockResolvedValue([idea({ score: 0 })]);
-    const result = await convertVettedIdea(db as never, owner, "p1", "i1", "Approved by Mark, sheet row 42");
+    const result = await convertVettedIdea(db as never, owner, "p1", "i1", "Approved by Mark, sheet row 42", "medium");
     expect(result).toMatchObject({ ideaId: "i1", issueId: "b9", issueNumber: 42, ideaScore: 0 });
     expect(db.bug.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -364,7 +366,7 @@ describe("convertVettedIdea", () => {
 
   it("does not convert an idea that is not open", async () => {
     db.$queryRaw.mockResolvedValue([idea({ score: 0, status: "rejected" })]);
-    await expect(convertVettedIdea(db as never, owner, "p1", "i1", "Approved by Mark")).rejects.toMatchObject({ status: 409, body: { error: "idea_rejected" } });
+    await expect(convertVettedIdea(db as never, owner, "p1", "i1", "Approved by Mark", "medium")).rejects.toMatchObject({ status: 409, body: { error: "idea_rejected" } });
     expect(db.bug.create).not.toHaveBeenCalled();
   });
 });

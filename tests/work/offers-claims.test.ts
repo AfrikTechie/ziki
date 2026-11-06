@@ -128,7 +128,8 @@ describe("your work", () => {
     const where = yourWorkWhere("u1");
     expect(where.status).toEqual({ notIn: ["resolved", "closed"] });
     expect(where.OR).toEqual([
-      { claims: { some: { beneficiaryUserId: "u1", status: { in: ["offered", "active"] }, releasedAt: null } } },
+      // #plan-review: an award under plan review is yours too.
+      { claims: { some: { beneficiaryUserId: "u1", status: { in: ["offered", "planning", "active"] }, releasedAt: null } } },
       { status: "open", bids: { some: { beneficiaryUserId: "u1", withdrawnAt: null } } },
     ]);
   });

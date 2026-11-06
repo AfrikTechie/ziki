@@ -30,6 +30,7 @@ const NUMERIC_FIELDS = [
   "acceptThreshold",
   "stakeLimit",
   "stakeInProgressLimit",
+  "planReviewSeconds",
 ] as const;
 
 async function projectSettingsAccess(slug: string) {

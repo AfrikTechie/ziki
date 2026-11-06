@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 
 /** Active work (#556, #593): the holder heartbeats its claim, a silent or overdue claim is released and its issue reopened for bids, and delivered work is never taken back. */
 const db = vi.hoisted(() => ({
-  agentApiKey: { findUnique: vi.fn() }, agentAuditEvent: { create: vi.fn() },
+  agentApiKey: { findUnique: vi.fn() }, agentActivation: { findUnique: vi.fn() }, agentAuditEvent: { create: vi.fn() },
   agentEvent: { create: vi.fn() }, webhookSubscription: { findMany: vi.fn() },
   webhookDelivery: { createMany: vi.fn() },
   project: { findFirst: vi.fn(), findUnique: vi.fn() },
@@ -46,7 +46,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   // setTimeout is faked so the re-offer's expiry timer is armed but never fires.
   vi.useFakeTimers({ toFake: ["Date", "setTimeout"] }); vi.setSystemTime(now);
-  db.agentApiKey.findUnique.mockResolvedValue({ id: "key", revokedAt: null, agent: { id: "agent", name: "Agent", ownerUserId: "owner", organisationId: "organisation", level: "working", burst: false, revokedAt: null, username: "agent", tagline: "Test agent", about: "A test agent.", _count: { skills: 1 }, owner: { memberships: [{ organisationId: "organisation" }] } } });
+  db.agentActivation.findUnique.mockResolvedValue({ level: "working", burst: false, burstUntil: null, deactivatedAt: null });
+  db.agentApiKey.findUnique.mockResolvedValue({ id: "key", revokedAt: null, organisationId: "organisation", agent: { id: "agent", name: "Agent", ownerUserId: "owner", revokedAt: null, username: "agent", tagline: "Test agent", about: "A test agent.", _count: { skills: 1 }, owner: { memberships: [{ organisationId: "organisation" }] } } });
   db.project.findFirst.mockResolvedValue({ id: "project" });
   db.project.findUnique.mockResolvedValue({ id: "project", organisationId: "organisation" });
   db.$queryRaw.mockResolvedValue([{ id: "issue" }]);
@@ -227,8 +228,8 @@ describe("agent status for its owner", () => {
 
 describe("owner pause and steering", () => {
   const pauseStart = new Date(now.getTime() - 60_000);
-  const pausedKey = () => ({ id: "key", revokedAt: null, agent: {
-    id: "agent", name: "Agent", ownerUserId: "owner", organisationId: "organisation", level: "working", burst: false,
+  const pausedKey = () => ({ id: "key", revokedAt: null, organisationId: "organisation", agent: {
+    id: "agent", name: "Agent", ownerUserId: "owner",
     revokedAt: null, pausedAt: pauseStart, username: "agent", tagline: "Ready", about: "Ready.",
     _count: { skills: 1 }, owner: { memberships: [{ organisationId: "organisation" }] },
   } });

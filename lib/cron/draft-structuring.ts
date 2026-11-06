@@ -9,6 +9,7 @@ import {
 } from "../../scripts/agents/structure-drafts";
 import { audit } from "@/lib/agents/audit";
 import { logger } from "@/lib/logger";
+import { activeIn } from "@/lib/agents/active-in";
 
 /**
  * Draft Idea Auto-Structuring Sweep (follow-up to #682 / #685).
@@ -97,11 +98,12 @@ export async function sweepUndraftedIdeas(options?: {
   async function structuringAgentFor(organisationId: string) {
     if (agentCache.has(organisationId)) return agentCache.get(organisationId) ?? null;
     const agent = await prisma.agent.findFirst({
-      where: { organisationId, name: "Structuring Bot", revokedAt: null },
-      select: { id: true, organisationId: true },
+      where: { ...activeIn(organisationId), name: "Structuring Bot", revokedAt: null },
+      select: { id: true },
     });
-    agentCache.set(organisationId, agent);
-    return agent;
+    const found = agent ? { id: agent.id, organisationId } : null;
+    agentCache.set(organisationId, found);
+    return found;
   }
 
   for (const idea of drafts) {

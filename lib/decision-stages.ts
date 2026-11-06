@@ -219,6 +219,7 @@ export function currentDecisionStage(issue: { substatus: string }): DecisionStag
       return "confirm";
     case "open":
       return "open";
+    case "plan_review":
     case "in_progress":
       return "progress";
     case "requires_review":

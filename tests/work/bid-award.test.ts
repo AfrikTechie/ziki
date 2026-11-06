@@ -78,7 +78,7 @@ beforeEach(() => {
   db.issueBid.findUnique.mockResolvedValue(null);
   db.issueBid.create.mockResolvedValue({ id: "bid1", beneficiaryUserId: "ada", summary: plan.summary });
   // By default a bid has one manager agent's vote: 3, the default awardThreshold.
-  db.bidVote.findMany.mockResolvedValue([{ onBehalfOfUserId: "eve", agent: { level: "manager" } }]);
+  db.bidVote.findMany.mockResolvedValue([{ onBehalfOfUserId: "eve", agent: { activations: [{ organisationId: "organisation", level: "manager" }] } }]);
   vi.mocked(isConfirmed).mockResolvedValue(true);
 });
 
@@ -96,6 +96,21 @@ describe("awardBid", () => {
   };
   const manager = { ...caller, agentId: "dana-agent", name: "Dana's Claude", ownerId: "dana", level: "manager" as const };
 
+  it("opens plan review instead of an offer on a complex issue (#plan-review): a planning claim, the issue at In progress · Plan review, no offer to accept", async () => {
+    db.issueBid.findUnique.mockResolvedValue({ ...stored, bug: { ...openBug, difficulty: "complex" } });
+    db.issueClaim.create.mockResolvedValue({ id: "claim1" });
+    const result = await awardBid(manager, "bid1");
+    expect(result).toMatchObject({ bidId: "bid1", claimId: "claim1", status: "planning" });
+    expect(new Date(result.planBy!).getTime()).toBeGreaterThan(Date.now() + 7000 * 1000);
+    expect(db.issueClaim.create.mock.calls[0][0].data).toMatchObject({ status: "planning", offeredAt: expect.any(Date), agentId: "agent1" });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "issue1" }, data: { status: "in_progress", substatus: "plan_review" } });
+    expect(publish).not.toHaveBeenCalledWith(db, expect.objectContaining({ type: "claim.offered" }));
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.bid_awarded", payload: expect.objectContaining({ planning: true, offered: false }) }));
+    // Nothing to accept and nothing to expire: the plan window sweeper handles a planning award.
+    expect(notifyClaimOffered).not.toHaveBeenCalled();
+    expect(scheduleOfferExpiry).not.toHaveBeenCalled();
+  });
+
   it("awards a bid at the threshold as an offered claim to the bidding agent, attributed to the awarding agent", async () => {
     db.issueBid.findUnique.mockResolvedValue(stored);
     db.issueClaim.create.mockResolvedValue({ id: "claim1" });
@@ -105,6 +120,7 @@ describe("awardBid", () => {
       bugId: "issue1",
       bugTitle: "Broken login",
       beneficiaryUserId: "ada",
+      status: "offered",
     });
     expect(db.issueClaim.create.mock.calls[0][0].data).toMatchObject({
       status: "offered",
@@ -276,6 +292,8 @@ describe("what takes a claim slot (#760)", () => {
     const where = (count.mock.calls[0] as unknown as [{ where: { OR: unknown[] } }])[0].where;
     expect(where.OR).toEqual([
       { status: "active", bug: { status: "in_progress" } },
+      // #plan-review: an award under plan review holds a slot too.
+      { status: "planning" },
       { status: "offered", offeredAt: { gt: expect.any(Date) } },
     ]);
   });

@@ -12,7 +12,7 @@ export const metadata = { title: "Connect your agent" };
 /**
  * Connect your agent, the earn way (#earn-connect): the same page as Connect your agent on the rest of
  * Ziki (a card with one button that names the agent, hands over one piece of text and waits for it to
- * connect), inside the earn pages' header. The agent is made in the Earn organisation's project. If this
+ * connect), inside the earn pages' header. The agent is made active in the Earn organisation. If this
  * device isn't working in that organisation yet, /earn/start puts it there first. Once it connects, the
  * person goes on to /earn/home.
  */
@@ -22,9 +22,8 @@ export default async function EarnConnectPage() {
   // No redirect for someone who already has an agent: creating the agent here re-renders this page mid-flow,
   // and sending them away would cut off the copy step. /earn/start already sends connected people on.
 
-  const organisation = await prisma.organisation.findUnique({ where: { slug: EARN_ORGANISATION_SLUG }, select: { id: true } });
-  const project = organisation ? await prisma.project.findFirst({ where: { organisationId: organisation.id }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }) : null;
-  if (!organisation || !project || (await currentOrganisationIdFor(user.id)) !== organisation.id) redirect("/earn/start");
+  const organisation = await prisma.organisation.findUnique({ where: { slug: EARN_ORGANISATION_SLUG }, select: { id: true, name: true } });
+  if (!organisation || (await currentOrganisationIdFor(user.id)) !== organisation.id) redirect("/earn/start");
 
   return (
     <div className="mx-auto max-w-xl space-y-6">
@@ -38,8 +37,8 @@ export default async function EarnConnectPage() {
           <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">Connect your agent</h1>
           <p className={agentsMutedClass}>Name it, copy one piece of text into it, and you&apos;re connected.</p>
         </div>
-        <ConnectAgentFlow projectId={project.id} next="/earn/home" />
-        <p className="text-xs text-zk-muted">It will work in {project.name}.</p>
+        <ConnectAgentFlow ready next="/earn/home" />
+        <p className="text-xs text-zk-muted">It will work in every project of {organisation.name}.</p>
       </section>
     </div>
   );

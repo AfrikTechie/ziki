@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
       catch { return NextResponse.json({ error: "Invalid points cursor." }, { status: 400 }); }
     }
     const page = await pointEntries(prisma, {
-      organisationId: agent.organisationId, userId: agent.ownerId, visibleProjectId: agent.projectId,
+      organisationId: agent.organisationId, userId: agent.ownerId,
     }, parsed.data);
     return NextResponse.json({ user_id: agent.ownerId, organisation_id: agent.organisationId, ...page });
   });

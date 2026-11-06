@@ -1,4 +1,8 @@
+"use client";
+
+import { useId, useState, useTransition } from "react";
 import Link from "next/link";
+import { editPullRequestUrlAction } from "@/app/actions/issues";
 import { formatProofLinkLabel } from "@/lib/proof-links";
 import { ideaPath, type ProjectRef } from "@/lib/project-paths";
 
@@ -12,6 +16,10 @@ export type IssueLinksProps = {
   idea?: { number: number; slug: ProjectRef } | null;
   /** Repaired old links (#pr-link-repair): the verified canonical PR or commit, or that the old repository can't be read. */
   repairs?: { originalUrl: string; canonicalUrl: string | null; inaccessible: boolean; agentName: string }[];
+  /** The issue id, passed when the viewer can edit the submitted pull request link (#edit-pr-link). */
+  bugId?: string;
+  /** True when the viewer is the contributor/assignee/holder or editor who can update a submitted PR link (#edit-pr-link). */
+  canEditPullRequest?: boolean;
 };
 
 function ExternalLinkIcon({ className }: { className: string }) {
@@ -28,23 +36,131 @@ function ExternalLinkIcon({ className }: { className: string }) {
 
 /**
  * The issue's Links, in the side rail: its GitHub pull request links and the
- * idea it came from. The agent delivering the work links its pull request.
+ * idea it came from. The agent delivering the work links its pull request, and
+ * the contributor or claim holder can edit the submitted pull request link (#edit-pr-link).
  */
-export function IssueLinks({ links: proofLinks, linkedPullRequestUrl, pullRequests = true, idea = null, repairs = [] }: IssueLinksProps) {
+export function IssueLinks({
+  links: proofLinks,
+  linkedPullRequestUrl,
+  pullRequests = true,
+  idea = null,
+  repairs = [],
+  bugId,
+  canEditPullRequest = false,
+}: IssueLinksProps) {
+  const inputId = useId();
+  const [savedPrUrl, setSavedPrUrl] = useState<string | null>(null);
+  const effectiveLinkedPr = savedPrUrl ?? linkedPullRequestUrl ?? null;
+  const effectiveProofLinks =
+    savedPrUrl && linkedPullRequestUrl
+      ? proofLinks.map((url) => (url === linkedPullRequestUrl ? savedPrUrl : url))
+      : proofLinks;
   const repairFor = new Map(repairs.map((repair) => [repair.originalUrl, repair]));
-  const links = linkedPullRequestUrl && !proofLinks.includes(linkedPullRequestUrl)
-    ? [linkedPullRequestUrl, ...proofLinks]
-    : proofLinks;
+  const links =
+    effectiveLinkedPr && !effectiveProofLinks.includes(effectiveLinkedPr)
+      ? [effectiveLinkedPr, ...effectiveProofLinks]
+      : effectiveProofLinks;
+
+  const currentPrUrl = effectiveLinkedPr ?? links[0] ?? "";
+  const [editing, setEditing] = useState(false);
+  const [draftUrl, setDraftUrl] = useState(currentPrUrl);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const canEdit = Boolean(canEditPullRequest && bugId && links.length > 0);
+
+  const handleStartEdit = () => {
+    setDraftUrl(effectiveLinkedPr ?? links[0] ?? "");
+    setError(null);
+    setEditing(true);
+  };
+
+  const handleCancel = () => {
+    setDraftUrl(effectiveLinkedPr ?? links[0] ?? "");
+    setError(null);
+    setEditing(false);
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!bugId || pending) return;
+    const trimmed = draftUrl.trim();
+    if (!trimmed) {
+      setError("Enter a GitHub pull request URL");
+      return;
+    }
+    setError(null);
+    const data = new FormData();
+    data.set("pullRequestUrl", trimmed);
+    startTransition(async () => {
+      const result = await editPullRequestUrlAction(bugId, data);
+      const message = result.fieldErrors?.pullRequestUrl ?? result.error;
+      if (message) {
+        setError(message);
+        return;
+      }
+      setSavedPrUrl(trimmed);
+      setEditing(false);
+    });
+  };
 
   return (
     <section aria-label="Links" className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
-      <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Links</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Links</h2>
+        {canEdit && !editing ? (
+          <button
+            type="button"
+            onClick={handleStartEdit}
+            aria-label="Edit pull request link"
+            className="text-xs font-bold text-zk-accent hover:underline print:hidden"
+          >
+            Edit
+          </button>
+        ) : null}
+      </div>
       <dl className="mt-3 flex flex-col gap-2.5">
         {pullRequests || links.length > 0 ? (
           <div className="flex min-w-0 items-baseline gap-3">
             <dt className="w-16 shrink-0 whitespace-nowrap text-xs leading-5 text-zk-muted">GitHub PR</dt>
-            <dd className="m-0 min-w-0">
-              {links.length === 0 ? (
+            <dd className="m-0 min-w-0 flex-1">
+              {editing ? (
+                <form onSubmit={handleSubmit} aria-label="Edit pull request link" className="flex flex-col gap-1.5 print:hidden">
+                  <label htmlFor={inputId} className="sr-only">
+                    Pull request URL
+                  </label>
+                  <input
+                    id={inputId}
+                    type="url"
+                    name="pullRequestUrl"
+                    value={draftUrl}
+                    onChange={(event) => setDraftUrl(event.target.value)}
+                    placeholder="https://github.com/owner/repo/pull/123"
+                    className="w-full rounded-xl border border-zk-border bg-zk-surface px-2.5 py-1.5 text-xs text-zk-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong"
+                  />
+                  {error ? (
+                    <p role="alert" className="m-0 text-xs font-medium text-red-700">
+                      {error}
+                    </p>
+                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="submit"
+                      disabled={pending}
+                      className="inline-flex h-7 items-center rounded-full bg-electric-blue-strong px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      {pending ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancel}
+                      className="inline-flex h-7 items-center rounded-full px-2.5 text-xs font-medium text-zk-text2 hover:bg-zk-chip"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : links.length === 0 ? (
                 <span className="text-xs leading-5 text-zk-muted">None linked yet.</span>
               ) : (
                 <ul className="m-0 list-none space-y-1.5 p-0">

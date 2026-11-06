@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProject } from "@/lib/project-route";
 import { RichText } from "@/components/rich-text";
 import { LocalTime } from "@/components/local-time";
+import { activeIn } from "@/lib/agents/active-in";
 
 export const metadata = { title: "Agent notes" };
 
@@ -13,7 +14,7 @@ export const metadata = { title: "Agent notes" };
 export default async function AgentNotesPage({ params }: { params: Promise<{ org: string; project: string; agentId: string }> }) {
   const { org, project: slugParam, agentId } = await params;
   const { user, organisationId, project } = await requireProject(org, slugParam);
-  const agent = await prisma.agent.findFirst({ where: { id: agentId, ownerUserId: user.id, organisationId }, select: { id: true, name: true } });
+  const agent = await prisma.agent.findFirst({ where: { id: agentId, ownerUserId: user.id, ...activeIn(organisationId) }, select: { id: true, name: true } });
   if (!agent) notFound();
   const notes = await prisma.agentNote.findMany({
     where: { agentId: agent.id, projectId: project.id },

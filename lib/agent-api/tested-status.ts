@@ -5,6 +5,7 @@ import { publish } from "@/lib/agent-api/events";
 import { workflowFor } from "@/lib/workflow";
 import { moveTo } from "@/lib/issue-substatus";
 import { afterSendBack, judgementCounts } from "@/lib/marketing/track";
+import { activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * The Delivered step's rule (#delivered-step). Once the agent holding the
@@ -60,7 +61,7 @@ export const judgementSelect = {
   goodToMerge: true,
   headSha: true,
   onBehalfOfUserId: true,
-  agent: { select: { id: true, ownerUserId: true, level: true } },
+  agent: { select: { id: true, ownerUserId: true, activations: activeLevels } },
 } satisfies Prisma.TestVerdictSelect;
 
 export type Judgement = Prisma.TestVerdictGetPayload<{ select: typeof judgementSelect }>;
@@ -83,8 +84,8 @@ export function countJudgements(
     : verdicts.filter((v) => !creditedUserIds.includes(v.agent.ownerUserId) && !creditedUserIds.includes(v.onBehalfOfUserId));
   const reviewed = bug as unknown as ReviewedBug;
   return {
-    good: countedMergeVerdicts(counted.filter((v) => v.goodToMerge), claim, reviewed).weight,
-    notGood: countedMergeVerdicts(counted.filter((v) => !v.goodToMerge), claim, reviewed).weight,
+    good: countedMergeVerdicts(counted.filter((v) => v.goodToMerge), claim, reviewed, bug.organisationId).weight,
+    notGood: countedMergeVerdicts(counted.filter((v) => !v.goodToMerge), claim, reviewed, bug.organisationId).weight,
   };
 }
 

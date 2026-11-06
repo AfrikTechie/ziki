@@ -14,6 +14,7 @@ import { RelativeTime } from "@/components/relative-time";
 import { AgentDeleteButton } from "./agent-controls";
 import { ConnectAgentModalButton } from "./connect/connect-agent-modal";
 import { AgentRowKey } from "./agent-row-key";
+import { AgentActivationButton } from "./agent-activation-button";
 import {
   agentsMutedClass,
   agentsPrimaryBtn,
@@ -31,18 +32,18 @@ export type ManageAgentItem = {
   createdAt: string;
   revokedAt: string | null;
   pausedAt: string | null;
-  personal: boolean;
   /** The owner's avatar pick; null wears the automatic robot. */
   avatar: string | null;
   recent: boolean;
-  /** The project a key made by Connect agent works in. */
-  keyProject: { id: string; name: string } | null;
+  /** Whether it works in the organisation you are in (#user-agents); `level` is its class there. */
+  activeHere: boolean;
+  /** The organisations it works in, by name. */
+  organisations: string[];
+  /** Its live keys for the organisation you are in. */
   apiKeys: {
     id: string;
     prefix: string;
     apiKey: string | null;
-    projectId: string | null;
-    projectName: string | null;
     lastUsedAt: string | null;
   }[];
 };
@@ -51,10 +52,13 @@ export function ManageAgentsList({
   agents,
   activeCount,
   maxActive,
+  organisation,
 }: {
   agents: ManageAgentItem[];
   activeCount: number;
   maxActive: number;
+  /** The organisation you are in: keys and Connect are for it. */
+  organisation: { id: string; name: string } | null;
 }) {
   const [query, setQuery] = useState("");
   const dockPrefs = useDockPrefs();
@@ -149,7 +153,6 @@ export function ManageAgentsList({
                         className="break-words text-base font-extrabold text-zk-text after:absolute after:inset-0 after:rounded-[20px] after:content-[''] hover:text-zk-accent focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-electric-blue"
                       >
                         {agent.name}
-                        {agent.personal ? <span className="font-normal text-zk-muted"> · personal</span> : null}
                       </Link>
                       {agent.revokedAt ? (
                         <span className="inline-flex items-center rounded-full bg-zk-bad-bg px-2.5 py-0.5 text-xs font-bold text-zk-bad-fg">
@@ -170,6 +173,9 @@ export function ManageAgentsList({
                         </button>
                       ) : null}
                     </div>
+                    <p className="text-xs text-zk-muted">
+                      {agent.organisations.length > 0 ? <>Works in {agent.organisations.join(", ")}</> : <>Not working in any organisation</>}
+                    </p>
                     <p className="text-xs text-zk-muted">
                       {agent.model ? <>{agent.model} · </> : null}
                       {agent.revokedAt ? (
@@ -204,21 +210,27 @@ export function ManageAgentsList({
                           key={key.id}
                           apiKey={key.apiKey}
                           prefix={key.prefix}
-                          projectId={key.projectId}
-                          projectName={key.projectName}
+                          organisationName={organisation?.name ?? null}
                         />
                       ))
                     : null}
                   {/* Two buttons: Copy key (above, one per live key) and Connect agent. A new key and Delete are in its settings. */}
                   {agent.revokedAt ? (
-                    <AgentDeleteButton agentId={agent.id} agentName={agent.name} personal={agent.personal} />
+                    <AgentDeleteButton agentId={agent.id} agentName={agent.name} />
+                  ) : organisation && !agent.activeHere ? (
+                    <AgentActivationButton
+                      agentId={agent.id}
+                      agentName={agent.name}
+                      organisationId={organisation.id}
+                      organisationName={organisation.name}
+                      active={false}
+                    />
                   ) : (
                     <ConnectAgentModalButton
                       agentId={agent.id}
                       agentName={agent.name}
                       apiKey={agent.apiKeys.find((key) => key.apiKey)?.apiKey ?? null}
-                      projectId={agent.keyProject?.id ?? null}
-                      projectName={agent.keyProject?.name ?? null}
+                      organisationName={organisation?.name ?? null}
                       className={agent.apiKeys.some((key) => key.apiKey) ? agentsSecondaryBtn : agentsPrimaryBtn}
                     />
                   )}

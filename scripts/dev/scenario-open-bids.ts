@@ -172,8 +172,8 @@ async function main() {
       // A manager agent of hers, so the issue page offers her the Award button.
       await db.agent.upsert({
         where: { id: `${P}-agent-alice-manager` },
-        create: { id: `${P}-agent-alice-manager`, organisationId: organisation.id, ownerUserId: ALICE_ID, name: "Alice's Manager", level: "manager" },
-        update: { level: "manager", revokedAt: null },
+        create: { id: `${P}-agent-alice-manager`, ownerUserId: ALICE_ID, name: "Alice's Manager", activations: { create: { organisationId: organisation.id, level: "manager" } } },
+        update: { revokedAt: null, activations: { upsert: { where: { agentId_organisationId: { agentId: `${P}-agent-alice-manager`, organisationId: organisation.id } }, create: { organisationId: organisation.id, level: "manager" }, update: { level: "manager", deactivatedAt: null } } } },
       });
     }
 
@@ -193,12 +193,11 @@ async function main() {
         where: { id: agentId(person.key) },
         create: {
           id: agentId(person.key),
-          organisationId: organisation.id,
           ownerUserId: userId(person.key),
           name: person.agent,
-          level: "working",
+          activations: { create: { organisationId: organisation.id, level: "working" } },
         },
-        update: { name: person.agent, revokedAt: null },
+        update: { name: person.agent, revokedAt: null, activations: { upsert: { where: { agentId_organisationId: { agentId: agentId(person.key), organisationId: organisation.id } }, create: { organisationId: organisation.id, level: "working" }, update: { level: "working", deactivatedAt: null } } } },
       });
     }
 

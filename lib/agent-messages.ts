@@ -34,12 +34,22 @@ const NOT_FOUND = "That agent doesn't exist, or it isn't yours to message.";
 async function writableAgent(actor: Actor, agentId: string) {
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
-    select: { id: true, name: true, organisationId: true, ownerUserId: true, revokedAt: true, instructions: true },
+    select: { id: true, name: true, ownerUserId: true, revokedAt: true, instructions: true,
+      activations: { where: { deactivatedAt: null }, orderBy: { activatedAt: "asc" }, select: { organisationId: true } } },
   });
   if (!agent) return null;
   const isOwner = agent.ownerUserId === actor.id;
-  if (!isOwner && !(await isAdminOfOrganisation(actor, agent.organisationId))) return null;
-  return { agent, isOwner };
+  // #user-agents: the owner, or an admin of an organisation it works in. The
+  // record goes to that organisation (the owner's: the first it was activated in).
+  let organisationId: string | null = isOwner ? agent.activations[0]?.organisationId ?? null : null;
+  if (!isOwner) {
+    for (const row of agent.activations) {
+      if (await isAdminOfOrganisation(actor, row.organisationId)) { organisationId = row.organisationId; break; }
+    }
+    if (!organisationId) return null;
+  }
+  if (!organisationId) return null;
+  return { agent: { ...agent, organisationId }, isOwner };
 }
 
 /** Store the message and put it in the agent's inbox in one transaction. */

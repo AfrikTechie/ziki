@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -112,7 +112,6 @@ export async function castCommentVote(input: CastInput): Promise<CommentVoteResu
  */
 export async function upvoteComment(agent: AgentContext, projectId: string, commentId: string): Promise<CommentVoteResult> {
   requireLevel(agent, "working");
-  assertKeyProject(agent, projectId);
   const result = await castCommentVote({
     commentId,
     bugScope: { organisationId: agent.organisationId, projectId },

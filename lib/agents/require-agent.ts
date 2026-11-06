@@ -14,8 +14,10 @@ export { AgentPlatformDisabledError, agentPlatformDisabledResponse };
 /**
  * Who is calling (#427). Every agent route starts with `requireAgent()`.
  * It looks the key up by its hash and checks that the key and the agent are
- * live, and that the owner still belongs to the agent's organisation. It writes
- * nothing; routes record what they did with `audit()`.
+ * live, that the agent is activated in the key's organisation, and that its
+ * owner still belongs there (#user-agents). The call runs as that activation:
+ * its organisation, class and rate budget. It writes nothing; routes record
+ * what they did with `audit()`.
  *
  * The owner always comes from the agent row, never from the request body.
  */
@@ -37,13 +39,6 @@ export type AgentContext = {
   pausedAt?: Date | null;
   /** The key used for this call, so rotation can revoke exactly it. */
   keyId: string;
-  /**
-   * The only project this key may act in (#742). Null or omitted means a
-   * legacy key that still works in every project of the organisation.
-   */
-  projectId?: string | null;
-  /** Slug of that project, for the error shown when the key is used elsewhere. */
-  projectSlug?: string | null;
 };
 
 export type AgentAuthFailure = "missing_key" | "invalid_key" | "revoked";
@@ -53,30 +48,6 @@ const MESSAGES: Record<AgentAuthFailure, string> = {
   invalid_key: "That agent key is not valid. Send it as Authorization: Bearer <key>.",
   revoked: "That agent key has been revoked.",
 };
-
-/** A project-scoped key was used against a different project (#742). */
-export class AgentProjectError extends Error {
-  readonly code = "project_forbidden" as const;
-
-  constructor(projectSlug: string | null | undefined) {
-    super(
-      projectSlug
-        ? `This agent key is restricted to project ${projectSlug}.`
-        : "This agent key is restricted to another project.",
-    );
-    this.name = "AgentProjectError";
-  }
-}
-
-/** Rejects the call when the key is limited to a different project. */
-export function assertKeyProject(
-  agent: Pick<AgentContext, "projectId" | "projectSlug">,
-  projectId: string,
-): void {
-  if (agent.projectId && agent.projectId !== projectId) {
-    throw new AgentProjectError(agent.projectSlug);
-  }
-}
 
 export class AgentAuthError extends Error {
   readonly code: AgentAuthFailure;
@@ -108,17 +79,12 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
       id: true,
       lastUsedAt: true,
       revokedAt: true,
-      projectId: true,
-      project: { select: { slug: true, organisation: { select: { slug: true } } } },
+      organisationId: true,
       agent: {
         select: {
           id: true,
           name: true,
           ownerUserId: true,
-          organisationId: true,
-          level: true,
-          burst: true,
-          burstUntil: true,
           revokedAt: true,
           username: true,
           tagline: true,
@@ -133,9 +99,15 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
   if (!key) throw new AgentAuthError("invalid_key");
   const { agent } = key;
   if (key.revokedAt || agent.revokedAt) throw new AgentAuthError("revoked");
+  // The key works where its agent is active (#user-agents): switched off there, it stops.
+  const activation = await prisma.agentActivation.findUnique({
+    where: { agentId_organisationId: { agentId: agent.id, organisationId: key.organisationId } },
+    select: { level: true, burst: true, burstUntil: true, deactivatedAt: true },
+  });
+  if (!activation || activation.deactivatedAt) throw new AgentAuthError("revoked");
   // An owner who left the organisation takes their agents' access with them.
-  const ownerInOrganisation = agent.owner.memberships.some((m) => m.organisationId === agent.organisationId);
-  if (!agent.name || !agent.ownerUserId || !agent.organisationId || !ownerInOrganisation) {
+  const ownerInOrganisation = agent.owner.memberships.some((m) => m.organisationId === key.organisationId);
+  if (!agent.name || !agent.ownerUserId || !ownerInOrganisation) {
     throw new AgentAuthError("invalid_key");
   }
 
@@ -171,15 +143,13 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
     agentId: agent.id,
     name: agent.name,
     ownerId: agent.ownerUserId,
-    organisationId: agent.organisationId,
-    level: agent.level,
+    organisationId: key.organisationId,
+    level: activation.level,
     ownerRole: agent.owner.role ?? null,
-    burst: agent.burst,
-    burstUntil: agent.burstUntil ?? null,
+    burst: activation.burst,
+    burstUntil: activation.burstUntil ?? null,
     pausedAt: agent.pausedAt ?? null,
     keyId: key.id,
-    projectId: key.projectId,
-    projectSlug: key.project?.slug ?? null,
   };
 }
 
@@ -198,9 +168,6 @@ export function agentErrorResponse(error: unknown): NextResponse {
   if (error instanceof AgentWorkBlockedError) {
     // #agent-work-gate: the agent may not work until its profile is set up.
     return NextResponse.json(error.toBody(), { status: 403 });
-  }
-  if (error instanceof AgentProjectError) {
-    return NextResponse.json({ error: error.code, message: error.message }, { status: 403 });
   }
   if (error instanceof AgentLevelError) {
     return NextResponse.json(

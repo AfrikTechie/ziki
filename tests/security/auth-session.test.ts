@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 /**
  * Sessions: sign-up and reset don't leak accounts, a reset or role change
@@ -6,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * expired-session route signs the person out.
  */
 const { deleteCookieMock } = vi.hoisted(() => ({ deleteCookieMock: vi.fn() }));
+const middleware = vi.hoisted(() => ({ handler: null as null | ((request: NextRequest & { auth?: { user: { id: string } } }) => Response) }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/headers", () => ({
@@ -17,7 +19,11 @@ vi.mock("next/navigation", () => ({
     throw Object.assign(new Error("NEXT_REDIRECT"), { to });
   }),
 }));
-vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
+vi.mock("next-auth", () => ({
+  AuthError: class AuthError extends Error {},
+  default: () => ({ auth: (handler: NonNullable<typeof middleware.handler>) => { middleware.handler = handler; return handler; } }),
+}));
+vi.mock("@/auth.config", () => ({ default: {} }));
 vi.mock("@/auth", () => ({ auth: vi.fn(), signIn: vi.fn(), signOut: vi.fn() }));
 vi.mock("@/lib/mail", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/mail")>();
@@ -39,6 +45,7 @@ import { SESSION_EXPIRED_MESSAGE, resolveSessionUserId } from "@/lib/session-use
 import { acceptedSessionRefresh, sessionRefreshFor } from "@/lib/session-refresh";
 import { resetPasswordAction, signupAction } from "@/app/actions/auth";
 import { GET as sessionExpired } from "@/app/session-expired/route";
+import "@/middleware";
 
 const mockAuth = auth as unknown as ReturnType<typeof vi.fn>;
 const db = prisma as unknown as {
@@ -144,5 +151,24 @@ describe("logout of an expired session", () => {
     await sessionExpired();
     expect(deleteCookieMock).toHaveBeenCalledWith(ACTIVE_ROLE_COOKIE_NAME);
     expect(signOut).toHaveBeenCalledWith({ redirectTo: "/login?expired=1" });
+  });
+});
+
+describe("shared issue login destinations", () => {
+  it("retains issue query parameters through login", () => {
+    const response = middleware.handler!(new NextRequest("https://ziki.dev/ziki/app/482?comment=c42&view=all"));
+    const destination = new URL(response.headers.get("location")!);
+    expect(destination.pathname).toBe("/login");
+    expect(destination.searchParams.get("callbackUrl")).toBe("/ziki/app/482?comment=c42&view=all");
+  });
+
+  it.each(["https://evil.test", "//evil.test", "/login?callbackUrl=/login"])("rejects unsafe or looping callbacks for a signed-in person: %s", (value) => {
+    const request = Object.assign(new NextRequest(`https://ziki.dev/login?callbackUrl=${encodeURIComponent(value)}`), { auth: { user: { id: "u" } } });
+    expect(new URL(middleware.handler!(request).headers.get("location")!).pathname).toBe("/home");
+  });
+
+  it("returns a signed-in person to their original issue", () => {
+    const request = Object.assign(new NextRequest("https://ziki.dev/login?callbackUrl=%2Fziki%2Fapp%2F482%3Fcomment%3Dc42"), { auth: { user: { id: "u" } } });
+    expect(middleware.handler!(request).headers.get("location")).toBe("https://ziki.dev/ziki/app/482?comment=c42");
   });
 });

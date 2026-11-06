@@ -64,71 +64,67 @@ export default async function AgentsPage() {
       console.error("[agents] approved agents were not listed", error);
     }
   }
-  const mine = organisationId
-    ? await prisma.agent.findMany({
-        where: { ownerUserId: user.id, organisationId },
-        orderBy: [{ revokedAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }],
-        select: {
-          id: true,
-          name: true,
-          username: true,
-          avatar: true,
-          model: true,
-          level: true,
-          createdAt: true,
-          revokedAt: true,
-          pausedAt: true,
-          defaultProjectId: true,
-          apiKeys: {
-            where: { revokedAt: null },
-            select: {
-              id: true,
-              prefix: true,
-              sealedKey: true,
-              lastUsedAt: true,
-              project: { select: { id: true, name: true } },
-            },
-          },
+  // #user-agents: every agent you own, whichever organisations it works in.
+  const [mine, organisation] = await Promise.all([
+    prisma.agent.findMany({
+      where: { ownerUserId: user.id },
+      orderBy: [{ revokedAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        avatar: true,
+        model: true,
+        createdAt: true,
+        revokedAt: true,
+        pausedAt: true,
+        activations: {
+          where: { deactivatedAt: null },
+          orderBy: { activatedAt: "asc" },
+          select: { organisationId: true, level: true, organisation: { select: { name: true } } },
         },
-      })
-    : [];
+        apiKeys: {
+          where: { revokedAt: null },
+          select: { id: true, prefix: true, sealedKey: true, lastUsedAt: true, organisationId: true },
+        },
+      },
+    }),
+    organisationId ? prisma.organisation.findUnique({ where: { id: organisationId }, select: { id: true, name: true } }) : null,
+  ]);
 
   const live = mine.filter((agent) => !agent.revokedAt);
   const activeCount = live.length;
   // Until one of their agents has called Ziki with its key, show how to connect one.
   const connected = mine.some((agent) => !agent.revokedAt && agent.apiKeys.some((key) => key.lastUsedAt));
   const recentCutoff = now.getTime() - 24 * 60 * 60 * 1000;
-  // A key made in the Connect modal works in the agent's current key's project, else the organisation's default.
-  const defaultProject = organisationId
-    ? (await prisma.project.findFirst({ where: { organisationId, archivedAt: null, slug: "web" }, select: { id: true, name: true } }))
-      ?? (await prisma.project.findFirst({ where: { organisationId, archivedAt: null }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }))
-    : null;
 
   const manageItems: ManageAgentItem[] = mine.map((agent) => {
     const lastUsedMs = agent.apiKeys
       .map((key) => (key.lastUsedAt ? key.lastUsedAt.getTime() : 0))
       .reduce((a, b) => Math.max(a, b), 0);
+    const here = organisationId ? agent.activations.find((row) => row.organisationId === organisationId) : undefined;
     return {
       id: agent.id,
       name: agent.name,
       username: agent.username,
       avatar: agent.avatar,
       model: agent.model,
-      level: agent.level,
+      level: here?.level ?? "working",
       createdAt: agent.createdAt.toISOString(),
       revokedAt: agent.revokedAt ? agent.revokedAt.toISOString() : null,
       pausedAt: agent.pausedAt ? agent.pausedAt.toISOString() : null,
-      personal: Boolean(agent.defaultProjectId),
       recent: lastUsedMs >= recentCutoff,
-      keyProject: agent.apiKeys.find((key) => key.project)?.project ?? defaultProject,
-      apiKeys: agent.apiKeys.map((key) => ({
-        id: key.id,
-        prefix: key.prefix,
-        apiKey: revealAgentKey(key.sealedKey),
-        projectId: key.project?.id ?? null,
-        projectName: key.project?.name ?? null,
-        lastUsedAt: key.lastUsedAt ? key.lastUsedAt.toISOString() : null,
-      })),
+      activeHere: Boolean(here),
+      organisations: agent.activations.map((row) => row.organisation.name),
+      // Its keys for the organisation you are in: a key works in one organisation.
+      apiKeys: agent.apiKeys
+        .filter((key) => key.organisationId === organisationId)
+        .map((key) => ({
+          id: key.id,
+          prefix: key.prefix,
+          apiKey: revealAgentKey(key.sealedKey),
+          lastUsedAt: key.lastUsedAt ? key.lastUsedAt.toISOString() : null,
+        })),
     };
   });
 
@@ -139,7 +135,7 @@ export default async function AgentsPage() {
           <div className="space-y-1">
             <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">My agents</h1>
             <p className={agentsMutedClass}>
-              Copy an agent&apos;s key into your AI coding assistant to connect it.
+              Your agents, wherever they work. Each has a key per organisation it works in; copy it into your AI coding assistant to connect it there.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -181,6 +177,7 @@ export default async function AgentsPage() {
               agents={manageItems}
               activeCount={activeCount}
               maxActive={MAX_ACTIVE_AGENTS_PER_OWNER}
+              organisation={organisation}
             />
           )}
         </section>

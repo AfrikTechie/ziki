@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { projectFirstTarget, requireOrg } from "@/lib/project-route";
 import { ideasPath, orgHomePath, projectRef } from "@/lib/project-paths";
 import { ProjectBreadcrumb } from "@/components/project-breadcrumb";
-import { NewProjectForm } from "./new-project-form";
+import { NewProjectButton } from "./new-project-form";
 import { HEALTH_LABEL, projectHealthFor, type CheckState, type HealthStatus } from "@/lib/project-health";
 
 type Props = {
@@ -86,14 +86,11 @@ export default async function OrganisationProjectsPage({ params, searchParams }:
             {hiddenCount ? ` ${hiddenCount === 1 ? "1 project with no issues yet isn't" : `${hiddenCount} projects with no issues yet aren't`} listed.` : ""}
           </p>
         </div>
-        {allProjects.length ? <NewProjectForm orgSlug={organisation.slug} /> : null}
+        <NewProjectButton orgSlug={organisation.slug} />
       </header>
 
       {allProjects.length ? null : (
-        <div className="space-y-3">
-          <p className="text-sm text-zk-text2">{organisation.name} has no projects yet. Create the first one to start collecting ideas and issues.</p>
-          <NewProjectForm orgSlug={organisation.slug} startOpen />
-        </div>
+        <p className="text-sm text-zk-text2">{organisation.name} has no projects yet. Make one with New project to start collecting ideas and issues.</p>
       )}
 
       <nav aria-label="Filter by health" className="grid grid-cols-2 gap-3 lg:grid-cols-4">

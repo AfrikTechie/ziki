@@ -37,7 +37,7 @@ describe("a report from idea to merge", () => {
   it("takes verdicts, not importance marks or confirmations, while it is an idea", async () => {
     await refused("bob", "mark-important", { id }, 404);
     await refused("bob", "confirm-issue", { id, verdict: "confirm", summary: "Real.", description: "Reproduced it.", files: FILES }, 404);
-    expect((await refused("dana", "convert-idea", { id }, 409)).error).toBe("below_threshold");
+    expect((await refused("dana", "convert-idea", { id, difficulty: "medium" }, 409)).error).toBe("below_threshold");
   });
 
   it("keeps the summary to two sentences and a working agent to one vote", async () => {
@@ -60,7 +60,7 @@ describe("a report from idea to merge", () => {
   });
 
   it("is converted by any agent, a working one included, which creates the issue", async () => {
-    const converted = await ok("bob", "convert-idea", { id: ideaId });
+    const converted = await ok("bob", "convert-idea", { id: ideaId, difficulty: "medium" });
     expect(converted).toMatchObject({ ideaId, ideaScore: 3 });
     expect(converted.issueId).not.toBe(ideaId);
     id = converted.issueId;
@@ -195,7 +195,7 @@ describe("a report from idea to merge", () => {
     localDatabaseUrl();
     const me = await ok(solver, "whoami");
     // Only create the owner-authored fixture inside this worker's local sandbox.
-    const target = await prisma.agent.findFirst({ where: { id: me.id, organisation: { slug: sandbox().organisationSlug } }, select: { id: true } });
+    const target = await prisma.agent.findFirst({ where: { id: me.id, activations: { some: { organisation: { slug: sandbox().organisationSlug } } } }, select: { id: true } });
     expect(target).toBeTruthy();
     if (!target) throw new Error("Steering fixture must belong to this test sandbox.");
     const note = await prisma.agentInboxItem.create({ data: {

@@ -10,7 +10,6 @@ export type AgentKeyPanelKey = {
   /** The key itself, when it can still be shown (keys issued before sealing can't). */
   apiKey: string | null;
   prefix: string;
-  projectName: string | null;
   lastUsedAt: string | null;
 };
 
@@ -24,27 +23,24 @@ export function AgentKeyPanel({
   agentId,
   agentName,
   liveKey,
-  projectId,
-  projectName,
+  organisationName,
   startOpen = false,
 }: {
   agentId: string;
   agentName: string;
   liveKey: AgentKeyPanelKey | null;
-  /** The project a new key is for: the live key's, else the organisation's default. */
-  projectId: string | null;
-  projectName: string | null;
+  /** The organisation its key works in: the one you are in (#user-agents). */
+  organisationName: string;
   /** Opened with ?connect=1: the modal opens on arrival. */
   startOpen?: boolean;
 }) {
   const toast = useToast();
   const apiKey = liveKey?.apiKey ?? null;
-  const where = liveKey?.projectName ?? projectName;
   const connected = Boolean(liveKey?.lastUsedAt);
 
   async function copy() {
     if (!apiKey) return;
-    const text = agentBootstrapMessage({ origin: window.location.origin, apiKey, projectName: where });
+    const text = agentBootstrapMessage({ origin: window.location.origin, apiKey, organisationName });
     toast((await copyText(text)) ? "Key copied. Paste it into your agent." : "Couldn't copy the key.");
   }
 
@@ -54,6 +50,7 @@ export function AgentKeyPanel({
         <h2 id="agent-key-heading" className="text-base font-extrabold text-zk-text">
           Connect {agentName}
         </h2>
+        <p className={`mt-1 ${agentsMutedClass}`}>In {organisationName}, every project.</p>
         <p className={`mt-1 ${agentsMutedClass}`}>
           {connected ? "Connected and working." : "Not connected yet. Link it to your AI coding assistant."}
         </p>
@@ -68,8 +65,7 @@ export function AgentKeyPanel({
           agentId={agentId}
           agentName={agentName}
           apiKey={apiKey}
-          projectId={projectId}
-          projectName={where}
+          organisationName={organisationName}
           startOpen={startOpen}
           className={apiKey ? agentsSecondaryBtn : agentsPrimaryBtn}
         />

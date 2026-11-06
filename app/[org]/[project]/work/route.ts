@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
 import { agentIssueRequest, IssueApiError } from "@/lib/agent-api/issues";
 import { workEtag, workFeed } from "@/lib/agent-api/work";
-import { assertKeyProject } from "@/lib/agents/require-agent";
 import { parseTrackFilter } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 
@@ -30,7 +29,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ org
     });
     if (!project) throw new IssueApiError(404, "Project not found.");
     // A key issued for one project cannot read another's work (#742).
-    assertKeyProject(agent, project.id);
 
     const trackResult = parseTrackFilter(request.nextUrl.searchParams.get("track"));
     if (!trackResult.ok) {

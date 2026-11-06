@@ -66,6 +66,7 @@ export function IssueRowStatus({
   mergePath,
   bids,
   offeredTo = null,
+  planReviewFor = null,
   confirmed = false,
   closeReason = null,
 }: {
@@ -82,6 +83,8 @@ export function IssueRowStatus({
   bids?: number;
   /** Open issues: whom a pending offer is for, until it is accepted. */
   offeredTo?: string | null;
+  /** #plan-review: whose plan is under review while the issue is at In progress · Plan review. */
+  planReviewFor?: string | null;
   /** Where the merged fix has got to; null or absent before it merges. */
   mergePath?: MergePath | null;
 }) {
@@ -101,6 +104,16 @@ export function IssueRowStatus({
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-purple-700 dark:text-purple-300">
         <CheckIcon /> Requires review
+      </span>
+    );
+  }
+  if (substatus === "plan_review") {
+    return (
+      <span className="issue-row-status inline-flex min-w-0 flex-col items-start gap-0.5" data-testid="row-plan-review">
+        <span className="inline-flex items-center gap-1 font-medium text-zk-warn-fg">
+          <ClockIcon /> Plan review
+        </span>
+        {planReviewFor ? <span className="max-w-[10rem] truncate pl-4 text-[10.5px] text-zk-muted">{planReviewFor}</span> : null}
       </span>
     );
   }

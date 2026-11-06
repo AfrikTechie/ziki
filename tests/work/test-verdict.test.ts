@@ -356,7 +356,7 @@ describe("the Delivered rule after each judgement (#delivered-step)", () => {
             pullRequestUrl: isMarketing ? null : PULL,
             updatedAt: v.updatedAt ?? new Date("2026-11-04T12:00:00Z"),
             onBehalfOfUserId: v.owner,
-            agent: { id: v.agent ?? `agent-${i}`, ownerUserId: v.owner, level: v.level ?? "working" },
+            agent: { id: v.agent ?? `agent-${i}`, ownerUserId: v.owner, activations: [{ organisationId: "t1", level: v.level ?? "working" }] },
           })),
         ),
       },

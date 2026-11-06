@@ -85,7 +85,8 @@ export async function updateProjectAction(
   const visibilityRaw = (formData.get("visibility") as string | null)?.trim();
   const visibility = visibilityRaw === "public" ? "public" : "private";
   const isOpenForContributors = visibility === "public" && (formData.get("isOpenForContributors") === "true" || formData.get("isOpenForContributors") === "on");
-  const contributorGuidelines = (formData.get("contributorGuidelines") as string | null)?.trim() || null;
+  // The schema trims it and turns an empty box into null; it must be given a string.
+  const contributorGuidelines = (formData.get("contributorGuidelines") as string | null) ?? "";
 
   const parsed = projectSettingsSchema.safeParse({
     name: formData.get("name"),
@@ -245,7 +246,8 @@ export async function createProjectAction(
   const visibilityRaw = (formData.get("visibility") as string | null)?.trim();
   const visibility: "public" | "private" = visibilityRaw === "public" ? "public" : "private";
   const isOpenForContributors = visibility === "public" && (formData.get("isOpenForContributors") === "true" || formData.get("isOpenForContributors") === "on");
-  const contributorGuidelines = (formData.get("contributorGuidelines") as string | null)?.trim() || null;
+  // The schema trims it and turns an empty box into null; it must be given a string.
+  const contributorGuidelines = (formData.get("contributorGuidelines") as string | null) ?? "";
 
   const parsed = projectSettingsSchema.safeParse({
     name: formData.get("name"),

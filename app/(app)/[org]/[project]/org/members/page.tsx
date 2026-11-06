@@ -6,6 +6,7 @@ import { loadOrg } from "../org-context";
 import { OrgPageHeader, ReadOnlyNote } from "../org-ui";
 import { MemberList, type OrgMember } from "./member-list";
 import { ProjectCollaboratorsSection, type ProjectCollaboratorItem } from "./project-collaborators";
+import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 export const metadata: Metadata = { title: "Members" };
 
@@ -31,15 +32,15 @@ async function loadMembers(organisationId: string): Promise<OrgMember[]> {
         select: { id: true, name: true, email: true, image: true, role: true },
       }),
       prisma.agent.findMany({
-        where: { organisationId, ownerUserId: { in: userIds }, revokedAt: null },
+        where: { ...activeIn(organisationId), ownerUserId: { in: userIds }, revokedAt: null },
         orderBy: [{ name: "asc" }, { id: "asc" }],
-        select: { id: true, name: true, level: true, ownerUserId: true },
+        select: { id: true, name: true, ownerUserId: true, activations: activeLevels },
       }),
     ]);
     const agentsByOwner = new Map<string, OrgMember["agents"]>();
     for (const agent of agents) {
       const list = agentsByOwner.get(agent.ownerUserId) ?? [];
-      list.push({ id: agent.id, name: agent.name, level: agent.level });
+      list.push({ id: agent.id, name: agent.name, level: levelIn(agent, organisationId) });
       agentsByOwner.set(agent.ownerUserId, list);
     }
     return organisationMembersFrom(rows, people).map((member) => ({

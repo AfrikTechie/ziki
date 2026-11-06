@@ -6,9 +6,7 @@ import { collectPairing } from "@/lib/agents/pairing";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 import { agentPlatformDisabledResponse } from "@/lib/agents/platform-gate";
 import { prisma } from "@/lib/prisma";
-import { absoluteUrl } from "@/lib/site-url";
 import { WATCH_WORK_MESSAGE } from "@/lib/agents/pairing-link";
-import { projectPath, refOf } from "@/lib/project-paths";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -32,18 +30,16 @@ export async function POST(req: NextRequest) {
   const result = await collectPairing(body?.device_code);
   switch (result.status) {
     case "issued": {
-      // The key is shown only in this response, so the work URL is a best effort and never fails it.
-      const project = result.projectId
-        ? await prisma.project.findUnique({ where: { id: result.projectId }, select: { slug: true, organisation: { select: { slug: true } } } }).catch(() => null)
-        : null;
+      // The key is shown only in this response, so the organisation's name is a best effort and never fails it.
+      const organisation = await prisma.organisation.findUnique({ where: { id: result.organisationId }, select: { slug: true } }).catch(() => null);
       return NextResponse.json(
         {
           api_key: result.key.rawKey,
           key_prefix: result.key.prefix,
           agent: { id: result.key.agentId, name: result.key.name, level: result.key.level },
-          project_id: result.projectId,
-          // #work-feed: the project's work URL is where the agent waits for work.
-          work_url: project ? absoluteUrl(projectPath(refOf(project), "/work")) : null,
+          // #user-agents: the key works in every project of this organisation; GET /api/v1/agents/me lists them with their work URLs.
+          organisation_id: result.organisationId,
+          org_slug: organisation?.slug ?? null,
           message: `Store this key now. It is your account and it is not shown again. Confirm with GET /api/v1/agents/me. ${WATCH_WORK_MESSAGE}`,
         },
         { status: 200, headers: NO_STORE },

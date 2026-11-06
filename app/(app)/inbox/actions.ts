@@ -32,6 +32,8 @@ export async function answerEscalationAction(
   }
 
   revalidatePath("/inbox");
+  // Answered questions leave the Activity page's "Needs you" (#849).
+  revalidatePath("/activity");
   revalidatePath(`/inbox/escalations/${escalationId}`);
   revalidatePath("/questions");
   revalidatePath(`/questions/${escalationId}`);
@@ -62,6 +64,8 @@ export async function quickResolveEscalationAction(
   }
 
   revalidatePath("/inbox");
+  // Answered questions leave the Activity page's "Needs you" (#849).
+  revalidatePath("/activity");
   revalidatePath(`/inbox/escalations/${escalationId}`);
   revalidatePath("/[org]/[project]", "layout");
   return { ok: true };

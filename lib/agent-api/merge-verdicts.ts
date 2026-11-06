@@ -1,9 +1,12 @@
 import { reviewerConflict, type ReviewedBug } from "@/lib/agents/independence";
+import { levelIn } from "@/lib/agents/active-in";
+import type { AgentLevel } from "@prisma/client";
 
+/** A judgement, with its agent's activations (`activeLevels`): its class is the one in the issue's organisation (#user-agents). */
 export type CountableVerdict = {
   headSha?: string | null;
   onBehalfOfUserId: string;
-  agent: { id: string; ownerUserId: string; level?: string | null };
+  agent: { id: string; ownerUserId: string; activations: { organisationId: string; level: AgentLevel }[] };
 };
 
 /**
@@ -56,6 +59,7 @@ export function countedMergeVerdicts(
   verdicts: readonly CountableVerdict[],
   claim: VerdictClaim,
   reviewed: ReviewedBug,
+  organisationId: string,
   fallbackHeadSha: string | null = null,
 ): { reviewers: string[]; weight: number; acceptedHeadSha: string | null } {
   const seen = new Set<string>();
@@ -65,7 +69,7 @@ export function countedMergeVerdicts(
   for (const verdict of verdicts) {
     if (claim && verdict.agent.id === claim.agentId) continue;
     if (reviewerConflict({ id: verdict.agent.id, ownerUserId: verdict.agent.ownerUserId }, reviewed)) continue;
-    const kind = verdictClass(verdict.agent.level);
+    const kind = verdictClass(levelIn(verdict.agent, organisationId));
     const key = `${verdict.onBehalfOfUserId}:${kind}`;
     if (seen.has(key)) continue;
     seen.add(key);

@@ -19,6 +19,7 @@ import { conflictComment } from "@/lib/agent-api/merge-conflict";
 import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import { approvedPlanSummary } from "@/lib/agent-api/plan";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { canSeeEvidenceFiles, evidenceFilesSchema, evidenceFilesView, uniqueEvidenceFiles, type EvidenceFilesView } from "@/lib/agent-api/evidence-files";
 
@@ -536,6 +537,8 @@ export async function listTestVerdicts(scope: { organisationId: string; projectI
     issueNumber: bug.number,
     pullRequestUrl: bug.pullRequestUrl,
     headSha: bug.pullRequestHeadSha,
+    // #plan-review rule 12: on a complex issue, the approved plan the delivery is judged against.
+    plan: await approvedPlanSummary(bug.id),
     verdicts: await testVerdictEntries(bug, viewer),
   };
 }

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { sweepExpiredOffers } from "@/lib/agent-api/offer";
+import { sweepPlanWindows } from "@/lib/agent-api/plan";
 import { sweepStakes } from "@/lib/agent-api/stakes";
 import { sweepJobReviewOffers } from "@/lib/jobs/review";
 import { sweepStaleClaims } from "@/lib/agent-api/availability";
@@ -46,6 +47,7 @@ export type PlatformSweepsResult = {
   timestamp: string;
   sweeps: {
     offers: { status: "ok" | "error"; expired?: number; error?: string };
+    plans: { status: "ok" | "error"; expired?: number; error?: string };
     stakes: { status: "ok" | "error"; settled?: number; error?: string };
     jobReviewOffers: { status: "ok" | "error"; expired?: number; offered?: number; error?: string };
     claims: { status: "ok" | "error"; released?: number; error?: string };
@@ -94,6 +96,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
       timestamp,
       sweeps: {
         offers: { status: "ok" },
+        plans: { status: "ok" },
         stakes: { status: "ok" },
         jobReviewOffers: { status: "ok" },
         claims: { status: "ok" },
@@ -114,6 +117,16 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     } catch (err) {
       recordSweepFailure("offers", err);
       result.sweeps.offers = { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+
+    // 1p. Plan review windows (#plan-review): awards whose plan was never submitted or never decided in time.
+    try {
+      const res = await sweepPlanWindows();
+      recordSweepSuccess("plans");
+      result.sweeps.plans = { status: "ok", expired: res.expired };
+    } catch (err) {
+      recordSweepFailure("plans", err);
+      result.sweeps.plans = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
     // 1a. Stakes (#stakes): drops, 10-minute wins and decided contests.

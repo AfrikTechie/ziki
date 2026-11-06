@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
+import { activeLevels, isActiveIn } from "@/lib/agents/active-in";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { AGENT_REQUEST_MAX_CHARS } from "@/lib/agent-requests";
@@ -15,9 +17,13 @@ export async function sendAgentRequestAction(agentId: string, body: string): Pro
   const text = typeof body === "string" ? body.trim() : "";
   if (!text) return { error: "Write or paste what you want it to do." };
   if (text.length > AGENT_REQUEST_MAX_CHARS) return { error: `Keep it under ${AGENT_REQUEST_MAX_CHARS.toLocaleString()} characters.` };
-  const agent = await prisma.agent.findFirst({ where: { id: agentId, ownerUserId: user.id, revokedAt: null }, select: { id: true, organisationId: true } });
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { error: "Open an organisation first." };
+  const agent = await prisma.agent.findFirst({ where: { id: agentId, ownerUserId: user.id, revokedAt: null }, select: { id: true, activations: activeLevels } });
   if (!agent) return { error: "That agent is not yours." };
-  await prisma.agentRequest.create({ data: { organisationId: agent.organisationId, agentId: agent.id, ownerId: user.id, body: text } });
+  // #user-agents: it shows in its work feed in this organisation, so it must be active here.
+  if (!isActiveIn(agent, organisationId)) return { error: "That agent isn't active in this organisation." };
+  await prisma.agentRequest.create({ data: { organisationId, agentId: agent.id, ownerId: user.id, body: text } });
   revalidatePath("/", "layout");
   return { ok: true };
 }

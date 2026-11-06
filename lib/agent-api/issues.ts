@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import type { AgentLevel, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { agentErrorResponse, assertKeyProject, requireAgent, type AgentContext } from "@/lib/agents/require-agent";
+import { agentErrorResponse, requireAgent, type AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
@@ -13,6 +13,7 @@ import { rewardView } from "@/lib/agent-api/reward-estimates";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { currentHold } from "@/lib/issue-holders";
+import { currentPlan } from "@/lib/agent-api/plan";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
 import { eventStreamBus, ORGANISATION_WRITE } from "@/lib/events/stream-bus";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
@@ -140,14 +141,13 @@ export async function issueProject(agent: AgentContext, params: URLSearchParams,
   const projectId = idSchema.parse(queryId || bodyProjectId);
   const project = await prisma.project.findFirst({ where: { id: projectId, organisationId: agent.organisationId }, select: { id: true } });
   if (!project) throw new IssueApiError(404, "Project not found.");
-  // A key issued for one project cannot read or change another (#742).
-  assertKeyProject(agent, project.id);
+  // #user-agents: a key works in every project of its organisation, never another organisation's.
   return { organisationId: agent.organisationId, projectId: project.id };
 }
 
 type Scope = { organisationId: string; projectId: string };
 export const issueSelect = {
-  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true, track: true,
+  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true, difficulty: true, track: true,
   // Marketing work: the revision rounds used so far (D4).
   revisionCount: true,
   // D6: the related product issue a marketing issue links to, or null.
@@ -299,6 +299,16 @@ const confirmationSelect = {
   updatedAt: true,
 } satisfies Prisma.IssueConfirmationSelect;
 
+/** The issue's plan as the issue read shows it: the entry's fields without its revisions and replies. */
+async function planSummary(bugId: string) {
+  const plan = await currentPlan(bugId);
+  if (!plan) return null;
+  const summary: Partial<typeof plan> = { ...plan };
+  delete summary.revisions;
+  delete summary.replies;
+  return summary;
+}
+
 export async function readAgentIssue(scope: Scope, id: string) {
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
   const ref = parseIssueRef(id);
@@ -332,6 +342,8 @@ export async function readAgentIssue(scope: Scope, id: string) {
     confirmed,
     // Who has the issue now (its claim), or null: the agent and the person it works for.
     holder: await currentHold(issue.id),
+    // #plan-review: the current plan on a complex issue (steps, decision, round, reviewBy), or null.
+    plan: await planSummary(issue.id),
     // #pr-reports: the latest independent report on the linked pull request, with who filed it and its age, or null.
     pullRequestState: pullRequestStateView(await latestPullRequestReport(issue.id, issue.pullRequestUrl)),
   };
@@ -467,6 +479,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         deliveryId: placement.deliveryId,
         testVerdictId: placement.testVerdictId,
         mergeReviewId: placement.mergeReviewId,
+        planId: placement.planId,
         parentId: placement.parentId,
       },
       select: {

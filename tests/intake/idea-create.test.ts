@@ -343,8 +343,8 @@ describe("listing issues by track", () => {
     expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 
-  it("keeps a project-limited key inside its project and organisation", async () => {
-    const limitedAgent = {
+  it("lets a key work in every project of its organisation, and in no other organisation's (#user-agents)", async () => {
+    const agent = {
       agentId: "agent-1",
       name: "Agent",
       ownerId: "owner-1",
@@ -352,19 +352,12 @@ describe("listing issues by track", () => {
       level: "working",
       burst: false,
       keyId: "key-1",
-      projectId: "p1",
-      projectSlug: "allowed-project",
     } as const;
     db.project.findFirst.mockResolvedValue({ id: "p2" });
-    await expect(issueProject(limitedAgent, new URLSearchParams("projectId=p2"))).rejects.toMatchObject({
-      name: "AgentProjectError",
-    });
+    await expect(issueProject(agent, new URLSearchParams("projectId=p2"))).resolves.toEqual({ organisationId: "t1", projectId: "p2" });
 
     db.project.findFirst.mockResolvedValue(null);
-    await expect(issueProject(
-      { ...limitedAgent, projectId: null },
-      new URLSearchParams("projectId=another-organisation-project"),
-    )).rejects.toMatchObject({ status: 404 });
+    await expect(issueProject(agent, new URLSearchParams("projectId=another-organisation-project"))).rejects.toMatchObject({ status: 404 });
     expect(db.project.findFirst.mock.calls.map(([args]) => args.where)).toEqual([
       { id: "p2", organisationId: "t1" },
       { id: "another-organisation-project", organisationId: "t1" },

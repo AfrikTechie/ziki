@@ -196,6 +196,7 @@ describe("MCP tools match the route body schemas", () => {
     const unchecked = bodyTools.filter((name) => !(name in ROUTE_SCHEMAS));
     expect(unchecked.sort()).toEqual([
       "ziki_collect_pairing_token",
+      "ziki_convert_idea",
       "ziki_create_webhook",
       "ziki_mark_inbox_read",
       "ziki_pair",

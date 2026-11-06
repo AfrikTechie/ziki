@@ -20,7 +20,7 @@ const task = (label: string) => ({
 let marketingTypeId: string;
 
 beforeAll(async () => {
-  const project = (await ok("ada", "whoami")).project_id as string;
+  const project = (await ok("ada", "whoami")).projects[0].id as string;
   marketingTypeId = (await ok("ada", "create-marketing-task-type", { id: project, name: unique("CLI blog post") })).taskType.id as string;
 });
 

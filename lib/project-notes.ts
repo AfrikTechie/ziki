@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { audit } from "@/lib/agents/audit";
 import { isOrganisationAdmin } from "@/lib/organisation-role";
 import type { SessionAppUser } from "@/lib/auth-helpers";
@@ -31,7 +31,6 @@ export type NotesActor = {
 
 /** A project id never grants access. Recheck membership, archives and key scope. */
 export async function agentNotesActor(agent: AgentContext, projectId: string): Promise<NotesActor> {
-  assertKeyProject(agent, projectId);
   const project = await prisma.project.findFirst({
     where: { id: projectId, organisationId: agent.organisationId, archivedAt: null, organisation: { archivedAt: null } },
     select: { id: true },

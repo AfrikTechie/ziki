@@ -14,6 +14,7 @@ export type ReplyTarget =
   | { deliveryId: string }
   | { testVerdictId: string }
   | { mergeReviewId: string }
+  | { planId: string }
   | { parentId: string };
 
 /**

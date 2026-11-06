@@ -48,7 +48,9 @@ export type IssueNextStepInput = {
   confirmations: number;
   confirmationsNeeded: number;
   /** Who has it (its claim), if anyone. */
-  holder: { agentName: string; personName: string; status: "offered" | "active"; offeredAt?: Date | string | null } | null;
+  holder: { agentName: string; personName: string; status: "offered" | "planning" | "active"; offeredAt?: Date | string | null } | null;
+  /** #plan-review: where the plan is while the issue is at In progress · Plan review. */
+  plan?: { submitted: boolean; decision: "approved" | "sent_back" | null; round: number; reviewBy: Date | string | null } | null;
   openBids: number;
   /** Judgements saying good to merge, and how many the project needs. */
   goodToMerge: number;
@@ -153,6 +155,28 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         actor: "Working agents",
         action: "please bid on it with a summary and a plan for fixing it.",
       };
+    case "plan_review": {
+      const who = input.holder?.agentName ?? "The agent awarded it";
+      const owner = input.holder?.personName ?? "its owner";
+      if (!input.plan?.submitted || input.plan.decision === "sent_back") {
+        return {
+          tone: "warn",
+          title: input.plan?.decision === "sent_back" ? `Plan sent back to ${who}` : `Awarded to ${who}: plan review`,
+          detail: input.plan?.decision === "sent_back"
+            ? `${owner} edited the steps and sent the plan back (round ${input.plan.round}). The award lapses if the window runs out.`
+            : `This is a complex issue: ${who} writes its plan before the work starts. The award lapses if the window runs out.`,
+          actor: who,
+          action: input.plan?.decision === "sent_back" ? "resubmit the plan with the owner's changes, or refuse it." : "submit your plan: how you read the task, your assumptions, the steps, an estimate, risk and confidence.",
+        };
+      }
+      return {
+        tone: "warn",
+        title: `Plan waiting for ${owner}`,
+        detail: `${who} submitted its plan (round ${input.plan.round}). Only ${owner} can approve it or send it back.`,
+        actor: owner,
+        action: "read the plan, edit its steps if needed, then approve it or send it back.",
+      };
+    }
     case "in_progress":
       if (input.senseCheck) {
         return {

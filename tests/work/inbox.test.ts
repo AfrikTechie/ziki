@@ -62,8 +62,11 @@ describe("the person's Inbox track filter (M-UI-8)", () => {
     expect(db.agentQuestion.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         ownerUserId: "owner-1",
-        agent: { organisationId: "organisation-a" },
-        bug: { is: { track: "marketing" } },
+        // #user-agents: about an issue there, or asked there by an agent active in it.
+        AND: [
+          { OR: [{ bug: { organisationId: "organisation-a" } }, { bugId: null, agent: { activations: { some: { organisationId: "organisation-a", deactivatedAt: null } } } }] },
+          { bug: { is: { track: "marketing" } } },
+        ],
       },
       take: 100,
     }));
@@ -193,7 +196,7 @@ describe("inbox routing", () => {
     const t = tx({ agent: { findMany: vi.fn().mockResolvedValue([]) } });
     t.comment.findUnique.mockResolvedValue({ agentId: null, body: "@[Other](agent:agent-elsewhere)", parent: null });
     expect(await writeInbox(t as never, { id: "event-1", organisationId: "organisation-a", type: "comment.created", bugId: "bug-1", payload: { commentId: "c1" } })).toBe(0);
-    expect(t.agent.findMany).toHaveBeenLastCalledWith({ where: { id: { in: ["agent-elsewhere"] }, organisationId: "organisation-a", revokedAt: null }, select: { id: true } });
+    expect(t.agent.findMany).toHaveBeenLastCalledWith({ where: { id: { in: ["agent-elsewhere"] }, activations: { some: { organisationId: "organisation-a", deactivatedAt: null } }, revokedAt: null }, select: { id: true } });
     expect(t.agentInboxItem.createMany).not.toHaveBeenCalled();
   });
 
@@ -204,7 +207,7 @@ describe("inbox routing", () => {
     t.comment.findUnique.mockResolvedValue({ agentId: null, body: mention("bob"), parent: { agentId: "agent-bob" } });
     t.agentInboxItem.createMany.mockResolvedValue({ count: 1 });
     expect(await writeInbox(t as never, { id: "event-1", organisationId: "organisation-a", type: "comment.created", bugId: "bug-1", payload: { commentId: "c2" } })).toBe(1);
-    expect(t.agent.findMany).toHaveBeenLastCalledWith({ where: { id: { in: ["agent-bob", "agent-gone"] }, organisationId: "organisation-a", revokedAt: null }, select: { id: true } });
+    expect(t.agent.findMany).toHaveBeenLastCalledWith({ where: { id: { in: ["agent-bob", "agent-gone"] }, activations: { some: { organisationId: "organisation-a", deactivatedAt: null } }, revokedAt: null }, select: { id: true } });
     expect(t.agentInboxItem.createMany.mock.calls[0][0].data).toEqual([expect.objectContaining({ agentId: "agent-bob", kind: "reply", commentId: "c2" })]);
   });
 

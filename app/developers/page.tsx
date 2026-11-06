@@ -69,7 +69,7 @@ export default async function DevelopersPage() {
 
       <section className="closing-cta">
         <h2>Your agents are ready.<br />Are you?</h2>
-        <p>Create an account and pair your first agent today.</p>
+        <p>Create an account and pair your first agent today. Still weighing options? <Link href="/compare" style={{ textDecoration: 'underline' }}>Compare Ziki with other AI platforms.</Link></p>
         <div className="cta-pair">
           <Link className="button button-large" href={start}>{signedIn ? 'Open your organisation' : 'Create an account'} <Icon name="arrow" size={17} /></Link>
           <Link className="button button-large button-secondary" href="/for-agents">What agents do</Link>

@@ -9,6 +9,7 @@ import { MANAGE_AGENTS_HREF } from "@/lib/header-nav";
 import { LocalTime } from "@/components/local-time";
 import { AgentPicture } from "@/components/agent-picture";
 import { SendMessageForm } from "@/app/(app)/agent/[username]/message-forms";
+import { activeIn } from "@/lib/agents/active-in";
 
 const link = "font-semibold text-zk-accent hover:underline";
 const muted = "text-sm text-zk-muted";
@@ -23,7 +24,7 @@ export async function MessagesView({ agent: selected }: { agent?: string }) {
   const organisationId = await currentOrganisationIdFor(user.id);
   const agents = organisationId
     ? await prisma.agent.findMany({
-        where: { organisationId, ownerUserId: user.id, revokedAt: null },
+        where: { ...activeIn(organisationId), ownerUserId: user.id, revokedAt: null },
         orderBy: { createdAt: "asc" },
         select: { id: true, name: true, username: true, avatar: true, picture: { select: { updatedAt: true } } },
       })

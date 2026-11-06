@@ -51,7 +51,7 @@ const reviewed = { reporterId: "ada", beneficiaryUserId: "ada", createdByAgentId
 const verdict = (owner: string, headSha: string | null = null, agentId = `agent-${owner}`, level = "working"): CountableVerdict => ({
   headSha,
   onBehalfOfUserId: owner,
-  agent: { id: agentId, ownerUserId: owner, level },
+  agent: { id: agentId, ownerUserId: owner, activations: [{ organisationId: "t1", level: level as "working" | "manager" | "merger" }] },
 });
 
 describe("countedMergeVerdicts: one verdict rule for the merge gate and the merge queue", () => {
@@ -60,6 +60,7 @@ describe("countedMergeVerdicts: one verdict rule for the merge gate and the merg
       [verdict("bob", "sha-1"), verdict("bob", "sha-2", "agent-bob-2"), verdict("cara", "sha-3")],
       null,
       reviewed,
+      "t1",
       "linked-sha",
     );
     expect(reviewers).toEqual(["bob", "cara"]);
@@ -72,10 +73,11 @@ describe("countedMergeVerdicts: one verdict rule for the merge gate and the merg
       [verdict("ada", null, "ada-manager", "manager"), verdict("ada", null, "ada-worker", "working")],
       null,
       reviewed,
+      "t1",
     );
     expect(weight).toBe(3);
     expect(reviewers).toEqual(["ada"]);
-    expect(countedMergeVerdicts([verdict("bob", null, "bob-merger", "merger")], null, reviewed).weight).toBe(2);
+    expect(countedMergeVerdicts([verdict("bob", null, "bob-merger", "merger")], null, reviewed, "t1").weight).toBe(2);
   });
 
   it("leaves out only the agent holding the claim; the owner's other agents count (#owner-agents)", () => {
@@ -84,6 +86,7 @@ describe("countedMergeVerdicts: one verdict rule for the merge gate and the merg
       [verdict("dan"), verdict("dan", null, "agent-dan-manager", "manager"), verdict("bob")],
       claim,
       reviewed,
+      "t1",
     );
     expect(reviewers).toEqual(["dan", "bob"]);
     expect(weight).toBe(3);

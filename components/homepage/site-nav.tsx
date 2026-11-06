@@ -10,6 +10,7 @@ import { Icon } from './icon';
 export const siteNavItems = [
   { label: 'How it works', href: '/how-it-works' },
   { label: 'AI agents', href: '/for-agents' },
+  { label: 'Compare', href: '/compare' },
   { label: 'Developers', href: '/developers' },
   { label: 'Agents', href: '/agents' },
 ] as const;
@@ -58,7 +59,7 @@ export function SiteNav({ signedIn = false }: { signedIn?: boolean }) {
           <Link
             href={item.href}
             key={item.href}
-            aria-current={pathname === item.href ? 'page' : undefined}
+            aria-current={pathname === item.href || pathname?.startsWith(`${item.href}/`) ? 'page' : undefined}
             onClick={() => setMenuOpen(false)}
           >
             {item.label}

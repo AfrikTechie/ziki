@@ -246,7 +246,7 @@ ${p.actual(t)}
 type Row = Record<string, unknown>;
 const rows: Record<string, Row[]> = {
   users: [], memberships: [], agents: [], areas: [], ideas: [], ideaVerdicts: [], bugs: [], confirmations: [],
-  bids: [], bidVotes: [], claims: [], deliveries: [], testVerdicts: [], mergeReviews: [], pullRequestReports: [],
+  bids: [], bidVotes: [], claims: [], plans: [], deliveries: [], testVerdicts: [], mergeReviews: [], pullRequestReports: [],
   comments: [], votes: [], activities: [], issueTypes: [],
 };
 
@@ -265,6 +265,7 @@ const DAY = 24 * 60;
 const PLAN: Array<[string, string, number]> = [
   ["open", "requires_confirmation", 30],
   ["open", "open", 70],
+  ["in_progress", "plan_review", 4],
   ["in_progress", "in_progress", 15],
   ["done", "requires_review", 12],
   ["done", "accepted", 10],
@@ -277,7 +278,7 @@ const PLAN: Array<[string, string, number]> = [
 ];
 const STATUS_BY_MARKETING = { open: "open", in_progress: "in_progress", requires_review: "done", accepted: "done", published: "resolved", closed: "closed" } as const;
 const CLOSE_REASONS = ["superseded", "not_reproducible", "already_implemented", "duplicate", "not_planned", "withdrawn"];
-const STAGE_ORDER = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod"];
+const STAGE_ORDER = ["requires_confirmation", "open", "plan_review", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod"];
 
 const combos = TOPICS.flatMap((t) => PROBLEMS.map((p) => ({ t, p })));
 const chosen = sample(combos, PLAN.reduce((n, [, , c]) => n + c, 0) + 30);
@@ -325,6 +326,8 @@ for (const [status, substatus, count] of PLAN) {
     const b: Row = {
       id: bug, number: num, title: r.title, summary: r.summary, description: r.description, status, substatus,
       areaId: id("area", t.area), reporterId: userId(reporter), beneficiaryUserId: userId(reporter), createdByAgentId: agentId(reporterAgent.key),
+      // #plan-review: set at conversion; only a complex issue's award goes through plan review.
+      difficulty: substatus === "plan_review" ? "complex" : pick(["easy", "medium", "medium", "hard"]),
       voteCount: 0, ago: clock,
     };
     rows.bugs.push(b);
@@ -427,6 +430,38 @@ for (const [status, substatus, count] of PLAN) {
     awarded.withdrawnAt = null;
     awarded.awardedAt = step();
     awarded.claimId = claimId;
+    // #plan-review: a complex issue's award is a planning claim; the agent's plan waits on its owner (or was sent back).
+    if (substatus === "plan_review") {
+      rows.claims.push({
+        id: claimId, bugId: bug, beneficiaryUserId: userId(winner.owner), agentId: agentId(winner.key), status: "planning",
+        offeredAt: awarded.awardedAt, claimedAt: null, lastHeartbeatAt: null, deliverBy: null, releasedAt: null, releaseReason: null, ago: awarded.awardedAt,
+      });
+      activity(bug, winner.owner, "Awarded: moved to In progress · Plan review", clock, "open", "plan_review");
+      if (i > 0) {
+        const sentBack = i === 3;
+        const submittedAt = step();
+        const steps = [
+          `Measure where ${t.subject} goes wrong in ${t.file}`,
+          "List the top three causes and pick the biggest",
+          "Make the smallest change that fixes it, behind a flag",
+          "Add a regression test and check it at phone width",
+          "Compare before and after, then report back",
+        ].map((text, n) => ({ id: `s${n + 1}`, text, by: sentBack && n === 2 ? "owner" : "agent", at: "" }));
+        rows.plans.push({
+          id: id("plan", num), bugId: bug, claimId, agentId: agentId(winner.key), ownerId: userId(winner.owner),
+          summary: `Find the cause in ${t.file}, then ship the smallest fix behind a flag.`,
+          description: `Measure first, change ${t.file} so ${p.expected(t).toLowerCase().replace(/\.$/, "")}, test it, and compare before and after.`,
+          reading: `${p.expected(t)} It doesn't today, on ${t.where}.`,
+          assumptions: "The data to measure it exists; the fix is in the flow, not the content.",
+          uncertainties: "Whether a small change is wanted or a redesign of the flow.",
+          steps, estimateMinutes: pick([120, 180, 240, 360]), risk: pick(["low", "medium", "high"]), confidence: pick(["medium", "high"]),
+          round: sentBack ? 1 : 1, submittedAt, decision: sentBack ? "sent_back" : null, decidedAt: sentBack ? Math.max(5, submittedAt - 20) : null,
+          decisionNote: sentBack ? "Skip the flag: ship it to everyone, and measure for a week first." : null,
+          reviewBy: -int(30, 110), ago: submittedAt,
+        });
+      }
+      continue;
+    }
     const claimedAt = step();
     const resolved = status === "resolved";
     rows.claims.push({

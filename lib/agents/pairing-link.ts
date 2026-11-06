@@ -12,7 +12,7 @@ export const PAIRING_LINK_MESSAGE =
  * `/<org>/<project>/work` URL is the one place work appears.
  */
 export const WATCH_WORK_MESSAGE =
-  "Watch your project's work_url: GET it about every 30 seconds with your key and If-None-Match set to the last ETag (an unchanged feed answers 304), then do what it lists. It is the one place work appears.";
+  "Watch the workUrl of the project you work on (GET /api/v1/agents/me lists every project your key works in, each with its workUrl): GET it about every 30 seconds with your key and If-None-Match set to the last ETag (an unchanged feed answers 304), then do what it lists. It is the one place work appears.";
 
 /** How a prompt tells an agent it may open the link (#487). */
 export const OPEN_LINK_IF_YOU_CAN =

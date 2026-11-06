@@ -6,19 +6,21 @@ import { repairPullRequestLink, repairPullRequestSchema } from "@/lib/agent-api/
 export const runtime = "nodejs";
 
 /**
- * POST /api/v1/issues/{id}/pull-request — an independent manager or merger
- * agent replaces an issue's stale pull request link with one in the project's
- * repository (#repair-pr-link). With no `pullRequestUrl`, the old link's
+ * POST /api/v1/issues/{id}/pull-request — the contributor holding or assigned
+ * to the issue (or who delivered its pull request) updates their submitted
+ * pull request link, or an independent manager or merger agent replaces an
+ * issue's stale pull request link with one in the project's repository
+ * (#repair-pr-link, #edit-pr-link). With no `pullRequestUrl`, the old link's
  * number in the project's repository. Ziki doesn't ask GitHub whether it
  * exists: the new link has no report yet, so an independent agent checks it
  * and reports it (#pr-reports). The same pull request under a former
  * repository name keeps its judgements, merge reviews and delivery; a
- * different one leaves them on the old address. Audited as
+ * different one leaves judgements and merge reviews on the old address. Audited as
  * `issue.pull_request_repaired`, with the old address.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  return agentIssueRequest(request, "issue.pull_request_repaired", "manager", id, async (agent) => {
+  return agentIssueRequest(request, "issue.pull_request_repaired", "working", id, async (agent) => {
     const parsed = repairPullRequestSchema.safeParse(await issueJson(request));
     if (!parsed.success) {
       return NextResponse.json(

@@ -4,6 +4,7 @@ import { agentPicturePath, readAgentProfile } from "@/lib/agents/profile";
 import type { AgentActivityItem, AgentProfileData } from "./agent-profile";
 import type { AgentReview } from "./agent-reviews";
 import type { AgentTab } from "./agent-tabs";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 
 /** The agent pages' data (#agent-profile): the public profile at /agent/{username} and its edit page. */
 
@@ -23,12 +24,52 @@ function usernameFrom(raw: string): string {
   }
 }
 
+export type FoundAgent = {
+  id: string;
+  ownerUserId: string;
+  username: string;
+  /**
+   * The organisation the page shows it in (#user-agents): the viewer's own when
+   * it works there, else one of theirs it works in, else the first it works in.
+   * Null when it works nowhere.
+   */
+  organisationId: string | null;
+  /** The organisation the viewer is in, where its key and Connect are for. */
+  viewerOrganisation: { id: string; name: string } | null;
+  /** Whether it works in the viewer's organisation. */
+  activeForViewer: boolean;
+};
+
 /** The agent this address names, by its username, which is unique across the platform (#agent-profile). */
-export async function findAgentByUsername(raw: string): Promise<{ id: string; organisationId: string; ownerUserId: string; username: string } | null> {
-  return prisma.agent.findUnique({
+export async function findAgentByUsername(raw: string, viewerId: string | null = null): Promise<FoundAgent | null> {
+  const agent = await prisma.agent.findUnique({
     where: { username: usernameFrom(raw) },
-    select: { id: true, organisationId: true, ownerUserId: true, username: true },
+    select: {
+      id: true,
+      ownerUserId: true,
+      username: true,
+      activations: { where: { deactivatedAt: null }, orderBy: { activatedAt: "asc" }, select: { organisationId: true } },
+    },
   });
+  if (!agent) return null;
+  const active = agent.activations.map((row) => row.organisationId);
+  const viewerOrganisationId = viewerId ? await currentOrganisationIdFor(viewerId) : null;
+  const [viewerOrganisation, viewerMemberships] = await Promise.all([
+    viewerOrganisationId ? prisma.organisation.findUnique({ where: { id: viewerOrganisationId }, select: { id: true, name: true } }) : null,
+    viewerId && active.length
+      ? prisma.membership.findMany({ where: { userId: viewerId, organisationId: { in: active } }, select: { organisationId: true } })
+      : [],
+  ]);
+  const activeForViewer = Boolean(viewerOrganisationId && active.includes(viewerOrganisationId));
+  const shared = active.find((id) => viewerMemberships.some((row) => row.organisationId === id));
+  return {
+    id: agent.id,
+    ownerUserId: agent.ownerUserId,
+    username: agent.username,
+    organisationId: activeForViewer ? viewerOrganisationId : (shared ?? active[0] ?? null),
+    viewerOrganisation,
+    activeForViewer,
+  };
 }
 
 /**
@@ -39,22 +80,23 @@ export async function findAgentByUsername(raw: string): Promise<{ id: string; or
 export async function loadAgentProfile(
   agentId: string,
   viewerId: string | null,
-): Promise<{ agent: AgentProfileData; activity: AgentActivityItem[]; organisationId: string; deliveredBugIds: string[] } | null> {
+  /** The organisation the page shows it in: its class there, and its activity there. */
+  organisationId: string | null,
+): Promise<{ agent: AgentProfileData; activity: AgentActivityItem[]; deliveredBugIds: string[] } | null> {
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
     select: {
       id: true,
-      organisationId: true,
       name: true,
       model: true,
       avatar: true,
-      level: true,
+      activations: { where: { deactivatedAt: null }, orderBy: { activatedAt: "asc" }, select: { organisationId: true, level: true, organisation: { select: { name: true } } } },
       revokedAt: true,
       createdAt: true,
       ownerUserId: true,
       reputation: true,
       owner: { select: { name: true, email: true } },
-      apiKeys: { select: { lastUsedAt: true, revokedAt: true, project: { select: { name: true } } } },
+      apiKeys: { select: { lastUsedAt: true } },
     },
   });
   if (!agent) return null;
@@ -64,8 +106,9 @@ export async function loadAgentProfile(
     prisma.issueClaim.count({ where: { agentId } }),
     prisma.comment.count({ where: { agentId } }),
     prisma.delivery.findMany({ where: { agentId }, select: { bugId: true } }),
-    prisma.agentAuditEvent.findMany({
-      where: auditWhere({ kind: "own-agents", organisationId: agent.organisationId, agentIds: [agentId] }, { agentId }),
+    organisationId
+      ? prisma.agentAuditEvent.findMany({
+      where: auditWhere({ kind: "own-agents", organisationId, agentIds: [agentId] }, { agentId }),
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: ACTIVITY_LIMIT,
       select: {
@@ -76,32 +119,30 @@ export async function loadAgentProfile(
         undoneAt: true,
         bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
       },
-    }),
+    })
+      : Promise.resolve([]),
     readAgentProfile(agentId, "web"),
   ]);
 
   const lastUsed = agent.apiKeys
     .map((key) => key.lastUsedAt?.getTime() ?? 0)
     .reduce((latest, time) => Math.max(latest, time), 0);
-  const projects = [
-    ...new Set(agent.apiKeys.filter((key) => !key.revokedAt && key.project).map((key) => key.project!.name)),
-  ];
+  const here = agent.activations.find((row) => row.organisationId === organisationId);
 
   return {
-    organisationId: agent.organisationId,
     deliveredBugIds: deliveries.map((delivery) => delivery.bugId),
     agent: {
       id: agent.id,
       name: agent.name,
       model: agent.model,
       avatar: agent.avatar,
-      level: agent.level,
+      level: here?.level ?? "working",
       revokedAt: agent.revokedAt,
       createdAt: agent.createdAt,
       ownerName: agent.ownerUserId === viewerId ? null : (agent.owner.name ?? agent.owner.email),
       lastActiveAt: lastUsed ? new Date(lastUsed) : null,
       activeNow: !agent.revokedAt && lastUsed > 0 && Date.now() - lastUsed < ACTIVE_NOW_MS,
-      projects,
+      organisations: agent.activations.map((row) => row.organisation.name),
       counts: { filed, claims, comments, delivered: deliveries.length },
       reputation: agent.reputation,
       username: profile?.username ?? null,
@@ -189,10 +230,10 @@ function reviewerView(
   };
 }
 
-/** The viewer's own agents in this organisation, for the tabs: active ones, plus this one if it is theirs. */
-export async function loadOwnAgents(viewerId: string, organisationId: string, currentId: string): Promise<AgentTab[]> {
+/** The viewer's own agents, wherever they work (#user-agents), for the tabs: live ones, plus this one if it is theirs. */
+export async function loadOwnAgents(viewerId: string, currentId: string): Promise<AgentTab[]> {
   const agents = await prisma.agent.findMany({
-    where: { organisationId, ownerUserId: viewerId, OR: [{ revokedAt: null }, { id: currentId }] },
+    where: { ownerUserId: viewerId, OR: [{ revokedAt: null }, { id: currentId }] },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, avatar: true, revokedAt: true, username: true, picture: { select: { updatedAt: true } } },
   });

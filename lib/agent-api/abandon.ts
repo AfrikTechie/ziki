@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -53,7 +53,6 @@ export async function senseCheck(bugId: string, now = Date.now()) {
  */
 export async function voteAbandoned(agent: AgentContext, projectId: string, issueRef: string, input: z.infer<typeof abandonVoteSchema>) {
   requireLevel(agent, "working");
-  assertKeyProject(agent, projectId);
   const resolved = await resolveIssueRef(prisma, parseIssueRef(issueRef), { organisationId: agent.organisationId });
   const bug = resolved && await prisma.bug.findFirst({
     where: { id: resolved.id, organisationId: agent.organisationId, projectId, isDeleted: false },

@@ -3,7 +3,6 @@ import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { findPendingPairing } from "@/lib/agents/pairing";
 import { AGENT_INSTRUCTIONS_MAX } from "@/lib/agent-messages";
-import { projectContextFor } from "@/lib/project-context";
 import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { PairForm } from "./pair-form";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
@@ -35,7 +34,7 @@ export default async function PairAgentPage({
     );
   }
   const organisationId = await currentOrganisationIdFor(user.id);
-  const context = await projectContextFor(prisma, organisationId);
+  const organisation = organisationId ? await prisma.organisation.findUnique({ where: { id: organisationId }, select: { name: true } }) : null;
   const { code } = await searchParams;
   const rawCode = typeof code === "string" ? code.slice(0, 20) : "";
   const initialCode = formatPairingCode(rawCode);
@@ -59,7 +58,7 @@ export default async function PairAgentPage({
         </p>
       </div>
       <section className={`${agentsSurface} p-4 sm:p-6`}>
-        {!organisationId ? (
+        {!organisation ? (
           <p className="text-sm text-zk-text2">
             Join or create an organisation before you can approve an agent.{" "}
             <Link href="/organisations" className={`font-semibold ${agentsLink}`}>
@@ -80,8 +79,7 @@ export default async function PairAgentPage({
                 : null
             }
             unknownCode={Boolean(initialCode) && !pending}
-            projects={context.projects}
-            activeProjectId={context.activeProjectId}
+            organisationName={organisation.name}
             instructionsMaxLength={AGENT_INSTRUCTIONS_MAX}
           />
         )}

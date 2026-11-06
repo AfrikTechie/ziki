@@ -7,7 +7,7 @@ import type { AgentLevel } from "@prisma/client";
 import { consumePairingLimit } from "@/lib/agents/rate-limit";
 import { approvePairing, findPendingPairing } from "@/lib/agents/pairing";
 import { currentOrganisationIdFor } from "@/lib/organisation-context";
-import { createAgent, deleteAgent, regenerateKey, revokeAgent, setAgentAreaPreferences, setAgentLevel } from "@/lib/agents/registry";
+import { activateAgent, createAgent, deactivateAgent, deleteAgent, regenerateKey, revokeAgent, setAgentAreaPreferences, setAgentLevel } from "@/lib/agents/registry";
 import { RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 
@@ -30,7 +30,6 @@ export async function createAgentAction(
     name: formData.get("name") ?? "",
     model: formData.get("model") || undefined,
     level: formData.get("level") || undefined,
-    projectId: formData.get("projectId") ?? "",
   });
   if (!result.ok) return result;
   revalidatePath("/agents/mine");
@@ -59,26 +58,32 @@ export type RegenerateKeyActionResult =
   | { ok: true; name: string; rawKey: string; prefix: string }
   | { ok: false; error: string };
 
-/** Replaces every live key. The new secret is returned once (#572). */
-export async function regenerateAgentKeyAction(
-  agentId: unknown,
-  projectId: unknown,
-): Promise<RegenerateKeyActionResult> {
+/**
+ * Replaces its live key in the organisation you are in (#572, #user-agents):
+ * a key works in one organisation, every project there. The new secret is returned once.
+ */
+export async function regenerateAgentKeyAction(agentId: unknown): Promise<RegenerateKeyActionResult> {
   if (!isAgentPlatformEnabled()) return { ok: false, error: PLATFORM_OFF };
-  if (typeof agentId !== "string" || typeof projectId !== "string" || !projectId) {
-    return { ok: false, error: "Choose a project in this organisation." };
-  }
+  if (typeof agentId !== "string") return { ok: false, error: "Invalid agent." };
   const user = await requireUser();
-  const result = await regenerateKey(user, agentId, projectId);
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { ok: false, error: NO_ORGANISATION };
+  const result = await regenerateKey(user, agentId, organisationId);
   if (!result.ok) return result;
   revalidatePath("/agents/mine");
   return { ok: true, name: result.key.name, rawKey: result.key.rawKey, prefix: result.key.prefix };
 }
 
-export async function setAgentLevelAction(agentId: unknown, level: unknown): Promise<AgentActionResult> {
+/**
+ * Its class is the organisation's grant (#user-agents): in `organisationId`, else
+ * the organisation you are in. setAgentLevel checks the caller may set it there.
+ */
+export async function setAgentLevelAction(agentId: unknown, level: unknown, organisationIdInput?: unknown): Promise<AgentActionResult> {
   if (typeof agentId !== "string" || !isAgentLevel(level)) return { ok: false, error: "Invalid level." };
   const user = await requireUser();
-  const result = await setAgentLevel(user, agentId, level);
+  const organisationId = typeof organisationIdInput === "string" && organisationIdInput ? organisationIdInput : await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { ok: false, error: NO_ORGANISATION };
+  const result = await setAgentLevel(user, agentId, organisationId, level);
   if (result.ok) {
     revalidatePath("/agents/mine");
     revalidatePath("/settings/team");
@@ -86,6 +91,38 @@ export async function setAgentLevelAction(agentId: unknown, level: unknown): Pro
     revalidatePath("/[org]/[project]/org", "layout");
     revalidatePath("/users/[id]", "page");
   }
+  return result;
+}
+
+const NO_ORGANISATION = "Open an organisation first.";
+
+/** Where an agent works changed: the pages that list agents. */
+function revalidateAgentPlaces() {
+  revalidatePath("/agents/mine");
+  revalidatePath("/[org]/[project]/org", "layout");
+  revalidatePath("/agent/[username]", "layout");
+}
+
+/**
+ * Switch one of your agents on in an organisation you belong to (#user-agents).
+ * It works in every project there; its key for that organisation is returned once.
+ */
+export async function activateAgentAction(agentId: unknown, organisationId: unknown): Promise<RegenerateKeyActionResult> {
+  if (!isAgentPlatformEnabled()) return { ok: false, error: PLATFORM_OFF };
+  if (typeof agentId !== "string" || typeof organisationId !== "string") return { ok: false, error: "Invalid agent." };
+  const user = await requireUser();
+  const result = await activateAgent(user, agentId, organisationId);
+  if (!result.ok) return result;
+  revalidateAgentPlaces();
+  return { ok: true, name: result.key.name, rawKey: result.key.rawKey, prefix: result.key.prefix };
+}
+
+/** Switch an agent off in an organisation: its key there stops, its work there is released. Its owner or that organisation's admin. */
+export async function deactivateAgentAction(agentId: unknown, organisationId: unknown): Promise<AgentActionResult> {
+  if (typeof agentId !== "string" || typeof organisationId !== "string") return { ok: false, error: "Invalid agent." };
+  const user = await requireUser();
+  const result = await deactivateAgent(user, agentId, organisationId);
+  if (result.ok) revalidateAgentPlaces();
   return result;
 }
 
@@ -139,7 +176,6 @@ export async function pairAgentAction(
       user,
       code,
       new Date(),
-      String(formData.get("projectId") ?? ""),
       await currentOrganisationIdFor(user.id),
       formData.get("instructions") ?? undefined,
     );

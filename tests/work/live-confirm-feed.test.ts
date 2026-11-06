@@ -7,9 +7,9 @@ import { itemsFor, type AgentWork, type ProjectWork } from "@/lib/agent-api/work
 
 /** Asking agents to check prod (#live-confirm): each says how many have confirmed, and nobody is asked who can't count. */
 const agent = (ownerId: string): AgentContext => ({
-  agentId: `agent-${ownerId}`, name: ownerId, ownerId, organisationId: "t1", level: "working", burst: false, keyId: "k1", projectId: "p1",
+  agentId: `agent-${ownerId}`, name: ownerId, ownerId, organisationId: "t1", level: "working", burst: false, keyId: "k1",
 });
-const nothingMine: AgentWork = { offers: [], reviewOffers: [], jobReviewOffers: [], claims: [], unread: 0 };
+const nothingMine: AgentWork = { offers: [], reviewOffers: [], jobReviewOffers: [], claims: [], unread: 0, planning: [] };
 /** #151, On prod from before the rule, reported on prod by Erin, solved by Cara. */
 const deployment = (overrides: Partial<ProjectWork["deployments"][number]> = {}): ProjectWork["deployments"][number] => ({
   id: "b151", number: 151, title: "Keyboard focus", substatus: "on_prod",

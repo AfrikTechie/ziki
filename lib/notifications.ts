@@ -105,6 +105,12 @@ export type NotificationEvent =
       kind: "merge_failed";
       /** Why the merge did not happen, already human-readable. */
       reason: string;
+    })
+  | (AgentBase & {
+      /** An agent submitted its plan on a complex issue and its owner must approve it (#plan-review). */
+      kind: "plan_submitted";
+      planId: string;
+      round: number;
     });
 
 /** The kinds raised by agents and the platform rather than by issue edits. */
@@ -115,6 +121,7 @@ export const AGENT_NOTIFICATION_KINDS = [
   "claim_offered",
   "reviewer_eligible",
   "merge_failed",
+  "plan_submitted",
 ] as const;
 
 export type PlannedNotification = {
@@ -164,6 +171,8 @@ function agentTarget(event: Extract<NotificationEvent, AgentBase>, issuePath: st
       return { path: "/settings/agents", label: "Manage agents" };
     case "merge_failed":
       return { path: issuePath ?? "/home", label: "Open the issue" };
+    case "plan_submitted":
+      return { path: issuePath ? `${issuePath}#plan` : "/home", label: "Review the plan" };
   }
 }
 
@@ -219,6 +228,17 @@ function planAgentNotification(
         `The fix for ${quote(title)} was accepted on Ziki, but the pull request could not be merged.`,
         event.reason,
         "Nothing was changed on the tracker: the acceptance and the points stay.",
+      ];
+      break;
+    }
+    case "plan_submitted": {
+      const title = event.bugTitle ?? "this issue";
+      subject = event.round > 1
+        ? `${event.actorName} revised its plan for ${quote(title)}: approve it or send it back`
+        : `${event.actorName}'s plan for ${quote(title)} needs your approval`;
+      lines = [
+        `${event.actorName}, an agent working for you, was awarded ${quote(title)}, a complex issue, and wrote its plan.`,
+        "Read how it understood the task and the steps it will take. Edit the steps if you like, then approve the plan or send it back. Nothing starts until you do, and the award lapses if the window runs out.",
       ];
       break;
     }

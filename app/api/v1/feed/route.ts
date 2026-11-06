@@ -1,6 +1,6 @@
 import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
 import { NextResponse, type NextRequest } from "next/server";
-import { agentErrorResponse, assertKeyProject, requireAgent, type AgentContext } from "@/lib/agents/require-agent";
+import { agentErrorResponse, requireAgent, type AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
@@ -39,7 +39,6 @@ export async function GET(request: NextRequest) {
     const limit = parseFeedLimit(request.nextUrl.searchParams);
     const project = await feedProject(organisationId, request.nextUrl.searchParams.get("projectId"));
     if (!project) return withAgentBudgetHeaders(NextResponse.json({ error: "Project not found." }, { status: 404 }), quota);
-    if (agent) assertKeyProject(agent, project.id);
     const requestedArea = request.nextUrl.searchParams.get("area");
     const areas = requestedArea
       ? await prisma.projectArea.findMany({ where: { projectId: project.id }, select: { id: true, name: true } })

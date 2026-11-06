@@ -7,6 +7,7 @@ import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verd
 import { reviewerConflict } from "@/lib/agents/independence";
 import { workflowFor } from "@/lib/workflow";
 import type { WorkTrack } from "@prisma/client";
+import { activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * The two merge queues (#substatus): tested fixes waiting for a manager's
@@ -94,7 +95,7 @@ export async function findReadyToMergeIssues(
             headSha: true,
             onBehalfOfUserId: true,
             pullRequestUrl: true,
-            agent: { select: { id: true, ownerUserId: true, level: true } },
+            agent: { select: { id: true, ownerUserId: true, activations: activeLevels } },
           },
         },
       },
@@ -103,7 +104,7 @@ export async function findReadyToMergeIssues(
     const ready: ReadyToMergeIssue[] = [];
     for (const bug of candidates) {
       const claim = deliveredClaim(bug);
-      const { weight } = countedMergeVerdicts(bug.testVerdicts, claim, bug);
+      const { weight } = countedMergeVerdicts(bug.testVerdicts, claim, bug, agent.organisationId);
       if (weight < verdictsNeeded) continue;
       if (reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug)) continue;
 
@@ -177,7 +178,7 @@ export async function findReadyToMergeIssues(
           headSha: true,
           onBehalfOfUserId: true,
           pullRequestUrl: true,
-          agent: { select: { id: true, ownerUserId: true, level: true } },
+          agent: { select: { id: true, ownerUserId: true, activations: activeLevels } },
         },
       },
     },
@@ -188,7 +189,7 @@ export async function findReadyToMergeIssues(
     const claim = deliveredClaim(bug);
     // The same verdict rule as the merge gate (merge.ts), on the linked PR only.
     const onLinkedPr = bug.testVerdicts.filter((verdict) => verdict.pullRequestUrl === bug.pullRequestUrl);
-    const { weight } = countedMergeVerdicts(onLinkedPr, claim, bug);
+    const { weight } = countedMergeVerdicts(onLinkedPr, claim, bug, agent.organisationId);
 
     if (status === "accepted" && weight < verdictsNeeded) continue;
 

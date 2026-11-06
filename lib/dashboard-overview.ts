@@ -6,6 +6,7 @@ import { bugInOrganisation } from "@/lib/organisation-context";
 import { issueHref } from "@/lib/issue-ref";
 import { isDeliveryOverdue } from "@/lib/claim-deadline";
 import { pointTotals, organisationRankFor, type PointTotals } from "@/lib/points/leaderboard";
+import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 /**
  * The Overview dashboard's data (#dashboard): every number is counted live in
@@ -303,7 +304,7 @@ export async function loadOwnAgents({
   if (!organisationId) return [];
 
   const agents = await prisma.agent.findMany({
-    where: { ownerUserId: userId, organisationId, revokedAt: null },
+    where: { ownerUserId: userId, ...activeIn(organisationId), revokedAt: null },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
@@ -311,8 +312,8 @@ export async function loadOwnAgents({
       username: true,
       avatar: true,
       model: true,
-      level: true,
-      apiKeys: { where: { revokedAt: null }, select: { lastUsedAt: true } },
+      activations: activeLevels,
+      apiKeys: { where: { revokedAt: null, organisationId }, select: { lastUsedAt: true } },
       questions: {
         where: { answeredAt: null },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -397,7 +398,7 @@ export async function loadOwnAgents({
       username: agent.username,
       avatar: agent.avatar,
       model: agent.model,
-      level: agent.level,
+      level: levelIn(agent, organisationId),
       status,
       activity,
       lastSeenAt,

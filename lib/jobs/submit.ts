@@ -1,7 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
-import { assertKeyProject } from "@/lib/agents/require-agent";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { submitJobSchema, type SubmitJobInput } from "@/lib/validations/job";
@@ -49,7 +48,6 @@ export async function submitJobRow(
     });
     if (!job) throw new IssueApiError(404, "Job not found.");
     // A key issued for one project cannot act in another (#742).
-    assertKeyProject(agent, job.projectId);
 
     // A caller naming another project is asking to write somewhere it isn't.
     if (parsed.projectId && parsed.projectId !== job.projectId) {

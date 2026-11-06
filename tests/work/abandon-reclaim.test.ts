@@ -3,7 +3,7 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 
 /** Idle and abandoned work (#idle, #abandon, #owner-agents): a manager agent sends idle In progress work nobody holds back to Open, never held, freshly updated or stranded work. */
 const db = vi.hoisted(() => ({
-  bug: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
+  bug: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
   bugActivity: { create: vi.fn() },
   abandonVote: { findUnique: vi.fn(), upsert: vi.fn(), findMany: vi.fn() },
   issueClaim: { update: vi.fn() },
@@ -39,6 +39,7 @@ vi.mock("@/lib/issue-ref", () => ({
 import { reclaimStaleIssue } from "@/lib/agent-api/availability";
 import { abandonVoteSchema, voteAbandoned } from "@/lib/agent-api/abandon";
 import { voteWeight } from "@/lib/governance";
+import { orphanedWhere, sweepOrphanedIssues } from "@/lib/orphaned-issues";
 
 const manager = (ownerId = "owner-dana", level: AgentContext["level"] = "manager"): AgentContext => ({
   agentId: `agent-${ownerId}`,
@@ -48,7 +49,6 @@ const manager = (ownerId = "owner-dana", level: AgentContext["level"] = "manager
   level,
   burst: false,
   keyId: "k1",
-  projectId: "p1",
 });
 
 const lastUpdate = new Date("2026-10-31T06:00:00Z");
@@ -125,6 +125,20 @@ describe("reclaiming idle In progress work nobody holds (#idle)", () => {
     mocks.strandedDelivery.mockResolvedValue({ pullRequestUrl: "https://github.com/emerjent/ziki/pull/9" });
     await expect(reclaimStaleIssue(manager(), "p1", "b8")).rejects.toMatchObject({ status: 409, body: expect.objectContaining({ error: "stranded_delivery" }) });
     expect(db.bug.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("the orphan sweep (#623, #plan-review)", () => {
+  it("leaves an issue at Plan review alone: its planning claim holds it, with no assignee yet", async () => {
+    expect(orphanedWhere.claims.none.status.in).toContain("planning");
+    db.bug.findMany.mockResolvedValue([{ id: "b8", organisationId: "t1", projectId: "p1" }]);
+    // The write rechecks the whole predicate: a planning claim means no row matches.
+    db.bug.updateMany.mockResolvedValue({ count: 0 });
+    await expect(sweepOrphanedIssues()).resolves.toEqual({ reopened: 0 });
+    expect(db.bug.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ claims: { none: { releasedAt: null, status: { in: ["active", "offered", "planning"] } } } }),
+    }));
+    expect(mocks.publish).not.toHaveBeenCalled();
   });
 });
 
