@@ -6,25 +6,48 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AddIdeaModal } from "@/components/add-idea-modal";
 import { createBugAction } from "@/app/actions/issues";
+import { interpretVisualEvidenceAction } from "@/app/actions/visual-interpretation";
+import { unstable_rethrow } from "next/navigation";
 
-vi.mock("next/navigation", () => ({
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
   useRouter: () => ({
     push: vi.fn(),
     refresh: vi.fn(),
     back: vi.fn(),
   }),
+  unstable_rethrow: vi.fn(),
 }));
 
 vi.mock("@/app/actions/issues", () => ({
   createBugAction: vi.fn(),
 }));
 
-const mockedCreateBug = vi.mocked(createBugAction);
+vi.mock("@/app/actions/visual-interpretation", () => ({
+  interpretVisualEvidenceAction: vi.fn(),
+}));
 
-describe("AddIdeaModal (Phase 1)", () => {
+const mockedCreateBug = vi.mocked(createBugAction);
+const mockedInterpretVisual = vi.mocked(interpretVisualEvidenceAction);
+const mockedRethrow = vi.mocked(unstable_rethrow);
+
+describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedCreateBug.mockResolvedValue({} as never);
+    mockedInterpretVisual.mockResolvedValue({
+      understanding: {
+        observedBehavior: "Clicking save button resets form without persisting changes",
+        context: "Settings form",
+        intent: "Report form submission defect",
+        isAmbiguous: false,
+      },
+      draft: {
+        title: "Generated Bug Title from AI",
+        description: "## Summary\nAI generated bug summary.\n\n## Steps to Reproduce\n1. Do something.\n\n## Expected Behavior\nWork.\n\n## Actual Behavior\nFailed.",
+        suggestedType: "Bug",
+      },
+    });
 
     // Mock HTMLDialogElement methods in jsdom
     HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -66,11 +89,31 @@ describe("AddIdeaModal (Phase 1)", () => {
     // Click Continue
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    // Should now be on review draft
+    // Should now be directly on review draft
     expect(screen.getByText("Review issue draft")).toBeTruthy();
     expect(screen.getByLabelText("Title")).toBeTruthy();
     expect(screen.getByLabelText("Description")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Submit idea" })).toBeTruthy();
+  });
+
+  it("supports switching to the inline composer when requested", async () => {
+    const user = userEvent.setup();
+    const onOpenInlineComposer = vi.fn();
+
+    render(
+      <AddIdeaModal
+        isOpen={true}
+        onClose={vi.fn()}
+        projectId="p1"
+        onOpenInlineComposer={onOpenInlineComposer}
+      />
+    );
+
+    const switchBtn = screen.getByRole("button", { name: /Prefer inline composer/i });
+    expect(switchBtn).toBeTruthy();
+    await user.click(switchBtn);
+
+    expect(onOpenInlineComposer).toHaveBeenCalledTimes(1);
   });
 
   it("validates title and description before submission", async () => {
@@ -99,54 +142,27 @@ describe("AddIdeaModal (Phase 1)", () => {
     });
   });
 
-  it("handles screen recording permission denial gracefully", async () => {
+  it("handles redirect re-throwing properly via unstable_rethrow", async () => {
     const user = userEvent.setup();
-
-    // Mock getDisplayMedia throwing NotAllowedError
-    Object.defineProperty(navigator, "mediaDevices", {
-      writable: true,
-      value: {
-        getDisplayMedia: vi.fn().mockRejectedValue({ name: "NotAllowedError" }),
-      },
-    });
+    const redirectErr = new Error("NEXT_REDIRECT");
+    mockedCreateBug.mockRejectedValue(redirectErr);
 
     render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
 
-    // Record screen is default
+    await user.click(screen.getByText("Write description").closest("button")!);
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(screen.getByText("Ready to record")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.type(screen.getByLabelText("Title"), "Valid Issue Title");
+    await user.type(screen.getByLabelText("Description"), "Valid Issue Description over 10 chars");
+
+    await user.click(screen.getByRole("button", { name: "Submit idea" }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Screen recording was cancelled or permission was denied."),
-      ).toBeTruthy();
+      expect(mockedRethrow).toHaveBeenCalledWith(redirectErr);
     });
   });
 
-  it("handles unsupported browser error for screen recording", async () => {
-    const user = userEvent.setup();
-
-    // Remove getDisplayMedia
-    Object.defineProperty(navigator, "mediaDevices", {
-      writable: true,
-      value: {},
-    });
-
-    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
-
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(screen.getByRole("button", { name: /Start recording/i }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Screen recording is not supported in this browser/),
-      ).toBeTruthy();
-    });
-  });
-
-  it("supports recording lifecycle and local video playback preview", async () => {
+  it("supports recording lifecycle, evidence review, AI understanding, and user confirmation", async () => {
     const user = userEvent.setup();
 
     const mockTrack = { stop: vi.fn(), onended: null };
@@ -192,6 +208,7 @@ describe("AddIdeaModal (Phase 1)", () => {
 
     render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
 
+    // Proceed with Record screen
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: /Start recording/i }));
 
@@ -206,11 +223,174 @@ describe("AddIdeaModal (Phase 1)", () => {
       expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
     });
 
-    // Advance to review
+    // Advance to Step 2: Details & Evidence Review
     await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByText("Review evidence & AI interpretation")).toBeTruthy();
+    expect(screen.getByText("Screen recording captured")).toBeTruthy();
+
+    // Expect AI interpretation to automatically run and display understanding
+    await waitFor(() => {
+      expect(mockedInterpretVisual).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText("Ziki's understanding")).toBeTruthy();
+    expect(
+      screen.getByText("Clicking save button resets form without persisting changes")
+    ).toBeTruthy();
+
+    // Explicit confirmation button is displayed
+    const confirmBtn = screen.getByRole("button", { name: /Confirm & continue to draft/i });
+    expect(confirmBtn).toBeTruthy();
+
+    // User confirms understanding
+    await user.click(confirmBtn);
+
+    // Moves to Step 3: Review issue draft with AI fields populated
+    await waitFor(() => {
+      expect(screen.getByText("Review issue draft")).toBeTruthy();
+    });
+
+    expect(screen.getByText(/We've created a draft based on your recording/i)).toBeTruthy();
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Generated Bug Title from AI");
+    expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toContain("## Summary");
+
+    // Editable draft before submission
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Modified Bug Title by User");
+
+    // Click Edit details to go back to Step 2
+    await user.click(screen.getByRole("button", { name: "Edit details" }));
+    expect(screen.getByText("Review evidence & AI interpretation")).toBeTruthy();
+
+    // Confirm again to return to review draft
+    await user.click(screen.getByRole("button", { name: /Confirm & continue to draft/i }));
     expect(screen.getByText("Review issue draft")).toBeTruthy();
-    expect(screen.getByText("Visual evidence")).toBeTruthy();
-    expect(screen.getByText("Local preview (not attached)")).toBeTruthy();
+
+    // Submit idea
+    await user.click(screen.getByRole("button", { name: "Submit idea" }));
+    await waitFor(() => {
+      expect(mockedCreateBug).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("allows user to correct misunderstanding when AI intent is ambiguous", async () => {
+    const user = userEvent.setup();
+
+    const mockTrack = { stop: vi.fn(), onended: null };
+    const mockStream = {
+      getTracks: vi.fn(() => [mockTrack]),
+      getVideoTracks: vi.fn(() => [mockTrack]),
+    };
+
+    class MockMediaRecorder {
+      state = "inactive";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["video-chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    // Initial interpretation has ambiguous intent
+    mockedInterpretVisual.mockResolvedValueOnce({
+      understanding: {
+        observedBehavior: "User interacted with multiple filter tabs on the page",
+        context: "Filter tabs header",
+        intent: "Unclear whether filtering failed or display count was incorrect",
+        isAmbiguous: true,
+      },
+      draft: {
+        title: "Filter tab interaction issue",
+        description: "## Summary\nFilter issue.",
+        suggestedType: "Bug",
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Verifies ambiguous intent warning is rendered
+    await waitFor(() => {
+      expect(screen.getByText("Ambiguous Intent Detected")).toBeTruthy();
+    });
+
+    // Open clarification / correction
+    await user.click(screen.getByRole("button", { name: /\+ Clarify or correct/i }));
+
+    const correctionInput = screen.getByPlaceholderText(/Actually, the bug only happens/i);
+    await user.type(
+      correctionInput,
+      "Actually, the filter works, but the badge counter does not decrement"
+    );
+
+    // Mock corrected re-interpretation
+    mockedInterpretVisual.mockResolvedValueOnce({
+      understanding: {
+        observedBehavior: "Badge counter fails to decrement when filters are applied",
+        context: "Filter badge counter",
+        intent: "Fix filter badge count synchronization",
+        isAmbiguous: false,
+      },
+      draft: {
+        title: "Filter badge counter does not decrement when filters applied",
+        description: "## Summary\nBadge counter sync issue.\n\n## Steps to Reproduce\n1. Apply filter.",
+        suggestedType: "Bug",
+      },
+    });
+
+    // Update with correction
+    await user.click(screen.getByRole("button", { name: /Update with correction/i }));
+
+    await waitFor(() => {
+      expect(mockedInterpretVisual).toHaveBeenCalledTimes(2);
+    });
+
+    // Understanding card updates to reflect user's correction
+    await waitFor(() => {
+      expect(
+        screen.getByText("Badge counter fails to decrement when filters are applied")
+      ).toBeTruthy();
+    });
+
+    // User confirms updated understanding
+    await user.click(screen.getByRole("button", { name: /Confirm & continue to draft/i }));
+
+    expect(screen.getByText("Review issue draft")).toBeTruthy();
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
+      "Filter badge counter does not decrement when filters applied"
+    );
   });
 
   it("integrates tenant issue types into the review selector", async () => {

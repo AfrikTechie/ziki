@@ -6,6 +6,18 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AreaCropper } from "@/components/area-cropper";
 
+// jsdom does not define PointerEvent by default, causing synthetic events to lack clientX/clientY
+if (typeof window !== "undefined" && !window.PointerEvent) {
+  class MockPointerEvent extends MouseEvent {
+    pointerId: number;
+    constructor(type: string, params: PointerEventInit = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 0;
+    }
+  }
+  window.PointerEvent = MockPointerEvent as unknown as typeof window.PointerEvent;
+}
+
 describe("AreaCropper (Phase 1)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -91,7 +103,7 @@ describe("AreaCropper (Phase 1)", () => {
         onUseFull={vi.fn()}
         onRetake={vi.fn()}
         onCancel={onCancel}
-      />,
+      />
     );
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -126,12 +138,27 @@ describe("AreaCropper (Phase 1)", () => {
       toJSON: () => {},
     });
 
-    // Simulate pointer down, wait for state update, then pointer move
-    fireEvent.pointerDown(cropContainer!, { clientX: 50, clientY: 50, pointerId: 1 });
-    fireEvent.pointerMove(cropContainer!, { clientX: 200, clientY: 150, pointerId: 1 });
-    fireEvent.pointerUp(cropContainer!, { clientX: 200, clientY: 150, pointerId: 1 });
+    // Simulate pointer down, pointer move, pointer up with coordinates
+    fireEvent(
+      cropContainer!,
+      new PointerEvent("pointerdown", { clientX: 50, clientY: 50, bubbles: true, cancelable: true })
+    );
+    fireEvent(
+      cropContainer!,
+      new PointerEvent("pointermove", { clientX: 200, clientY: 150, bubbles: true, cancelable: true })
+    );
+    fireEvent(
+      cropContainer!,
+      new PointerEvent("pointerup", { clientX: 200, clientY: 150, bubbles: true, cancelable: true })
+    );
 
-    // Crop area button is present
-    expect(screen.getByRole("button", { name: "Crop area" })).toBeTruthy();
+    // Crop area button is present and enabled
+    const cropBtn = screen.getByRole("button", { name: "Crop area" });
+    expect(cropBtn).toBeTruthy();
+    expect(cropBtn.hasAttribute("disabled")).toBe(false);
+
+    // Click crop
+    fireEvent.click(cropBtn);
+    expect(onCropComplete).toHaveBeenCalledTimes(1);
   });
 });

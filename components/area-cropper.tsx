@@ -31,8 +31,12 @@ export function AreaCropper({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const dragRef = useRef<{ isDragging: boolean; startX: number; startY: number }>({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+  });
   const [box, setBox] = useState<Box | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
 
   // Normalize selection box to { x, y, width, height }
@@ -57,8 +61,8 @@ export function AreaCropper({
     const x = Math.max(0, Math.min(boundWidth, clientX - (rect.left || 0)));
     const y = Math.max(0, Math.min(boundHeight, clientY - (rect.top || 0)));
 
+    dragRef.current = { isDragging: true, startX: x, startY: y };
     setBox({ startX: x, startY: y, currentX: x, currentY: y });
-    setIsDragging(true);
     if (typeof e.currentTarget.setPointerCapture === "function") {
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -69,7 +73,7 @@ export function AreaCropper({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging || !containerRef.current || !box) return;
+    if (!dragRef.current.isDragging || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const boundWidth = rect.width || containerRef.current.clientWidth || 800;
     const boundHeight = rect.height || containerRef.current.clientHeight || 500;
@@ -78,12 +82,17 @@ export function AreaCropper({
     const x = Math.max(0, Math.min(boundWidth, clientX - (rect.left || 0)));
     const y = Math.max(0, Math.min(boundHeight, clientY - (rect.top || 0)));
 
-    setBox((prev) => (prev ? { ...prev, currentX: x, currentY: y } : null));
+    setBox({
+      startX: dragRef.current.startX,
+      startY: dragRef.current.startY,
+      currentX: x,
+      currentY: y,
+    });
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDragging) {
-      setIsDragging(false);
+    if (dragRef.current.isDragging) {
+      dragRef.current.isDragging = false;
       if (typeof e.currentTarget.releasePointerCapture === "function") {
         try {
           e.currentTarget.releasePointerCapture(e.pointerId);
@@ -94,7 +103,16 @@ export function AreaCropper({
     }
   };
 
-  const handleCrop = () => {
+  // Ensure pointer up outside window stops dragging
+  useEffect(() => {
+    const handleGlobalPointerUp = () => {
+      dragRef.current.isDragging = false;
+    };
+    window.addEventListener("pointerup", handleGlobalPointerUp);
+    return () => window.removeEventListener("pointerup", handleGlobalPointerUp);
+  }, []);
+
+  const handleCrop = useCallback(() => {
     const img = imageRef.current;
     const container = containerRef.current;
     if (!img || !container || !norm || norm.width < 5 || norm.height < 5) {
@@ -102,8 +120,13 @@ export function AreaCropper({
       return;
     }
 
-    const scaleX = img.naturalWidth / container.clientWidth;
-    const scaleY = img.naturalHeight / container.clientHeight;
+    const cWidth = container.clientWidth || 800;
+    const cHeight = container.clientHeight || 500;
+    const naturalWidth = img.naturalWidth || cWidth;
+    const naturalHeight = img.naturalHeight || cHeight;
+
+    const scaleX = naturalWidth / cWidth;
+    const scaleY = naturalHeight / cHeight;
 
     const sourceX = Math.round(norm.x * scaleX);
     const sourceY = Math.round(norm.y * scaleY);
@@ -140,7 +163,7 @@ export function AreaCropper({
         onUseFull();
       }
     }, "image/png");
-  };
+  }, [norm, onCropComplete, onUseFull]);
 
   // Keyboard shortcut: Escape cancels, Enter crops
   useEffect(() => {
@@ -152,7 +175,7 @@ export function AreaCropper({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  });
+  }, [handleCrop, norm, onCancel]);
 
   return (
     <div className="flex flex-col space-y-3">
@@ -167,10 +190,12 @@ export function AreaCropper({
 
       <div
         ref={containerRef}
+        role="region"
+        aria-label="Image area selection"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        className="relative max-h-[380px] w-full select-none overflow-hidden rounded-xl border border-zk-border bg-slate-950/90 touch-none cursor-crosshair"
+        className="relative max-h-[380px] w-full select-none overflow-hidden rounded-xl border border-zk-border bg-black/90 touch-none cursor-crosshair"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -184,7 +209,7 @@ export function AreaCropper({
         {/* Selection overlay */}
         {imageLoaded && norm && norm.width > 2 && norm.height > 2 && (
           <div
-            className="pointer-events-none absolute border-2 border-dashed border-blue-500 bg-blue-500/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
+            className="pointer-events-none absolute border-2 border-dashed border-zk-accent bg-zk-accent/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
             style={{
               left: `${norm.x}px`,
               top: `${norm.y}px`,
@@ -192,7 +217,7 @@ export function AreaCropper({
               height: `${norm.height}px`,
             }}
           >
-            <div className="absolute -top-6 left-0 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+            <div className="absolute -top-6 left-0 rounded bg-zk-accent px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
               Selection
             </div>
           </div>
@@ -254,4 +279,3 @@ export function AreaCropper({
     </div>
   );
 }
-

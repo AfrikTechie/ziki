@@ -1,12 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, unstable_rethrow } from "next/navigation";
 import { createBugAction, type ActionResult } from "@/app/actions/issues";
+import { interpretVisualEvidenceAction } from "@/app/actions/visual-interpretation";
+import {
+  generateFallbackAnalysis,
+  type KeyframeSample,
+  type VisualInterpretationDetails,
+} from "@/lib/visual-interpretation";
 import { AreaCropper } from "@/components/area-cropper";
+import { ClaudeWorking } from "@/components/claude-working";
 
 type Mode = "record" | "capture" | "write";
-type Step = "choose" | "capture" | "review";
+type Step = "choose" | "capture" | "details" | "review";
 
 type MediaState =
   | { type: "video"; blob: Blob; url: string; duration: number }
@@ -18,22 +25,130 @@ const FALLBACK_TYPES: TypeOption[] = [
   { id: "", name: "Bug" },
 ];
 
+const VISUAL_INTERPRETATION_STEPS = [
+  "Analyzing visual demonstration…",
+  "Examining interactions and screen elements…",
+  "Identifying unexpected behavior…",
+  "Synthesizing reproduction steps…",
+  "Drafting structured issue description…",
+];
+
+/**
+ * Extracts lightweight keyframes across the recording timeline using an offscreen canvas.
+ * Held purely in temporary browser memory.
+ */
+async function extractVideoKeyframes(blob: Blob, count: number = 3): Promise<KeyframeSample[]> {
+  return new Promise((resolve) => {
+    try {
+      if (typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent)) {
+        resolve([]);
+        return;
+      }
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      const url = URL.createObjectURL(blob);
+      video.src = url;
+
+      const frames: KeyframeSample[] = [];
+      const timer = setTimeout(() => {
+        URL.revokeObjectURL(url);
+        resolve(frames);
+      }, 3000);
+
+      video.onloadedmetadata = () => {
+        const duration = Math.max(1, video.duration || 1);
+        const samplePoints = [
+          { label: "Start of recording", time: Math.min(0.5, duration * 0.1) },
+          { label: "Mid-interaction", time: duration * 0.5 },
+          { label: "Observed outcome", time: Math.max(0.5, duration * 0.9) },
+        ].slice(0, count);
+
+        let currentIndex = 0;
+
+        const captureCurrentPoint = () => {
+          if (currentIndex >= samplePoints.length) {
+            clearTimeout(timer);
+            URL.revokeObjectURL(url);
+            resolve(frames);
+            return;
+          }
+          video.currentTime = samplePoints[currentIndex].time;
+        };
+
+        video.onseeked = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            const width = Math.min(video.videoWidth || 640, 800);
+            const aspect = (video.videoHeight || 480) / (video.videoWidth || 640);
+            canvas.width = width;
+            canvas.height = Math.round(width * (aspect || 0.75));
+            const ctx = canvas.getContext("2d");
+            ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+            frames.push({
+              label: `${samplePoints[currentIndex].label} (t=${Math.round(samplePoints[currentIndex].time)}s)`,
+              dataUrl,
+            });
+          } catch {
+            // ignore frame error
+          }
+          currentIndex++;
+          captureCurrentPoint();
+        };
+
+        captureCurrentPoint();
+      };
+
+      video.onerror = () => {
+        clearTimeout(timer);
+        URL.revokeObjectURL(url);
+        resolve(frames);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+/**
+ * Converts a screenshot blob to base64 data URL for in-memory synthesis.
+ */
+async function blobToDataUrl(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export function AddIdeaModal({
   projectId,
   isOpen,
   onClose,
   types = [],
+  onOpenInlineComposer,
 }: {
   projectId?: string;
   isOpen: boolean;
   onClose: () => void;
   types?: TypeOption[];
+  onOpenInlineComposer?: () => void;
 }) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   const [step, setStep] = useState<Step>("choose");
   const [mode, setMode] = useState<Mode>("record");
@@ -48,6 +163,12 @@ export function AddIdeaModal({
 
   // Captured media held purely in browser memory
   const [media, setMedia] = useState<MediaState | null>(null);
+
+  // Clarification & AI interpretation state
+  const [clarification, setClarification] = useState("");
+  const [understanding, setUnderstanding] = useState<VisualInterpretationDetails | null>(null);
+  const [isInterpreting, setIsInterpreting] = useState(false);
+  const [showClarifyInput, setShowClarifyInput] = useState(false);
 
   // Review form state
   const availableTypes = types.length > 0 ? types : FALLBACK_TYPES;
@@ -66,6 +187,7 @@ export function AddIdeaModal({
   const titleId = useId();
   const descId = useId();
   const typeId = useId();
+  const clarificationId = useId();
 
   // Helper to cleanup any active stream and blob URLs
   const cleanupMedia = useCallback(() => {
@@ -77,8 +199,15 @@ export function AddIdeaModal({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    if (recorderRef.current && recorderRef.current.state === "recording") {
-      recorderRef.current.stop();
+    if (recorderRef.current) {
+      if (recorderRef.current.state === "recording") {
+        recorderRef.current.onstop = null;
+        try {
+          recorderRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
       recorderRef.current = null;
     }
     if (rawScreenUrl) {
@@ -108,11 +237,25 @@ export function AddIdeaModal({
     }
   }, [isOpen]);
 
+  // Clean up media on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
   const handleClose = useCallback(() => {
     cleanupMedia();
     setStep("choose");
     setTitle("");
     setDescription("");
+    setClarification("");
+    setUnderstanding(null);
+    setIsInterpreting(false);
+    setShowClarifyInput(false);
     setError(null);
     setFieldErrors({});
     onClose();
@@ -131,7 +274,7 @@ export function AddIdeaModal({
   const startRecording = async () => {
     setError(null);
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      setError("Screen recording is not supported in this browser. Please use a modern desktop browser (Chrome, Edge, Firefox, Safari).");
+      setError("Screen recording is not supported in this browser. Please use Chrome, Edge, Firefox, or Safari.");
       return;
     }
 
@@ -161,14 +304,18 @@ export function AddIdeaModal({
         }
       };
 
+      const start = Date.now();
+      startTimeRef.current = start;
+
       recorder.onstop = () => {
         if (timerRef.current) {
           clearInterval(timerRef.current);
           timerRef.current = null;
         }
+        const elapsed = Math.max(1, Math.floor((Date.now() - start) / 1000));
         const blob = new Blob(chunks, { type: mimeType || "video/webm" });
         const url = URL.createObjectURL(blob);
-        setMedia({ type: "video", blob, url, duration: recordSeconds || 1 });
+        setMedia({ type: "video", blob, url, duration: elapsed });
         setRecordState("recorded");
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((track) => track.stop());
@@ -190,11 +337,10 @@ export function AddIdeaModal({
       setRecordState("recording");
       setRecordSeconds(0);
 
-      const startTime = Date.now();
       timerRef.current = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const elapsed = Math.floor((Date.now() - start) / 1000);
         setRecordSeconds(elapsed);
-        // Cap recording at 60 seconds for memory and attachment size preservation
+        // Cap recording at 60 seconds for memory preservation
         if (elapsed >= 60) {
           if (recorder.state === "recording") {
             recorder.stop();
@@ -203,7 +349,7 @@ export function AddIdeaModal({
       }, 1000);
     } catch (err: unknown) {
       const e = err as { name?: string; message?: string };
-      if (e.name === "NotAllowedError") {
+      if (e.name === "NotAllowedError" || e.name === "AbortError") {
         setError("Screen recording was cancelled or permission was denied.");
       } else {
         setError(e.message || "Could not start screen recording. Please try again.");
@@ -225,6 +371,7 @@ export function AddIdeaModal({
     }
     setRecordState("idle");
     setRecordSeconds(0);
+    setUnderstanding(null);
     startRecording();
   };
 
@@ -238,8 +385,9 @@ export function AddIdeaModal({
       return;
     }
 
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: "browser" },
         audio: false,
       });
@@ -250,22 +398,21 @@ export function AddIdeaModal({
       video.playsInline = true;
 
       await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => resolve(), 1500);
         video.onloadedmetadata = () => {
+          clearTimeout(timer);
           video.play().then(() => resolve()).catch(() => resolve());
         };
       });
 
       // Small delay to ensure frame is painted
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 150));
 
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth || 1920;
       canvas.height = video.videoHeight || 1080;
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(video, 0, 0);
-
-      // Stop all tracks immediately
-      stream.getTracks().forEach((track) => track.stop());
 
       canvas.toBlob((blob) => {
         if (!blob) {
@@ -278,10 +425,14 @@ export function AddIdeaModal({
       }, "image/png");
     } catch (err: unknown) {
       const e = err as { name?: string; message?: string };
-      if (e.name === "NotAllowedError") {
+      if (e.name === "NotAllowedError" || e.name === "AbortError") {
         setError("Screen capture was cancelled or permission was denied.");
       } else {
         setError(e.message || "Could not capture screen. Try again.");
+      }
+    } finally {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
       }
     }
   };
@@ -293,6 +444,7 @@ export function AddIdeaModal({
     }
     setMedia({ type: "screenshot", blob: croppedBlob, url: croppedUrl });
     setIsCropping(false);
+    setUnderstanding(null);
   };
 
   const handleUseFullScreenshot = () => {
@@ -302,6 +454,7 @@ export function AddIdeaModal({
       .then((blob) => {
         setMedia({ type: "screenshot", blob, url: rawScreenUrl });
         setIsCropping(false);
+        setUnderstanding(null);
       })
       .catch(() => {
         setIsCropping(false);
@@ -318,11 +471,92 @@ export function AddIdeaModal({
       setMedia(null);
     }
     setIsCropping(false);
+    setUnderstanding(null);
     captureScreen();
   };
 
   /* -------------------------------------------------------------
-   * Form Submission (Phase 1: Preserves existing Ziki action)
+   * AI Interpretation & Understanding Pipeline
+   * ------------------------------------------------------------- */
+  const handleRunAnalysis = async (explicitClarification?: string) => {
+    if (!media) {
+      setStep("review");
+      return;
+    }
+
+    setError(null);
+    setIsInterpreting(true);
+
+    try {
+      let imageSample: string | undefined = undefined;
+      let frames: KeyframeSample[] | undefined = undefined;
+
+      if (media.type === "screenshot") {
+        const dataUrl = await blobToDataUrl(media.blob);
+        if (dataUrl) imageSample = dataUrl;
+      } else if (media.type === "video") {
+        const sampledFrames = await extractVideoKeyframes(media.blob, 3);
+        if (sampledFrames && sampledFrames.length > 0) {
+          frames = sampledFrames;
+        }
+      }
+
+      const currentTypeName = availableTypes.find((t) => t.id === selectedType)?.name;
+      const effectiveClarification =
+        typeof explicitClarification === "string" ? explicitClarification.trim() : clarification.trim();
+
+      const result = await interpretVisualEvidenceAction({
+        mediaType: media.type,
+        durationSeconds: media.type === "video" ? media.duration : undefined,
+        clarification: effectiveClarification || undefined,
+        imageSample,
+        frames,
+        suggestedType: currentTypeName,
+        previousUnderstanding: understanding?.observedBehavior,
+      });
+
+      if (result?.understanding) {
+        setUnderstanding(result.understanding);
+      }
+      if (result?.draft?.title) {
+        setTitle(result.draft.title);
+      }
+      if (result?.draft?.description) {
+        setDescription(result.draft.description);
+      }
+      if (result?.draft?.suggestedType) {
+        const match = availableTypes.find(
+          (t) => t.name.toLowerCase() === result.draft.suggestedType?.toLowerCase()
+        );
+        if (match) setSelectedType(match.id);
+      }
+    } catch {
+      // Graceful fallback on network or unexpected error
+      const fallback = generateFallbackAnalysis({
+        mediaType: media.type,
+        durationSeconds: media.type === "video" ? media.duration : undefined,
+        clarification: explicitClarification || clarification || undefined,
+        previousUnderstanding: understanding?.observedBehavior,
+      });
+      setUnderstanding(fallback.understanding);
+      setTitle(fallback.draft.title);
+      setDescription(fallback.draft.description);
+    } finally {
+      setIsInterpreting(false);
+    }
+  };
+
+  const handleContinueToDetails = () => {
+    setStep("details");
+    handleRunAnalysis();
+  };
+
+  const handleConfirmUnderstanding = () => {
+    setStep("review");
+  };
+
+  /* -------------------------------------------------------------
+   * Form Submission
    * ------------------------------------------------------------- */
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -332,6 +566,7 @@ export function AddIdeaModal({
     if (title.trim().length < 3) {
       errors.title = "Title must be at least 3 characters";
     }
+
     if (description.trim().length < 10) {
       errors.description = "Description must be at least 10 characters";
     }
@@ -357,13 +592,18 @@ export function AddIdeaModal({
     startTransition(async () => {
       try {
         const result: ActionResult = await createBugAction(formData);
-        if (result?.error) {
+        if (result?.fieldErrors) {
+          setFieldErrors(result.fieldErrors);
+        } else if (result?.field && result?.error) {
+          setFieldErrors({ [result.field]: result.error });
+        } else if (result?.error) {
           setError(result.error);
         } else {
           handleClose();
           router.refresh();
         }
       } catch (err: unknown) {
+        unstable_rethrow(err);
         const message = err instanceof Error ? err.message : "Failed to create idea. Please try again.";
         setError(message);
       }
@@ -378,7 +618,6 @@ export function AddIdeaModal({
       setStep("review");
     } else if (mode === "record") {
       setStep("capture");
-      // Auto-trigger recording or prompt
     } else if (mode === "capture") {
       setStep("capture");
       captureScreen();
@@ -390,8 +629,10 @@ export function AddIdeaModal({
       if (mode === "write") {
         setStep("choose");
       } else {
-        setStep("capture");
+        setStep("details");
       }
+    } else if (step === "details") {
+      setStep("capture");
     } else if (step === "capture") {
       cleanupMedia();
       setStep("choose");
@@ -404,6 +645,7 @@ export function AddIdeaModal({
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <dialog
       ref={dialogRef}
+      aria-label="Add idea"
       onCancel={(e) => {
         e.preventDefault();
         handleClose();
@@ -411,7 +653,7 @@ export function AddIdeaModal({
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
-      className="m-auto w-full max-w-[620px] overflow-hidden rounded-2xl border border-zk-border bg-zk-surface p-0 text-zk-text shadow-2xl backdrop:bg-slate-900/40 backdrop:backdrop-blur-xs"
+      className="m-auto w-full max-w-[640px] overflow-hidden rounded-2xl border border-zk-border bg-zk-surface p-0 text-zk-text shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-xs"
     >
       <div className="relative flex flex-col p-6">
         {/* Modal Header */}
@@ -439,47 +681,67 @@ export function AddIdeaModal({
             </div>
           </div>
 
-          {/* Stepper when in capture or review */}
+          {/* Stepper when beyond choose step */}
           {step !== "choose" && (
             <div className="flex items-center gap-2 text-xs font-semibold">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
-                    step === "review"
-                      ? "bg-blue-600 text-white"
-                      : "bg-blue-600 text-white"
-                  }`}
-                >
-                  {step === "review" ? "✓" : "1"}
-                </span>
-                <span className={step === "capture" ? "text-blue-600 font-bold" : "text-zk-muted"}>
-                  Capture
-                </span>
-              </div>
-              <span className="text-zk-divider">──</span>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
-                    step === "review" ? "bg-blue-600 text-white" : "bg-zk-chip text-zk-muted"
-                  }`}
-                >
-                  {step === "review" ? "✓" : "2"}
-                </span>
-                <span className="text-zk-muted">Details</span>
-              </div>
-              <span className="text-zk-divider">──</span>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
-                    step === "review" ? "bg-blue-600 text-white font-bold" : "bg-zk-chip text-zk-muted"
-                  }`}
-                >
-                  3
-                </span>
-                <span className={step === "review" ? "text-blue-600 font-bold" : "text-zk-muted"}>
-                  Review
-                </span>
-              </div>
+              {mode !== "write" ? (
+                <>
+                  {/* Step 1: Capture */}
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
+                        step === "details" || step === "review"
+                          ? "border border-zk-accent text-zk-accent"
+                          : "bg-zk-accent text-white"
+                      }`}
+                    >
+                      {step === "details" || step === "review" ? "✓" : "1"}
+                    </span>
+                    <span className={step === "capture" ? "text-zk-accent font-bold" : "text-zk-muted"}>
+                      Capture
+                    </span>
+                  </div>
+                  <span className="text-zk-divider">──</span>
+                  {/* Step 2: Details */}
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
+                        step === "review"
+                          ? "border border-zk-accent text-zk-accent"
+                          : step === "details"
+                          ? "bg-zk-accent text-white"
+                          : "border border-zk-border bg-zk-chip text-zk-muted"
+                      }`}
+                    >
+                      {step === "review" ? "✓" : "2"}
+                    </span>
+                    <span className={step === "details" ? "text-zk-accent font-bold" : "text-zk-muted"}>
+                      Details
+                    </span>
+                  </div>
+                  <span className="text-zk-divider">──</span>
+                  {/* Step 3: Review */}
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
+                        step === "review" ? "bg-zk-accent text-white" : "border border-zk-border bg-zk-chip text-zk-muted"
+                      }`}
+                    >
+                      3
+                    </span>
+                    <span className={step === "review" ? "text-zk-accent font-bold" : "text-zk-muted"}>
+                      Review
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zk-accent text-[11px] font-bold text-white">
+                    1
+                  </span>
+                  <span className="text-zk-accent font-bold">Write description</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -497,7 +759,7 @@ export function AddIdeaModal({
 
         {/* Global Error Banner */}
         {error && (
-          <div className="mt-3 rounded-xl border border-zk-bad-border bg-zk-bad-bg p-3 text-xs text-zk-bad-fg">
+          <div role="alert" className="mt-3 rounded-xl border border-zk-bad-bd bg-zk-bad-bg p-3 text-xs text-zk-bad-fg">
             {error}
           </div>
         )}
@@ -511,18 +773,20 @@ export function AddIdeaModal({
               <p className="text-sm font-bold text-zk-text">How would you like to describe it?</p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div role="radiogroup" aria-label="Submission method" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {/* Option 1: Record screen */}
               <button
                 type="button"
+                role="radio"
+                aria-checked={mode === "record"}
                 onClick={() => setMode("record")}
                 className={`flex min-h-[160px] cursor-pointer flex-col items-center justify-between rounded-2xl p-4 text-center transition ${
                   mode === "record"
-                    ? "border-2 border-blue-600 bg-blue-50/40 shadow-xs"
-                    : "border border-zk-border bg-zk-surface hover:border-slate-300 hover:bg-zk-chip/40"
+                    ? "border-2 border-zk-accent bg-zk-tint/40 shadow-xs"
+                    : "border border-zk-border bg-zk-surface hover:border-zk-muted/30 hover:bg-zk-chip/40"
                 }`}
               >
-                <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl bg-zk-tint text-zk-accent">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="m22 8-6 4 6 4V8Z" />
                     <rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
@@ -534,7 +798,7 @@ export function AddIdeaModal({
                 </div>
                 <div
                   className={`h-4 w-4 rounded-full border-2 transition ${
-                    mode === "record" ? "border-blue-600 bg-blue-600 ring-2 ring-blue-200" : "border-slate-300"
+                    mode === "record" ? "border-zk-accent bg-zk-accent ring-2 ring-zk-tint" : "border-zk-border"
                   }`}
                 />
               </button>
@@ -542,14 +806,16 @@ export function AddIdeaModal({
               {/* Option 2: Capture area */}
               <button
                 type="button"
+                role="radio"
+                aria-checked={mode === "capture"}
                 onClick={() => setMode("capture")}
                 className={`flex min-h-[160px] cursor-pointer flex-col items-center justify-between rounded-2xl p-4 text-center transition ${
                   mode === "capture"
-                    ? "border-2 border-blue-600 bg-blue-50/40 shadow-xs"
-                    : "border border-zk-border bg-zk-surface hover:border-slate-300 hover:bg-zk-chip/40"
+                    ? "border-2 border-zk-accent bg-zk-tint/40 shadow-xs"
+                    : "border border-zk-border bg-zk-surface hover:border-zk-muted/30 hover:bg-zk-chip/40"
                 }`}
               >
-                <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl bg-zk-chip text-zk-text2">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M6 3v3H3" />
                     <path d="M18 3v3h3" />
@@ -564,7 +830,7 @@ export function AddIdeaModal({
                 </div>
                 <div
                   className={`h-4 w-4 rounded-full border-2 transition ${
-                    mode === "capture" ? "border-blue-600 bg-blue-600 ring-2 ring-blue-200" : "border-slate-300"
+                    mode === "capture" ? "border-zk-accent bg-zk-accent ring-2 ring-zk-tint" : "border-zk-border"
                   }`}
                 />
               </button>
@@ -572,14 +838,16 @@ export function AddIdeaModal({
               {/* Option 3: Write description */}
               <button
                 type="button"
+                role="radio"
+                aria-checked={mode === "write"}
                 onClick={() => setMode("write")}
                 className={`flex min-h-[160px] cursor-pointer flex-col items-center justify-between rounded-2xl p-4 text-center transition ${
                   mode === "write"
-                    ? "border-2 border-blue-600 bg-blue-50/40 shadow-xs"
-                    : "border border-zk-border bg-zk-surface hover:border-slate-300 hover:bg-zk-chip/40"
+                    ? "border-2 border-zk-accent bg-zk-tint/40 shadow-xs"
+                    : "border border-zk-border bg-zk-surface hover:border-zk-muted/30 hover:bg-zk-chip/40"
                 }`}
               >
-                <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-xl bg-zk-chip text-zk-text2">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
                     <path d="m15 5 4 4" />
@@ -587,21 +855,32 @@ export function AddIdeaModal({
                 </div>
                 <div className="my-2">
                   <p className="text-sm font-bold text-zk-text">Write description</p>
-                  <p className="mt-1 text-xs text-zk-muted">Describe it with a few details</p>
+                  <p className="mt-1 text-xs text-zk-muted">Describe it using the issue template</p>
                 </div>
                 <div
                   className={`h-4 w-4 rounded-full border-2 transition ${
-                    mode === "write" ? "border-blue-600 bg-blue-600 ring-2 ring-blue-200" : "border-slate-300"
+                    mode === "write" ? "border-zk-accent bg-zk-accent ring-2 ring-zk-tint" : "border-zk-border"
                   }`}
                 />
               </button>
             </div>
 
-            <div className="flex justify-end pt-3">
+            <div className="flex items-center justify-between pt-3">
+              {onOpenInlineComposer ? (
+                <button
+                  type="button"
+                  onClick={onOpenInlineComposer}
+                  className="text-xs font-semibold text-zk-muted hover:text-zk-accent"
+                >
+                  Prefer inline composer? Open chat box
+                </button>
+              ) : (
+                <div />
+              )}
               <button
                 type="button"
                 onClick={handleContinueFromChoose}
-                className="inline-flex min-h-10 items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-bold text-white transition hover:bg-blue-700"
+                className="inline-flex min-h-10 items-center justify-center rounded-full bg-zk-accent px-6 text-sm font-bold text-white transition hover:opacity-95"
               >
                 Continue
               </button>
@@ -619,7 +898,7 @@ export function AddIdeaModal({
               <div className="flex flex-col space-y-4">
                 {recordState === "idle" && (
                   <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zk-border p-10 text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zk-tint text-zk-accent">
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                         <path d="m22 8-6 4 6 4V8Z" />
                         <rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
@@ -632,7 +911,7 @@ export function AddIdeaModal({
                     <button
                       type="button"
                       onClick={startRecording}
-                      className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-full bg-blue-600 px-5 text-xs font-bold text-white transition hover:bg-blue-700"
+                      className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-full bg-zk-accent px-5 text-xs font-bold text-white transition hover:opacity-95"
                     >
                       <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
                       Start recording
@@ -641,9 +920,9 @@ export function AddIdeaModal({
                 )}
 
                 {recordState === "recording" && (
-                  <div className="flex flex-col items-center justify-center rounded-2xl border border-red-200 bg-red-50/50 p-10 text-center">
-                    <div className="flex items-center gap-2 text-red-600">
-                      <span className="h-3 w-3 animate-ping rounded-full bg-red-600" />
+                  <div className="flex flex-col items-center justify-center rounded-2xl border border-red-300 bg-red-50/50 p-10 text-center dark:bg-red-950/20">
+                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                      <span className="h-3 w-3 animate-ping rounded-full bg-red-600 dark:bg-red-400" />
                       <span className="font-bold">Recording in progress</span>
                     </div>
                     <p className="mt-3 font-mono text-2xl font-extrabold text-zk-text">
@@ -665,7 +944,7 @@ export function AddIdeaModal({
 
                 {recordState === "recorded" && media?.type === "video" && (
                   <div className="flex flex-col space-y-4">
-                    <div className="relative overflow-hidden rounded-2xl border border-zk-border bg-slate-950 shadow-inner">
+                    <div className="relative overflow-hidden rounded-2xl border border-zk-border bg-black/90 shadow-inner">
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                       <video
                         src={media.url}
@@ -686,8 +965,8 @@ export function AddIdeaModal({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setStep("review")}
-                        className="inline-flex min-h-10 items-center justify-center rounded-full bg-blue-600 px-6 text-xs font-bold text-white transition hover:bg-blue-700"
+                        onClick={handleContinueToDetails}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full bg-zk-accent px-6 text-xs font-bold text-white transition hover:opacity-95"
                       >
                         Continue
                       </button>
@@ -713,7 +992,7 @@ export function AddIdeaModal({
                   />
                 ) : media?.type === "screenshot" ? (
                   <div className="flex flex-col space-y-4">
-                    <div className="flex max-h-[340px] items-center justify-center overflow-hidden rounded-2xl border border-zk-border bg-slate-950/60 p-2">
+                    <div className="flex max-h-[340px] items-center justify-center overflow-hidden rounded-2xl border border-zk-border bg-black/80 p-2">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={media.url}
@@ -738,8 +1017,8 @@ export function AddIdeaModal({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setStep("review")}
-                        className="inline-flex min-h-10 items-center justify-center rounded-full bg-blue-600 px-6 text-xs font-bold text-white transition hover:bg-blue-700"
+                        onClick={handleContinueToDetails}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full bg-zk-accent px-6 text-xs font-bold text-white transition hover:opacity-95"
                       >
                         Continue
                       </button>
@@ -747,7 +1026,7 @@ export function AddIdeaModal({
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zk-border p-10 text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-700">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zk-chip text-zk-text2">
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                         <rect x="3" y="3" width="18" height="18" rx="2" />
                         <circle cx="9" cy="9" r="2" />
@@ -761,7 +1040,7 @@ export function AddIdeaModal({
                     <button
                       type="button"
                       onClick={captureScreen}
-                      className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-full bg-blue-600 px-5 text-xs font-bold text-white transition hover:bg-blue-700"
+                      className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-full bg-zk-accent px-5 text-xs font-bold text-white transition hover:opacity-95"
                     >
                       Capture screen
                     </button>
@@ -773,7 +1052,228 @@ export function AddIdeaModal({
         )}
 
         {/* =========================================================
-         * STEP 3: Review Issue Draft (Mockup Panel 4!)
+         * STEP 2.5: Review Evidence & AI Understanding (Details)
+         * ========================================================= */}
+        {step === "details" && (
+          <div className="mt-4 flex flex-col space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-zk-text">Review evidence & AI interpretation</h3>
+              <p className="mt-0.5 text-xs text-zk-muted">
+                Review what Ziki understood from your demonstration. You can confirm or clarify before drafting.
+              </p>
+            </div>
+
+            {/* Media Evidence Card */}
+            {media && (
+              <div className="flex items-center gap-3 rounded-xl border border-zk-border bg-zk-chip/30 p-2.5">
+                <div className="relative flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/80">
+                  {media.type === "video" ? (
+                    <>
+                      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                      <video
+                        src={media.url}
+                        className="h-full w-full object-cover opacity-80"
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center text-white">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </span>
+                      <span className="absolute bottom-1 right-1 rounded-sm bg-black/80 px-1 py-0.2 text-[9px] font-mono font-bold text-white">
+                        {formatTime(media.duration)}
+                      </span>
+                    </>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={media.url}
+                      alt="Evidence thumbnail"
+                      className="h-full w-full object-cover"
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-zk-text">
+                    {media.type === "video" ? "Screen recording captured" : "Targeted screenshot captured"}
+                  </p>
+                  <p className="text-[11px] text-zk-muted">
+                    {media.type === "video"
+                      ? `${formatTime(media.duration)} demonstration stored locally in browser memory`
+                      : "Cropped visual region stored locally in browser memory"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStep("capture")}
+                  className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold text-zk-muted hover:bg-zk-chip hover:text-zk-text"
+                >
+                  Change
+                </button>
+              </div>
+            )}
+
+            {/* AI Progress Indicator when interpreting */}
+            {isInterpreting && (
+              <div className="pt-1">
+                <ClaudeWorking
+                  statusText="Analyzing visual demonstration and drafting issue..."
+                  steps={VISUAL_INTERPRETATION_STEPS}
+                />
+              </div>
+            )}
+
+            {/* AI Understanding Card (once interpreted) */}
+            {!isInterpreting && understanding && (
+              <div className="flex flex-col space-y-3 rounded-2xl border border-zk-border bg-zk-tint/20 p-4">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-zk-accent text-white">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Z" />
+                    </svg>
+                  </span>
+                  <span className="text-xs font-bold text-zk-text">Ziki&apos;s understanding</span>
+                </div>
+
+                <div className="space-y-1.5 text-xs">
+                  <p className="font-semibold text-zk-text">
+                    {understanding.observedBehavior}
+                  </p>
+                  <p className="text-[11px] text-zk-muted">
+                    <span className="font-medium text-zk-text2">Detected Context:</span> {understanding.context}
+                  </p>
+                  <p className="text-[11px] text-zk-muted">
+                    <span className="font-medium text-zk-text2">Inferred Intent:</span> {understanding.intent}
+                  </p>
+                </div>
+
+                {/* Ambiguity notice if demonstration had ambiguous outcomes */}
+                {understanding.isAmbiguous && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      Ambiguous Intent Detected
+                    </div>
+                    <p className="mt-1 text-[11px]">
+                      The demonstration shows multiple interactions. Please confirm if this matches what you want to report, or clarify below.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Clarification / Correction Accordion or Form */}
+            {!isInterpreting && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor={clarificationId} className="block text-xs font-semibold text-zk-text2">
+                    {understanding ? "Need to correct or clarify anything?" : "What happened or what should change? (optional)"}
+                  </label>
+                  {understanding && !showClarifyInput && (
+                    <button
+                      type="button"
+                      onClick={() => setShowClarifyInput(true)}
+                      className="text-xs font-semibold text-zk-accent hover:underline"
+                    >
+                      + Clarify or correct
+                    </button>
+                  )}
+                </div>
+
+                {(showClarifyInput || !understanding) && (
+                  <div className="space-y-2">
+                    <textarea
+                      id={clarificationId}
+                      rows={3}
+                      placeholder="e.g. Actually, the bug only happens when Dark mode is enabled, not Light mode..."
+                      value={clarification}
+                      onChange={(e) => setClarification(e.target.value)}
+                      disabled={isInterpreting}
+                      className="block w-full resize-none rounded-xl border border-zk-border bg-zk-surface p-3 text-xs text-zk-text placeholder:text-zk-muted focus:border-zk-accent focus:outline-hidden disabled:opacity-50"
+                    />
+
+                    {understanding && (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleRunAnalysis(clarification)}
+                          disabled={!clarification.trim() || isInterpreting}
+                          className="inline-flex min-h-8 items-center rounded-lg border border-zk-border bg-zk-surface px-3 text-xs font-semibold text-zk-text hover:bg-zk-chip disabled:opacity-50"
+                        >
+                          Update with correction
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Details step footer actions */}
+            <div className="flex items-center justify-between border-t border-zk-divider pt-4">
+              <button
+                type="button"
+                onClick={() => setStep("capture")}
+                disabled={isInterpreting}
+                className="inline-flex min-h-10 items-center rounded-full border border-zk-border bg-zk-surface px-4 text-xs font-semibold text-zk-text hover:bg-zk-chip disabled:opacity-50"
+              >
+                Back to capture
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep("review")}
+                  disabled={isInterpreting}
+                  className="inline-flex min-h-10 items-center rounded-full px-3 text-xs font-semibold text-zk-muted hover:text-zk-text disabled:opacity-50"
+                >
+                  Skip to manual review
+                </button>
+
+                {understanding ? (
+                  <button
+                    type="button"
+                    onClick={handleConfirmUnderstanding}
+                    disabled={isInterpreting}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-full bg-zk-accent px-5 text-xs font-bold text-white transition hover:opacity-95 disabled:opacity-50"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Confirm &amp; continue to draft
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleRunAnalysis()}
+                    disabled={isInterpreting}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-full bg-zk-accent px-5 text-xs font-bold text-white transition hover:opacity-95 disabled:opacity-50"
+                  >
+                    {isInterpreting ? (
+                      <>
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Z" />
+                        </svg>
+                        Analyze demonstration
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+         * STEP 3: Review Issue Draft
          * ========================================================= */}
         {step === "review" && (
           <form noValidate onSubmit={handleSubmit} className="mt-4 flex flex-col space-y-4">
@@ -781,8 +1281,8 @@ export function AddIdeaModal({
               <h3 className="text-sm font-bold text-zk-text">Review issue draft</h3>
               <p className="mt-0.5 text-xs text-zk-muted">
                 {media
-                  ? "We've created a draft based on your capture. You can make edits before submitting."
-                  : "Fill in the details for your idea before submitting."}
+                  ? `We've created a draft based on your ${media.type === "video" ? "recording" : "screenshot"}. You can make edits before submitting.`
+                  : "Fill in the template details for your idea before submitting."}
               </p>
             </div>
 
@@ -798,7 +1298,7 @@ export function AddIdeaModal({
                     id={typeId}
                     value={selectedType}
                     onChange={(e) => setSelectedType(e.target.value)}
-                    className="mt-1 block w-full rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-xs font-medium text-zk-text focus:border-blue-600 focus:outline-hidden"
+                    className="mt-1 block w-full rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-xs font-medium text-zk-text focus:border-zk-accent focus:outline-hidden"
                   >
                     {availableTypes.map((t) => (
                       <option key={t.id || "default"} value={t.id}>
@@ -817,13 +1317,13 @@ export function AddIdeaModal({
                     id={titleId}
                     type="text"
                     required
-                    placeholder="Short summary of the idea"
+                    placeholder="Short summary of the issue"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="mt-1 block w-full rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-xs text-zk-text placeholder:text-zk-muted focus:border-blue-600 focus:outline-hidden"
+                    className="mt-1 block w-full rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-xs text-zk-text placeholder:text-zk-muted focus:border-zk-accent focus:outline-hidden"
                   />
                   {fieldErrors.title && (
-                    <p className="mt-1 text-[11px] font-medium text-red-600">{fieldErrors.title}</p>
+                    <p className="mt-1 text-[11px] font-medium text-zk-bad-fg">{fieldErrors.title}</p>
                   )}
                 </div>
 
@@ -835,14 +1335,14 @@ export function AddIdeaModal({
                   <textarea
                     id={descId}
                     required
-                    rows={4}
+                    rows={7}
                     placeholder="Describe what happened or what you want changed..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    className="mt-1 block w-full resize-y rounded-xl border border-zk-border bg-zk-surface p-3 text-xs leading-relaxed text-zk-text placeholder:text-zk-muted focus:border-blue-600 focus:outline-hidden"
+                    className="mt-1 block w-full resize-y font-mono text-xs leading-relaxed rounded-xl border border-zk-border bg-zk-surface p-3 text-zk-text placeholder:text-zk-muted focus:border-zk-accent focus:outline-hidden"
                   />
                   {fieldErrors.description && (
-                    <p className="mt-1 text-[11px] font-medium text-red-600">{fieldErrors.description}</p>
+                    <p className="mt-1 text-[11px] font-medium text-zk-bad-fg">{fieldErrors.description}</p>
                   )}
                 </div>
               </div>
@@ -856,26 +1356,26 @@ export function AddIdeaModal({
                       Local preview (not attached)
                     </span>
                   </div>
-                  <div className="relative flex flex-col overflow-hidden rounded-xl border border-zk-border bg-slate-950 p-1.5 shadow-xs">
+                  <div className="relative flex flex-col overflow-hidden rounded-xl border border-zk-border bg-black/90 p-1.5 shadow-xs">
                     {media.type === "video" ? (
                       <div className="relative">
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                         <video
                           src={media.url}
                           controls
-                          className="max-h-[160px] w-full rounded-lg object-contain"
+                          className="max-h-[180px] w-full rounded-lg object-contain"
                         />
-                        <div className="absolute top-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-mono font-bold text-white">
+                        <div className="absolute top-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-mono font-bold text-white">
                           {formatTime(media.duration)}
                         </div>
                       </div>
                     ) : (
-                      <div className="flex max-h-[160px] items-center justify-center overflow-hidden rounded-lg">
+                      <div className="flex max-h-[180px] items-center justify-center overflow-hidden rounded-lg">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={media.url}
                           alt="Captured evidence"
-                          className="max-h-[160px] w-auto max-w-full object-contain"
+                          className="max-h-[180px] w-auto max-w-full object-contain"
                         />
                       </div>
                     )}
@@ -898,7 +1398,7 @@ export function AddIdeaModal({
               <button
                 type="submit"
                 disabled={pending}
-                className="inline-flex min-h-10 items-center justify-center rounded-full bg-blue-600 px-6 text-xs font-bold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                className="inline-flex min-h-10 items-center justify-center rounded-full bg-zk-accent px-6 text-xs font-bold text-white transition hover:opacity-95 disabled:opacity-50"
               >
                 {pending ? "Submitting..." : "Submit idea"}
               </button>
@@ -909,4 +1409,3 @@ export function AddIdeaModal({
     </dialog>
   );
 }
-

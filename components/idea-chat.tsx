@@ -142,6 +142,11 @@ export function IdeaChat({
         onClose={() => setModalOpen(false)}
         projectId={projectId}
         types={types}
+        onOpenInlineComposer={() => {
+          setModalOpen(false);
+          setOpen(true);
+          requestAnimationFrame(() => boxRef.current?.focus());
+        }}
       />
     </>
   );
