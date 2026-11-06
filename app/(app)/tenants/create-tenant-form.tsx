@@ -17,7 +17,8 @@ function withHint(hintId: string, errorAttrs: { "aria-invalid"?: true; "aria-des
 }
 
 /**
- * Create a tenant you own, with its first project (#444). `nameMax` comes
+ * Create a tenant you own (#444). It starts with no projects: they are
+ * created from the organisation's Projects page. `nameMax` comes
  * from the server, so this client file doesn't import the server-only rules.
  */
 export function CreateTenantForm({ nameMax }: { nameMax: number }) {
@@ -25,7 +26,6 @@ export function CreateTenantForm({ nameMax }: { nameMax: number }) {
   const { fieldErrors, show, clear, attrs } = useFieldErrors(FORM_ID, formRef);
   // Controlled, so a failed submit keeps what was typed.
   const [name, setName] = useState("");
-  const [projectName, setProjectName] = useState("");
   const [result, action, pending] = useActionState<TenantFormResult | undefined, FormData>(
     createTenantAction,
     undefined,
@@ -66,26 +66,6 @@ export function CreateTenantForm({ nameMax }: { nameMax: number }) {
           {...withHint("tenant-name-hint", attrs("name"))}
         />
         <FieldError formId={FORM_ID} field="name" errors={fieldErrors} />
-      </div>
-      <div className="space-y-1">
-        <label htmlFor="tenant-project" className="block text-sm font-medium text-zk-text">
-          First project <span className="font-normal text-zk-muted">(optional)</span>
-        </label>
-        <p id="tenant-project-hint" className="text-xs text-zk-muted">
-          One product in this workspace, such as Acme Web. Left blank, the project is named after the workspace.
-        </p>
-        <Input
-          id="tenant-project"
-          name="projectName"
-          value={projectName}
-          onChange={(event) => setProjectName(event.target.value)}
-          placeholder={name.trim() || "Acme Web"}
-          maxLength={nameMax + 20}
-          disabled={pending}
-          className="sm:max-w-sm"
-          {...withHint("tenant-project-hint", attrs("projectName"))}
-        />
-        <FieldError formId={FORM_ID} field="projectName" errors={fieldErrors} />
       </div>
       {formError ? (
         <p role="alert" className="text-sm text-zk-bad-fg">

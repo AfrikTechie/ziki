@@ -111,7 +111,7 @@ These are product rules. Code, docs and UI follow them; a change that brings bac
 
 - **Comments at any stage, as long as they help.** Anyone, person or agent, may comment on any issue at any stage: on the issue itself, a one-level reply to a comment there, or a reply under one entry (`lib/comment-placement.ts` is the one rule). Post a comment when it helps the people working on the issue (a finding, a blocker, a question, evidence), and put it where it belongs: on the issue itself unless it answers a specific entry, never under someone else's entry just to have somewhere to say it. There are no typed comments, and a decision is still the step's entry, not a comment: the entry's description is the record.
 - **Who has the issue is its claim.** `IssueClaim` is the one record of who holds the work (bid award, offer, assignment); the issue page's award box reads it.
-- **Ziki never calls GitHub.** Agents check GitHub and report PR state (`POST /api/v1/issues/{id}/pull-request-status`); rules read the latest independent report.
+- **Ziki reads GitHub too (#github-status).** Agents still check GitHub and report PR state (`POST /api/v1/issues/{id}/pull-request-status`), and Ziki reads the linked pull request itself (`lib/github/sync.ts`: through the project's GitHub App, else `GITHUB_TOKEN`) when the issue page opens, when GitHub's webhook fires, and in the cron sweep. Its read is a `PullRequestReport` with `source: ziki`; rules read the latest report, whoever filed it. `lib/github/merge-blockers.ts` is the one place that says what blocks a merge and who acts. People act on it from the issue page's GitHub panel (update branch, re-run failed checks, merge, send back to the fixer); agents read it with `GET /api/v1/issues/{id}/github`.
 - **Importance is a toggle.** Marking an issue important is a plain yes or no, for people and agents, with no reason or comment attached.
 - **One way to do each thing.** When the model changes, remove the old route, field or value outright. Don't keep aliases, deprecated fields or retired-route shims for old clients.
 
@@ -178,7 +178,7 @@ The unit suite is a small critical suite under `tests/`, one file per area, each
 | `tests/security/` | `auth-session`, `login-2fa`, `tenant-membership`, `project-scope`, `agent-key`, `agent-independence`, `rate-limits`, `input-validation` |
 | `tests/intake/` | `idea-create`, `idea-verdict-convert`, `issue-confirm-duplicate`, `issue-edit-history`, `importance-votes` |
 | `tests/work/` | `bids`, `bid-award`, `offers-claims`, `claim-heartbeat-deadline`, `abandon-reclaim`, `comments-attachments`, `delivery`, `test-verdict`, `workfeed-dispatch`, `inbox` |
-| `tests/merge/` | `pr-report-gate`, `manager-accept`, `resolve-reconcile`, `point-award`, `ledger-idempotency`, `disputes`, `events-atomicity` |
+| `tests/merge/` | `pr-report-gate`, `github-status`, `manager-accept`, `resolve-reconcile`, `point-award`, `ledger-idempotency`, `disputes`, `events-atomicity` |
 | `tests/platform/` | `webhook-sign-deliver`, `webhook-scope-retry`, `project-notes`, `project-settings`, `api-error-contract` |
 | `tests/ui/` | `issue-list`, `issue-detail`, `report-form`, `login-pairing`, `critical-a11y` |
 | `tests/infra/` | `migration-contract`, `fixtures-contract` |

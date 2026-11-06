@@ -29,6 +29,7 @@ import { isTenantAdminRole } from "@/lib/agents/membership";
 import { settableLevels } from "@/lib/agents/levels";
 import { TeamAgentTable } from "./team-agent-table";
 import { RankingRow } from "./ranking-row";
+import { WeeklyPaceBar } from "@/components/weekly-pace-bar";
 
 type SortKey = "points" | "solved";
 
@@ -165,6 +166,7 @@ export default async function RankingPanel({
   let assignedMap: Map<string, TeamAgentWork[]>;
   let recentPoints;
   let activeClaims;
+  let myInMotion = 0;
   let maxActiveClaims: number;
   let activeProjectId: string | null;
   try {
@@ -200,6 +202,17 @@ export default async function RankingPanel({
         _count: { _all: true },
       }),
     ]);
+    // Rewards on the viewer's own active claims: what is "in motion" this week.
+    const myClaims = await prisma.issueClaim.findMany({
+      where: {
+        beneficiaryUserId: user.id,
+        status: "active",
+        releasedAt: null,
+        bug: { tenantId },
+      },
+      select: { bug: { select: { reward: true } } },
+    });
+    myInMotion = myClaims.reduce((sum, claim) => sum + pointsNumber(claim.bug.reward), 0);
     // #447: assigned issues no agent has claimed, shown once per member.
     assignedMap = await teamAssignedWorkForMembers(prisma, tenantId, agentsMap);
     maxActiveClaims = activeProjectId
@@ -417,6 +430,7 @@ export default async function RankingPanel({
                 <div className="h-full rounded-full bg-electric-blue" style={{ width: `${myPct}%` }} />
               </div>
             </div>
+            <WeeklyPaceBar earned={recentById.get(user.id) ?? 0} inMotion={myInMotion} target={targetPoints} />
             <span className="relative text-[13px] text-[#C9D6EF]">{standingDetail}</span>
           </div>
         </div>

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { ZEDU_SLUG } from "@/lib/tenant";
 import { appCookieOptions } from "@/lib/cookie-options";
-import { isReservedProjectSlug, unreservedProjectSlug } from "@/lib/project-slug";
+import { isReservedProjectSlug } from "@/lib/project-slug";
 
 /**
  * Picking, creating and owning tenants (#444).
@@ -261,11 +261,11 @@ const collapse = (value: string) => value.replace(/\s+/g, " ").trim();
 const hasControlChars = (value: string) => /[\u0000-\u001f\u007f]/.test(value);
 
 /** Names are shown in the header and the picker: short, readable, one line. */
-function nameRules(label: string, { optional = false } = {}) {
+function nameRules(label: string) {
   return z
     .string()
     .refine(
-      (value) => (optional && value === "") || value.length >= TENANT_NAME_MIN,
+      (value) => value.length >= TENANT_NAME_MIN,
       `${label} must be at least ${TENANT_NAME_MIN} characters.`,
     )
     .refine(
@@ -284,12 +284,6 @@ export const tenantNameSchema = z
 
 export const createTenantSchema = z.object({
   name: tenantNameSchema,
-  /** Optional: when left blank the first project is named after the tenant. */
-  projectName: z
-    .string()
-    .optional()
-    .transform((value) => collapse(value ?? ""))
-    .pipe(nameRules("Project name", { optional: true })),
 });
 
 /** Slugs kept back because they read as route names, such as /tenants/invite. */
@@ -350,44 +344,41 @@ export type CreateTenantResult =
   | {
       ok: true;
       tenant: { id: string; slug: string; name: string };
-      projectId: string;
     }
   | {
       ok: false;
       error: string;
-      field?: "name" | "projectName";
+      field?: "name";
       /** #537: set when the creator already belongs to a tenant with this name. */
       duplicateName?: string;
     };
 
 /**
- * Creates a tenant with the creator as its owner, and its first project.
- *
- * Projects have no owner of their own: the tenant's owner owns every project
- * in it. One nested create, so a tenant never exists without its owner or
- * without a project for its first issue.
+ * Creates a tenant with the creator as its owner. It starts with no
+ * projects: the owner creates them from the organisation's Projects page
+ * (`/<org>`). Projects have no owner of their own: the tenant's owner owns
+ * every project in it. One nested create, so a tenant never exists without
+ * its owner.
  */
 export async function createTenant(
   db: Db,
   creator: { id: string },
-  input: { name?: unknown; projectName?: unknown; confirmDuplicate?: unknown },
+  input: { name?: unknown; confirmDuplicate?: unknown },
   suffix: () => string = randomSuffix,
 ): Promise<CreateTenantResult> {
   const parsed = createTenantSchema.safeParse({
     name: typeof input.name === "string" ? input.name : "",
-    projectName: typeof input.projectName === "string" ? input.projectName : undefined,
   });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return {
       ok: false,
       error: issue?.message ?? "Check the organization's name.",
-      field: issue?.path[0] === "projectName" ? "projectName" : "name",
+      field: "name",
     };
   }
 
   const { name } = parsed.data;
-  const projectName = parsed.data.projectName || name;
   const base = slugFromName(name, "tenant");
 
   // #537: two tenants you're in with the same name look identical. Ask first;
@@ -416,15 +407,11 @@ export async function createTenant(
           slug,
           name,
           memberships: { create: { userId: creator.id, role: "owner" } },
-          // A project slug is the first segment of its issue URLs, so never a top-level route name.
-          projects: { create: { slug: unreservedProjectSlug(slugFromName(projectName, "project")), name: projectName } },
         },
-        select: { id: true, slug: true, name: true, projects: { select: { id: true } } },
+        select: { id: true, slug: true, name: true },
       });
-      const projectId = tenant.projects[0]?.id;
-      if (!projectId) throw new Error("A new tenant was created without its first project.");
       await awardSignupBonus(db, creator.id, tenant.id);
-      return { ok: true, tenant: { id: tenant.id, slug: tenant.slug, name: tenant.name }, projectId };
+      return { ok: true, tenant: { id: tenant.id, slug: tenant.slug, name: tenant.name } };
     } catch (error) {
       // Only the slug is unique on a brand-new tenant: try another one.
       if (isUniqueViolation(error)) continue;

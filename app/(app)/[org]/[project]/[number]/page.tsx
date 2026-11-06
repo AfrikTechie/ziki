@@ -120,6 +120,9 @@ import { tenantMemberWhere } from "@/lib/tenant-mentions";
 import { readAgentResolution } from "@/lib/agent-resolution";
 import { AgentResolvedNotice } from "@/components/agent-resolved-notice";
 import { SubmissionEvidence } from "@/components/submission-evidence";
+import { GitHubStatusPanel, type GitHubStatusPanelProps } from "@/components/github-status-panel";
+import { storedGitHubStatus } from "@/lib/github/sync";
+import { githubStatusPowers } from "@/lib/github/status-access";
 import { voteDirection } from "@/lib/voting";
 import {
   issueChipBaseClass,
@@ -836,7 +839,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         .filter((review) => review.verdict === "reject" && new Date(review.updatedAt).getTime() >= deliveredAt)
         .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
       const notGood = testVerdictList.filter((verdict) => !verdict.goodToMerge && new Date(verdict.updatedAt).getTime() >= deliveredAt);
-      sentBack = rejected
+      // #github-status: someone sent it back from the GitHub panel.
+      const githubSendBack = activities.find((a) => {
+        const meta = a.metadata as Record<string, unknown> | null;
+        return meta?.via === "github_send_back" && new Date(a.createdAt).getTime() >= deliveredAt;
+      });
+      const githubNote = (githubSendBack?.metadata as { note?: unknown } | null)?.note;
+      const githubReason = typeof githubNote === "string" ? githubNote.split("\n").find((line) => line.trim())?.trim() ?? null : null;
+      sentBack = githubSendBack && (!rejected || new Date(githubSendBack.createdAt) >= new Date(rejected.updatedAt))
+        ? { reason: `Sent back from the GitHub status: ${githubReason ?? "GitHub can't merge it yet."}`, at: githubSendBack.createdAt }
+        : rejected
         ? { reason: `${rejected.agentName} for ${rejected.by} rejected it for merging: ${rejected.summary}`, at: rejected.updatedAt }
         : notGood.length > 0
           ? { reason: `${notGood.length} ${notGood.length === 1 ? "judgement says" : "judgements say"} it is not good to merge.`, at: notGood[0].updatedAt }
@@ -851,6 +863,43 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       sentBack,
     };
   }
+  // #github-status: the pull request as GitHub sees it, from In progress until it is Live.
+  let githubPanel: GitHubStatusPanelProps | null = null;
+  if (bug.pullRequestUrl && !bug.isDeleted && ["in_progress", "done", "merge"].includes(bug.status)) {
+    const pullRequestUrl = bug.pullRequestUrl;
+    const [githubStatus, myAgents, latestReport] = await Promise.all([
+      loadOptional("GitHub status", null, () => storedGitHubStatus({ id: bug.id, pullRequestUrl })),
+      loadOptional("agent levels", [] as { level: "working" | "manager" | "merger" }[], () =>
+        prisma.agent.findMany({ where: { tenantId: bug.tenantId, ownerUserId: user.id, revokedAt: null }, select: { level: true } }),
+      ),
+      loadOptional("latest pull request report", null, () =>
+        prisma.pullRequestReport.findFirst({
+          where: { bugId: bug.id, pullRequestUrl },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { source: true, note: true, createdAt: true, agent: { select: { name: true } } },
+        }),
+      ),
+    ]);
+    githubPanel = {
+      bugId: bug.id,
+      pullRequestUrl,
+      issueStatus: bug.status,
+      status: githubStatus
+        ? { snapshot: githubStatus.snapshot, diagnosis: githubStatus.diagnosis, checkedAt: githubStatus.checkedAt.toISOString() }
+        : null,
+      powers: githubStatusPowers({
+        member: Boolean(access.membershipRole),
+        admin: access.admin,
+        ownsIssue: bug.reporterId === user.id || bug.beneficiaryUserId === user.id,
+        agentLevels: myAgents.map((agent) => agent.level),
+      }),
+      newerAgentReport:
+        latestReport?.source === "agent" && latestReport.agent && (!githubStatus || latestReport.createdAt > githubStatus.checkedAt)
+          ? { agentName: latestReport.agent.name, note: latestReport.note, at: latestReport.createdAt.toISOString() }
+          : null,
+    };
+  }
+
   // Comments on the issue itself, at every stage (lib/comment-placement.ts).
   const takesComments = !bug.isDeleted;
   const commentCount = comments.shownThreads + comments.hiddenThreads;
@@ -1298,6 +1347,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <NextStepBar step={liveFix ? liveNextStep(liveFix.check, liveFix.repo) : nextStep} agentInstructions={agentInstructions} />
 
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
+
+          {githubPanel ? <GitHubStatusPanel {...githubPanel} /> : null}
 
               {/* Who has the issue, while it is the latest thing (In progress); the timeline below keeps the award after that. */}
               {hold?.status === "active" && bug.status === "in_progress" ? <AwardBox hold={hold} /> : null}

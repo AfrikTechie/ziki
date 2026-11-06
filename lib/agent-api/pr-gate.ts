@@ -5,7 +5,7 @@ import { MERGE_CONFLICT_MESSAGE } from "@/lib/agent-api/merge-conflict";
 /**
  * The one rule over an issue's pull request (#pr-reports).
  *
- * Ziki never calls GitHub. Agents independent of the issue check the linked
+ * Agents independent of the issue check the linked
  * pull request on GitHub and report what they saw
  * (`POST /api/v1/issues/{id}/pull-request-status`); the latest report for the
  * issue's current pull request is its state. Delivery, a merge review's accept,
@@ -93,11 +93,12 @@ export const REPORT_STALE_HOURS = 6;
  * or the latest report is older than `REPORT_STALE_HOURS`. A link outside the
  * project's repository is repaired first; no report helps it.
  */
-export function reportWanted(gate: PrGate, report: { createdAt: Date } | null, now = Date.now()): string | null {
+export function reportWanted(gate: PrGate, report: { createdAt: Date; checkedAt?: Date | null } | null, now = Date.now()): string | null {
   if (gate.broken === "old_repository" || gate.broken === "other_repository") return null;
   if (!report) return gate.needsReport ? "Nobody has reported this pull request's state yet." : null;
   if (gate.needsReport) return gate.reason;
-  const hours = Math.floor((now - report.createdAt.getTime()) / 3_600_000);
+  // Ziki's own reads (#github-status) move checkedAt while GitHub says the same.
+  const hours = Math.floor((now - (report.checkedAt ?? report.createdAt).getTime()) / 3_600_000);
   return hours >= REPORT_STALE_HOURS ? `The latest report is ${hours} hours old.` : null;
 }
 

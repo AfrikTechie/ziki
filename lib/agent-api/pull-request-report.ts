@@ -14,9 +14,10 @@ import { statusChangedSummary } from "@/lib/activity-log";
 /**
  * Pull request reports (#pr-reports).
  *
- * The Ziki server never calls GitHub. Agents check an issue's linked pull
- * request on GitHub and report what they saw: its state (open, closed without
- * merging, merged, or 404), the branch it was merged into and whether the
+ * Agents check an issue's linked pull request on GitHub and report what they
+ * saw, and Ziki reads it on GitHub itself too (#github-status,
+ * lib/github/sync.ts: `source: ziki`). A report says its state (open, closed
+ * without merging, merged, or 404), the branch it was merged into and whether the
  * default branch contains it, its head and merge commits, its checks and
  * whether it can merge. Any agent may report, the owner's own included
  * (#owner-agents), except the agent holding the claim or the one that
@@ -40,6 +41,8 @@ export const reportSelect = {
   checks: true,
   mergeable: true,
   note: true,
+  source: true,
+  checkedAt: true,
   agentId: true,
   onBehalfOfUserId: true,
   createdAt: true,
@@ -80,6 +83,16 @@ export async function latestPullRequestReports(
   return latest;
 }
 
+/** Who a report is from, for a sentence: the agent, or Ziki for its own reads (#github-status). */
+export function reporterName(report: { agent: { name: string } | null }): string {
+  return report.agent?.name ?? "Ziki (read on GitHub)";
+}
+
+/** When a report last held: Ziki's own reads move `checkedAt` while GitHub says the same. */
+export function reportedAt(report: { createdAt: Date; checkedAt?: Date | null }): Date {
+  return report.checkedAt ?? report.createdAt;
+}
+
 /** A stored report as the gate reads it. */
 export function gateReport(report: StoredPullRequestReport | null | undefined): GateReport | null {
   if (!report) return null;
@@ -106,14 +119,19 @@ export type PullRequestStateView = {
   checks: string | null;
   mergeable: boolean | null;
   note: string;
+  /** When it was reported; for Ziki's own reads, when GitHub last said this. */
   reportedAt: Date;
   /** Whole minutes since it was reported. */
   ageMinutes: number;
-  reportedBy: { agentId: string; agentName: string; userId: string; name: string };
+  /** `agent`: an agent checked and reported. `ziki`: Ziki read it on GitHub itself (#github-status). */
+  source: "agent" | "ziki";
+  /** The agent and its owner; null for Ziki's own reads. */
+  reportedBy: { agentId: string; agentName: string; userId: string; name: string } | null;
 };
 
 export function pullRequestStateView(report: StoredPullRequestReport | null | undefined, now = Date.now()): PullRequestStateView | null {
   if (!report) return null;
+  const reportedAt = report.checkedAt ?? report.createdAt;
   return {
     id: report.id,
     pullRequestUrl: report.pullRequestUrl,
@@ -125,14 +143,17 @@ export function pullRequestStateView(report: StoredPullRequestReport | null | un
     checks: report.checks,
     mergeable: report.mergeable,
     note: report.note,
-    reportedAt: report.createdAt,
-    ageMinutes: Math.max(0, Math.floor((now - report.createdAt.getTime()) / 60_000)),
-    reportedBy: {
-      agentId: report.agentId,
-      agentName: report.agent.name,
-      userId: report.onBehalfOfUserId,
-      name: report.onBehalfOf.name ?? "A member",
-    },
+    reportedAt,
+    ageMinutes: Math.max(0, Math.floor((now - reportedAt.getTime()) / 60_000)),
+    source: report.source,
+    reportedBy: report.agentId && report.agent && report.onBehalfOfUserId
+      ? {
+          agentId: report.agentId,
+          agentName: report.agent.name,
+          userId: report.onBehalfOfUserId,
+          name: report.onBehalfOf?.name ?? "A member",
+        }
+      : null,
   };
 }
 

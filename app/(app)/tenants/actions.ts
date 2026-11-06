@@ -17,6 +17,7 @@ import {
 } from "@/lib/invites";
 import { acceptShareLink, createShareLink, revokeShareLink } from "@/lib/share-invites";
 import { prisma } from "@/lib/prisma";
+import { EARN_WORKSPACE_SLUG } from "@/lib/earn/draft";
 import { issueHref } from "@/lib/issue-ref";
 import { RATE_LIMIT_MESSAGE, consumeRateLimit } from "@/lib/rate-limit";
 import {
@@ -32,7 +33,7 @@ import {
   type PromoteOwnerResult,
 } from "@/lib/tenants";
 import { refererProjectRef } from "@/lib/referer-path";
-import { ideasPath, orgPath, refOf } from "@/lib/project-paths";
+import { orgPath } from "@/lib/project-paths";
 
 /**
  * The tenant picker's actions (#444), and the organization admin's actions
@@ -56,12 +57,14 @@ export type TenantFormResult = {
 };
 
 /** Work in this tenant on this device, and open its project (#project-urls): the one given, else its first. */
-async function enterTenant(tenantId: string, projectId?: string): Promise<never> {
+async function enterTenant(tenantId: string): Promise<never> {
   await setActiveTenantCookie(tenantId);
   revalidatePath("/", "layout");
-  const project = projectId ? await prisma.project.findFirst({ where: { id: projectId, tenantId, archivedAt: null }, select: { slug: true, tenant: { select: { slug: true } } } }) : null;
-  // /home opens the first project of the workspace just made current.
-  redirect(project ? ideasPath(refOf(project)) : "/home");
+  // The Earn workspace opens on Earn's own default page, never the builders' Ideas.
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
+  if (tenant?.slug === EARN_WORKSPACE_SLUG) redirect("/earn/home");
+  // /home opens the first project of the workspace just made current, or its Projects page when it has none.
+  redirect("/home");
 }
 
 /**
@@ -97,19 +100,19 @@ export async function switchTenantForIssueAction(formData: FormData): Promise<vo
   redirect(bug ? issueHref(bug) : "/home");
 }
 
-/** Create a tenant owned by the person, with its first project, and enter it. */
+/** Create a tenant owned by the person and enter it, on its Projects page to create the first project. */
 export async function createTenantAction(
   _previous: TenantFormResult | undefined,
   formData: FormData,
 ): Promise<TenantFormResult> {
   const user = await requireUser();
-  const input = { name: formData.get("name") ?? "", projectName: formData.get("projectName") ?? "" };
+  const input = { name: formData.get("name") ?? "" };
 
   // Typos don't count against the limit; only real attempts do.
   const parsed = createTenantSchema.safeParse(input);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    return fieldError(issue?.path[0] === "projectName" ? "projectName" : "name", issue?.message ?? "Check the name.");
+    return fieldError("name", issue?.message ?? "Check the name.");
   }
   if (!(await consumeRateLimit(`tenant-create:${user.id}`, CREATE_TENANT_RATE_LIMIT)).allowed) {
     return { error: RATE_LIMIT_MESSAGE };
@@ -124,7 +127,7 @@ export async function createTenantAction(
     const error = fieldError(result.field ?? "name", result.error);
     return result.duplicateName ? { ...error, duplicateName: result.duplicateName } : error;
   }
-  return enterTenant(result.tenant.id, result.projectId);
+  return enterTenant(result.tenant.id);
 }
 
 /** Rename a tenant the person owns; the slug stays the same. */

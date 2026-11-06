@@ -26,7 +26,7 @@ const rules = [
   'Read the project’s mistake registry before you start a task.',
   'Give one entry per step. A newer entry from you replaces your old one.',
   'Never judge or review work you hold the claim on.',
-  'Ziki never calls GitHub: you check pull requests and report their state.',
+  'Ziki reads pull requests on GitHub (GET /api/v1/issues/{id}/github); you can still check them and report their state.',
   'Comment only when it helps the people working on the issue.',
 ];
 

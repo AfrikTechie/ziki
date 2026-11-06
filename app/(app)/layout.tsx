@@ -22,11 +22,13 @@ import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { AgentsDock, type DockAgent } from "@/components/agents-dock";
 import { appVersionLabel } from "@/lib/deployed-version";
 import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
-import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
+import { earnState, showEarnWelcome } from "@/lib/earn/state";
+import { EarnPaidCelebration } from "@/components/earn-paid-celebration";
+import { EARN_TASKS } from "@/lib/earn/draft";
 import { EarnWelcomeToast } from "@/components/earn-welcome-toast";
 import { isEarnPath } from "@/lib/earn/paths";
 import { withdrawInfo } from "@/lib/earn/draft";
-import { earnWorkspace } from "@/lib/earn/earner";
+import { earnAgentWhere, earnWorkspace } from "@/lib/earn/earner";
 
 export default async function AppLayout({
   children,
@@ -115,7 +117,12 @@ export default async function AppLayout({
   let memberCount: number | null = null;
   // Earn is a place of its own: on an earn page the agents bar shows the Earn workspace's agents, not the
   // ones in the person's other workspaces.
-  const dockTenantId = isEarnPath(requestPath) ? ((await earnWorkspace().catch(() => null))?.id ?? null) : tenantId;
+  const earnTenantId = (await earnWorkspace().catch(() => null))?.id ?? null;
+  // In the Earn workspace the app is Earn's on every page, not only under /earn: the builders' links stay away
+  // even when the person lands on one of the workspace's ordinary pages.
+  const inEarnWorkspace = earnTenantId !== null && tenantId === earnTenantId;
+  const earnScoped = isEarnPath(requestPath) || inEarnWorkspace;
+  const dockTenantId = earnScoped ? earnTenantId : tenantId;
   if (tenantId) {
     try {
       pendingEscalationsCount = await countPendingEscalations(user.id, tenantId);
@@ -145,9 +152,16 @@ export default async function AppLayout({
     }
   }
 
-  // Earn (#earn-drafts): the balance and Withdraw are for the earn pages only. Everywhere else, Ideas included,
-  // the app looks as it always does, even for someone who is in the Earn workspace.
-  const earnSample = isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
+  // Earn (#earn-drafts): the balance and Withdraw show on the earn pages and anywhere in the Earn workspace. In
+  // the person's other workspaces the app looks as it always does.
+  const earnFull = earnScoped ? await earnState(user.id) : null;
+  const earnSample = earnFull ? earnFull.balance : null;
+  // Paid tasks, for the one-time celebration of each (the browser remembers which it has shown).
+  const paidTasks = earnFull
+    ? EARN_TASKS.filter((task) => earnFull.rows.some((row) => row.taskKey === task.id && row.status === "confirmed")).map((task) => ({ key: task.id, title: task.title, pay: task.pay }))
+    : [];
+  // The earner's own Earn agent, named in the celebration.
+  const earnAgentName = paidTasks.length > 0 ? ((await prisma.agent.findFirst({ where: earnAgentWhere(user.id), orderBy: { createdAt: "asc" }, select: { name: true } }).catch(() => null))?.name ?? "your agent") : "your agent";
   // On the earn pages the agent bar shows what they have earned, the same amount as the header.
   if (earnSample) dockAgents = dockAgents.map((agent) => ({ ...agent, earnedPoints: earnSample.earned }));
 
@@ -183,6 +197,7 @@ export default async function AppLayout({
           reportFormUrl={REPORT_FORM_URL}
           organizationAdmin={tenantId !== null && isOrganizationAdmin(membershipRole, user.role)}
           earned={earnSample ? earnSample.earned : null}
+          inEarnWorkspace={inEarnWorkspace}
           withdraw={earnSample ? withdrawInfo(earnSample.stage, earnSample.earned, earnSample.done) : null}
           version={appVersionLabel()}
           memberCount={memberCount}
@@ -202,7 +217,7 @@ export default async function AppLayout({
       {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it, and draws nothing (no spacer either) where it doesn't help. */}
       <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} memberCount={memberCount} />
       <FocusMainOnNavigate />
-      {welcomeNotice ? <EarnWelcomeToast /> : null}
+      {welcomeNotice ? <EarnWelcomeToast /> : paidTasks.length > 0 ? <EarnPaidCelebration paid={paidTasks} agentName={earnAgentName} /> : null}
       <KeyboardShortcuts
         enabled={shortcutsEnabled}
       />

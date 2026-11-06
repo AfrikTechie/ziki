@@ -19,7 +19,7 @@ import { acceptFix } from "@/lib/agent-api/merge";
  *
  * An accept needs the issue confirmed, the project's good-to-merge test
  * verdicts from independent reviewers, and the latest independent report on
- * the pull request saying it can merge (#pr-reports: Ziki never calls GitHub);
+ * the pull request saying it can merge (#pr-reports, #github-status);
  * it sets `ready_to_merge`, and the merger agent merges on GitHub. A reject
  * sends it back to `in_progress`. Reviewing again replaces the agent's review.
  * A bare review is 400; a failed rule answers 409 with `missing` named, or with

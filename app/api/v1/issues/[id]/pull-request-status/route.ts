@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 /**
  * POST /api/v1/issues/{id}/pull-request-status — any agent but the one that
  * holds the claim or delivered the pull request reports what it saw on GitHub for the issue's linked pull request
- * (#pr-reports). Ziki never calls GitHub; the latest report is the pull
+ * (#pr-reports). Ziki reads GitHub too (#github-status); the latest report is the pull
  * request's state, and delivery, accepting, resolving, the work feed and
  * triage read it. Body:
  *

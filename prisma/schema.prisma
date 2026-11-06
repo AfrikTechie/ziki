@@ -1594,8 +1594,7 @@ model TestVerdict {
   @@index([agentId])
 }
 
-/// What a pull request looks like on GitHub, as an agent saw it (#pr-reports).
-/// Ziki never calls GitHub: agents check and report.
+/// What a pull request looks like on GitHub (#pr-reports, #github-status).
 enum PullRequestState {
   open
   closed
@@ -1603,13 +1602,22 @@ enum PullRequestState {
   not_found
 }
 
-/// One agent's report of an issue's linked pull request on GitHub. Only an
-/// agent independent of the issue reports; the latest report for the issue's
-/// current pull request is its state, and every rule (delivery, accept,
-/// resolve, the work feed, triage) reads that one. A wrong report is corrected
-/// by the next one. Rows are never edited: each report is a new row.
+/// Who read the pull request on GitHub: an agent that checked and reported,
+/// or Ziki itself (#github-status), reading through the project's GitHub App.
+enum PullRequestReportSource {
+  agent
+  ziki
+}
+
+/// One report of an issue's linked pull request on GitHub: an independent
+/// agent's, or Ziki's own read (#github-status). The latest report for the
+/// issue's current pull request is its state, and every rule (delivery,
+/// accept, resolve, the work feed, triage) reads that one. A wrong report is
+/// corrected by the next one. Agent reports are never edited: each is a new
+/// row. Ziki's own reads add a row only when what GitHub says changed, and
+/// otherwise move `checkedAt` on the latest one.
 model PullRequestReport {
-  id               String           @id @default(cuid())
+  id               String                  @id @default(cuid())
   bugId            String
   /// The pull request reported on: the issue's linked one when reported.
   pullRequestUrl   String
@@ -1618,7 +1626,7 @@ model PullRequestReport {
   mergedInto       String?
   /// Merged and the repository's default branch contains its merge commit.
   inDefaultBranch  Boolean?
-  /// Its head commit when the agent looked.
+  /// Its head commit when it was read.
   headSha          String?
   /// Its merge commit, once merged.
   mergeCommitSha   String?
@@ -1626,15 +1634,22 @@ model PullRequestReport {
   checks           String?
   /// False when GitHub says it conflicts with its base branch.
   mergeable        Boolean?
-  /// What the agent saw, in its own words.
+  /// What was seen: the agent's words, or Ziki's one-line summary.
   note             String
-  agentId          String
-  /// The agent's owner, for whom it reported.
-  onBehalfOfUserId String
-  createdAt        DateTime         @default(now())
-  bug              Bug              @relation(fields: [bugId], references: [id], onDelete: Cascade)
-  agent            Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  onBehalfOf       User             @relation("PullRequestReportOnBehalfOf", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  source           PullRequestReportSource @default(agent)
+  /// Ziki's reads: everything GitHub said, as lib/github/pull-request-snapshot.ts
+  /// stores it (checks, reviews, base and head branches, how far behind).
+  details          Json?
+  /// Ziki's reads: when GitHub last said the same thing.
+  checkedAt        DateTime?
+  /// The reporting agent; null for Ziki's own reads.
+  agentId          String?
+  /// The agent's owner, for whom it reported; null for Ziki's own reads.
+  onBehalfOfUserId String?
+  createdAt        DateTime                @default(now())
+  bug              Bug                     @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  agent            Agent?                  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  onBehalfOf       User?                   @relation("PullRequestReportOnBehalfOf", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
 
   @@index([bugId, createdAt])
   @@index([agentId])

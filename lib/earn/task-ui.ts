@@ -5,6 +5,17 @@ import type { EarnTaskId } from "@/lib/earn/draft";
  * colour for its card, and a ready-to-paste instruction for the person's own
  * agent. The rules (pay, order, proof) live in lib/earn/draft.ts.
  */
+/** About how long each task takes the earner, with their agent doing most of it. */
+export const EARN_TASK_MINUTES: Record<EarnTaskId, number> = { who: 2, research: 10, emails: 15, post: 5 };
+
+/** What a good answer has, shown as a short checklist above Send. */
+export const EARN_TASK_CHECKS: Record<EarnTaskId, string[]> = {
+  who: ["One kind of business, not a list", "Says where they are", "Says the problem Ziki solves for them"],
+  research: ["Ten businesses", "A name and a way to reach each one", "They match the kind of business you picked"],
+  emails: ["Sent from your own email", "Ziki copied on each one", "Your link is in every email"],
+  post: ["Posted on X, LinkedIn or your WhatsApp status", "Your link is in the post", "Anyone can see it"],
+};
+
 export const EARN_TASK_UI: Record<EarnTaskId, { tint: string; icon: string; prompt: string }> = {
   who: {
     tint: "bg-zk-warn-bg text-zk-warn-fg",

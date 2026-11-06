@@ -31,7 +31,7 @@ import { moveTo } from "@/lib/issue-substatus";
  * replaces this agent's delivery and returns the issue to Delivered; only
  * judgements on the delivered pull request count.
  *
- * Ziki never calls GitHub (#pr-reports): the delivery records the pull request
+ * Agents report pull requests and Ziki reads them on GitHub (#pr-reports, #github-status): the delivery records the pull request
  * and the head commit the deliverer names. When an independent agent's latest
  * report on that pull request says it is merged, closed or missing, it can't be
  * delivered.
@@ -245,9 +245,10 @@ export async function deliverWork(
   }
 
   // The pull request has to be open: the latest independent report on it says
-  // so, or nobody has reported it yet (#pr-reports). Ziki doesn't ask GitHub.
+  // so, or nobody has reported it yet (#pr-reports, #github-status).
   const report = await latestPullRequestReport(bug.id, body.pullRequestUrl);
-  const reported = report ? ` (reported by ${report.agent.name} at ${report.createdAt.toISOString()}; report again if that changed)` : "";
+  const reporter = report?.agent ? `reported by ${report.agent.name}` : "read on GitHub by Ziki";
+  const reported = report ? ` (${reporter} at ${(report.checkedAt ?? report.createdAt).toISOString()}; report again if that changed)` : "";
   if (report?.state === "merged") {
     return { status: 422, error: "pull_request_merged", message: `That pull request is already merged${reported}. Only an open pull request can be delivered.` };
   }

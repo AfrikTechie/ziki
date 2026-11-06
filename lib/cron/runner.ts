@@ -9,6 +9,7 @@ import { pruneAgentRows, type AgentRetentionCounts } from "@/lib/agent-retention
 import { sweepOrphanedAttachments } from "@/lib/attachment-retention";
 import { sweepOrphanedIssues } from "@/lib/orphaned-issues";
 import { sweepUndraftedIdeas } from "@/lib/cron/draft-structuring";
+import { refreshMergeQueue } from "@/lib/github/sync";
 
 export const FAILURE_ALERT_THRESHOLD = 3;
 const consecutiveFailures = new Map<string, number>();
@@ -56,6 +57,7 @@ export type PlatformSweepsResult = {
       failed?: number;
       error?: string;
     };
+    githubStatus: { status: "ok" | "error"; checked?: number; moved?: number; failed?: number; error?: string };
     deliveries: { status: "ok" | "error"; processed?: number; error?: string };
     retention: {
       status: "ok" | "error";
@@ -95,6 +97,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         claims: { status: "ok" },
         orphanedIssues: { status: "ok" },
         draftStructuring: { status: "ok" },
+        githubStatus: { status: "ok" },
         deliveries: { status: "ok" },
         retention: { status: "ok" },
       },
@@ -170,6 +173,16 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         status: "error",
         error: err instanceof Error ? err.message : String(err),
       };
+    }
+
+    // 3. GitHub status (#github-status): re-read the pull requests waiting to merge.
+    try {
+      const res = await refreshMergeQueue();
+      recordSweepSuccess("githubStatus");
+      result.sweeps.githubStatus = { status: "ok", ...res };
+    } catch (err) {
+      recordSweepFailure("githubStatus", err);
+      result.sweeps.githubStatus = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
     // 4. Webhook Deliveries

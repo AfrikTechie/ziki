@@ -25,7 +25,7 @@ import { abandonTally } from "@/lib/agent-api/abandon";
 import { findIdleInProgress } from "@/lib/agent-api/idle";
 import { findStrandedDeliveries, type StrandedIssue } from "@/lib/agent-api/stranded-delivery";
 import { prGate, reportWanted, type PrGate } from "@/lib/agent-api/pr-gate";
-import { gateReport, latestPullRequestReports, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
+import { gateReport, latestPullRequestReports, reportedAt, reporterName, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
 
 /** Why a hold is stale, in the work item's words (#reclaim). */
@@ -56,7 +56,7 @@ import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/str
  * Items above the agent's class stay in the list with `canAct: false`, so a
  * working agent sees what is waiting for managers and mergers without trying.
  *
- * Ziki never calls GitHub (#pr-reports). What the feed says about a pull
+ * Agents report pull requests and Ziki reads them on GitHub (#pr-reports, #github-status). What the feed says about a pull
  * request comes from the latest report an independent agent filed on it,
  * through the one gate (lib/agent-api/pr-gate.ts) the write routes use, so an
  * item never offers what the route will refuse. A pull request nobody reported,
@@ -1208,7 +1208,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     if (work.facts.get(issue.id)?.deliveryAgentIds.includes(agent.agentId)) continue;
     const number = /\/pull\/(\d+)/.exec(issue.pullRequestUrl)?.[1];
     const last = issue.report
-      ? ` The latest report (${issue.report.state}) is from ${issue.report.agent.name} at ${issue.report.createdAt.toISOString()}.`
+      ? ` The latest report (${issue.report.state}) is from ${reporterName(issue.report)} at ${reportedAt(issue.report).toISOString()}.`
       : "";
     items.push({
       kind: "report_pr_status",
@@ -1629,7 +1629,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "reconcile_merged",
       key: `reconcile_merged:${issue.id}:${issue.pullRequestUrl}:${report.id}`,
       title: `Resolve #${issue.number}: its pull request is merged`,
-      detail: `${report.agent.name} reported ${issue.pullRequestUrl} merged${report.mergedInto ? ` into ${report.mergedInto}` : ""}, and the default branch contains it (${report.createdAt.toISOString()}). Resolve it: the issue goes Live and the points are paid. If the report looks wrong, report what you see instead.`,
+      detail: `${reporterName(report)} reported ${issue.pullRequestUrl} merged${report.mergedInto ? ` into ${report.mergedInto}` : ""}, and the default branch contains it (${reportedAt(report).toISOString()}). Resolve it: the issue goes Live and the points are paid. If the report looks wrong, report what you see instead.`,
       minimumRole: "manager",
       ...roleGate("manager", issue.id),
       issue: issueRef(issue),
@@ -1644,7 +1644,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "await_release",
       key: `await_release:${issue.id}:${issue.pullRequestUrl}:${report.id}`,
       title: `#${issue.number} waits for its release to the default branch`,
-      detail: `${report.agent.name} reported ${issue.pullRequestUrl} merged into ${report.mergedInto ?? "another branch"}, not yet in the default branch (${report.createdAt.toISOString()}). Nothing to accept or resolve until it is released; once the default branch contains it, an independent agent reports it again and a manager resolves it.`,
+      detail: `${reporterName(report)} reported ${issue.pullRequestUrl} merged into ${report.mergedInto ?? "another branch"}, not yet in the default branch (${reportedAt(report).toISOString()}). Nothing to accept or resolve until it is released; once the default branch contains it, an independent agent reports it again and a manager resolves it.`,
       minimumRole: "manager",
       canAct: false,
       blockedReason: issue.gate.reason ?? "Merged into another branch that isn't released yet.",

@@ -279,6 +279,7 @@ export function AppHeader({
   organizationAdmin = false,
   defaultProjectSlug = null,
   earned = null,
+  inEarnWorkspace = false,
   withdraw = null,
   version,
   memberCount = null,
@@ -294,6 +295,8 @@ export function AppHeader({
   withdraw?: WithdrawInfo | null;
   /** Earn (#earn-drafts): an earner's dollars, shown with Withdraw in the header; null for everyone else. */
   earned?: number | null;
+  /** The person is working in the Earn workspace: the header is Earn's on every page there. */
+  inEarnWorkspace?: boolean;
   /** The first project in the current workspace, for pages whose URL names none yet. */
   defaultProjectSlug?: ProjectRef | null;
   userName?: string | null;
@@ -325,8 +328,8 @@ export function AppHeader({
   }
 
   const realRole = realRoleOf({ isRealSuperAdmin, isRealAdmin });
-  // Earn (#earn-drafts): an earner on the earn pages sees only what they came for.
-  const earnQuiet = earned !== null && isEarnPath(pathname);
+  // Earn (#earn-drafts): an earner on the earn pages, or anywhere in the Earn workspace, sees only what they came for.
+  const earnQuiet = earned !== null && (isEarnPath(pathname) || inEarnWorkspace);
 
   return (
     // Sticky only from lg: on phones and tablets the toolbar wraps onto rows,
@@ -336,7 +339,7 @@ export function AppHeader({
         {/* Below lg the nav lives in the bottom strip, leaving one row here.
             The logo (the mark alone) is the way to the Dashboard. */}
         <div className="flex min-w-0 items-center gap-2">
-          <Link href={projectSlug ? ideasPath(projectSlug) : "/home"} aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
+          <Link href={earnQuiet ? "/earn/home" : projectSlug ? ideasPath(projectSlug) : "/home"} aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
             {/* The mark alone; the link's name says Ziki. */}
             <ZikiMark className="h-8 w-auto text-zk-text max-sm:h-7" />
           </Link>

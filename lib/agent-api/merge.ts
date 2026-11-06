@@ -53,7 +53,7 @@ import { moveTo } from "@/lib/issue-substatus";
  * narrated in comments: the review, the activity log, the audit log and the
  * events are the record.
  *
- * Ziki never calls GitHub (#pr-reports). An accept needs the latest
+ * Agents report pull requests and Ziki reads them on GitHub (#pr-reports, #github-status). An accept needs the latest
  * independent report on the linked pull request to say it can merge
  * (lib/agent-api/pr-gate.ts): open, its checks passing (or none), no conflict,
  * at the head Ziki has. The merge itself happens on GitHub, by the merger agent;

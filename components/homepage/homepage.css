@@ -493,6 +493,9 @@
 .ziki-homepage .th-page { min-height: 560px; padding-bottom: 96px; }
 .ziki-homepage .th-page .th-photo img { object-position: 50% 30%; }
 .ziki-homepage .th-page .th-title { font-size: clamp(38px, 4.8vw, 66px); }
+/* /earn: as tall as the other photo headers, with the boat kept whole. */
+.ziki-homepage .th-earn { min-height: 640px; }
+.ziki-homepage .th-earn .th-lede { max-width: 560px; }
 .ziki-homepage .th-kicker { color: rgba(255,255,255,.85); display: block; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 12px; letter-spacing: .08em; margin-bottom: 18px; text-transform: uppercase; }
 
 /* Homepage: three ways in */
@@ -520,6 +523,44 @@
 .ziki-homepage .earn-benefits .lifecycle-card > p { font-size: 15px; line-height: 1.55; }
 .ziki-homepage .earn-steps { padding-bottom: 40px; padding-top: 72px; }
 .ziki-homepage .earn-closing { padding-bottom: 96px; padding-top: 56px; }
+
+/* Home page FAQ (after koyaacademy.com): two columns of questions on hairline rows, each with a small plus that
+   turns into a cross when it opens. No boxes. */
+.ziki-homepage .home-faq { padding-bottom: 48px; padding-top: 80px; }
+.ziki-homepage .home-faq .section-heading { margin-bottom: 40px; }
+.ziki-homepage .home-faq-list { align-items: start; column-gap: 48px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 auto; max-width: 1040px; }
+.ziki-homepage .home-faq-col { display: flex; flex-direction: column; }
+.ziki-homepage .home-faq-item { border-top: 1px solid var(--line); }
+.ziki-homepage .home-faq-item:last-child { border-bottom: 1px solid var(--line); }
+.ziki-homepage .home-faq-item summary { align-items: center; cursor: pointer; display: flex; font-size: 16px; font-weight: 500; gap: 16px; justify-content: space-between; letter-spacing: -.01em; list-style: none; padding: 20px 0; transition: color .2s ease; }
+.ziki-homepage .home-faq-item summary:hover { color: var(--green); }
+.ziki-homepage .home-faq-item summary::-webkit-details-marker { display: none; }
+.ziki-homepage .home-faq-item summary:focus-visible { border-radius: 6px; outline: 3px solid #3978f6; outline-offset: 2px; }
+.ziki-homepage .home-faq-plus { flex-shrink: 0; height: 12px; position: relative; transition: transform .25s cubic-bezier(0.16, 1, 0.3, 1); width: 12px; }
+.ziki-homepage .home-faq-plus::before, .ziki-homepage .home-faq-plus::after { background: currentColor; border-radius: 1px; content: ""; height: 1.5px; left: 0; opacity: .7; position: absolute; top: 5px; width: 12px; }
+.ziki-homepage .home-faq-plus::after { transform: rotate(90deg); }
+.ziki-homepage .home-faq-item[open] .home-faq-plus { transform: rotate(45deg); }
+.ziki-homepage .home-faq-item p { color: var(--muted); font-size: 15px; line-height: 1.65; margin: 0; padding: 0 28px 22px 0; }
+@media (max-width: 760px) {
+  .ziki-homepage .home-faq-list { grid-template-columns: 1fr; }
+  .ziki-homepage .home-faq-col:first-child .home-faq-item:last-child { border-bottom: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .ziki-homepage .home-faq-plus { transition: none; } }
+
+/* /earn: the headline's last word cycles, each one sliding up into place. */
+.ziki-homepage .earn-word-slot { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: .08em; }
+.ziki-homepage .earn-word { display: inline-block; animation: earn-word-in .55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes earn-word-in { from { opacity: 0; transform: translateY(60%); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+
+/* /earn: sections rise in as they scroll into view, where the browser supports scroll-driven animation. */
+@supports (animation-timeline: view()) {
+  .ziki-homepage .earn-reveal { animation: earn-reveal linear both; animation-range: entry 0% cover 28%; animation-timeline: view(); }
+  @keyframes earn-reveal { from { opacity: 0; transform: translateY(36px); } to { opacity: 1; transform: none; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ziki-homepage .earn-word, .ziki-homepage .earn-reveal { animation: none; }
+}
+
 .ziki-homepage .path-card { display: flex; flex-direction: column; padding: 26px 24px 24px; }
 .ziki-homepage .path-card .lifecycle-icon { margin: 0 0 18px; }
 .ziki-homepage .path-kicker { color: var(--green); font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }

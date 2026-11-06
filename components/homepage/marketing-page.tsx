@@ -9,16 +9,18 @@ type MarketingPageProps = {
   title: React.ReactNode;
   lede: React.ReactNode;
   actions?: React.ReactNode;
+  /** An extra class on the photo header, for a page that needs it taller or cropped differently. */
+  heroClassName?: string;
   children: React.ReactNode;
 };
 
 /** A public page under the photo header: How it works, For AI agents, For developers. */
-export function MarketingPage({ signedIn, kicker, title, lede, actions, children }: MarketingPageProps) {
+export function MarketingPage({ signedIn, kicker, title, lede, actions, heroClassName, children }: MarketingPageProps) {
   return (
     <>
       <main className="ziki-homepage" id="top">
         <a className="skip-link" href="#main-content">Skip to content</a>
-        <section className="top-hero th-page" id="main-content" tabIndex={-1}>
+        <section className={`top-hero th-page${heroClassName ? ` ${heroClassName}` : ''}`} id="main-content" tabIndex={-1}>
           <div className="th-photo" aria-hidden="true">
             <Image src="/homepage/hero-sea.webp" alt="" fill priority sizes="100vw" />
           </div>
