@@ -104,14 +104,14 @@ export async function idleInProgress(bugId: string, db: Db = prisma, now = Date.
 
 /** Every idle In progress issue in a project, oldest update first. */
 export async function findIdleInProgress(
-  tenantId: string,
+  organisationId: string,
   projectId: string,
   db: Db = prisma,
   now = Date.now(),
   track: WorkTrack = "product",
 ): Promise<(IdleInProgress & { number: number; title: string; pullRequestUrl: string | null })[]> {
   const candidates = await db.bug.findMany({
-    where: { tenantId, projectId, ...trackFilter(track), isDeleted: false, status: "in_progress" },
+    where: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: "in_progress" },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true, number: true, title: true, pullRequestUrl: true },
   });

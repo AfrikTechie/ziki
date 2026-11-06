@@ -13,7 +13,7 @@ export { agentBudgetHeaders, withAgentBudgetHeaders, type AgentBudgetQuota } fro
  *
  * Each agent has sliding windows in the shared rate-limit store
  * (`RateLimitHit`, #296): `agent:{id}:write` and `agent:{id}:read`, so reads
- * never use up the write budget. A tenant admin can turn on `Agent.burst` for
+ * never use up the write budget. A organisation admin can turn on `Agent.burst` for
  * an agent that reads a lot.
  *
  * Writes have no hourly cap (#699). Permissions, independence and workflow

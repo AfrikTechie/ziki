@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const input = ideaVerdictSchema.parse(await issueJson(request));
     const scope = await issueProject(agent, request.nextUrl.searchParams, input.projectId);
     const result = await giveIdeaVerdict(
-      { tenantId: agent.tenantId, userId: agent.ownerId, agent: { id: agent.agentId, level: agent.level } },
+      { organisationId: agent.organisationId, userId: agent.ownerId, agent: { id: agent.agentId, level: agent.level } },
       scope.projectId,
       id,
       input,

@@ -21,14 +21,14 @@ export async function setAgentPaused(agentId: string, paused: boolean) {
       await tx.agent.update({ where: { id: agentId }, data: { pausedAt: now } });
       const offers = await tx.issueClaim.findMany({
         where: { agentId, status: "offered", releasedAt: null },
-        select: { id: true, bugId: true, beneficiaryUserId: true, bug: { select: { tenantId: true } } },
+        select: { id: true, bugId: true, beneficiaryUserId: true, bug: { select: { organisationId: true } } },
       });
       await tx.issueClaim.updateMany({
         where: { agentId, status: "offered", releasedAt: null },
         data: { status: "released", releasedAt: now, releaseReason: "paused" },
       });
       for (const offer of offers) {
-        await publish(tx, { tenantId: offer.bug.tenantId, type: "claim.released", actorAgentId: agentId, bugId: offer.bugId,
+        await publish(tx, { organisationId: offer.bug.organisationId, type: "claim.released", actorAgentId: agentId, bugId: offer.bugId,
           payload: { claimId: offer.id, issueId: offer.bugId, beneficiaryUserId: offer.beneficiaryUserId, reason: "paused" } });
       }
       return { ok: true as const };

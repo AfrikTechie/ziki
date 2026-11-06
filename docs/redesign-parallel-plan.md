@@ -27,7 +27,7 @@ Build, in this order:
    - Sidebar (~248px): logo, collapse, project switcher, nav **Overview**, **Issues** (live count), **Team**. Active item is the `#2E6FEF` pill. Agents is not in the sidebar. Team links to the existing `/settings/team` ( `/team` already redirects there). Collapse must work; at phone width the shell stacks to one column.
    - Top bar: points pill, Escalation button (red tint, existing pending count), Agents menu, theme toggle, notifications bell with unread badge, avatar menu.
    - Agents menu: the user’s agents, **Create agent**, **Manage agents**. Wire these to existing URLs only (`/settings/agents`, and the create flow that already lives there).
-   - Avatar menu: name, role, points, Theme (System / Light / Dark), Switch workspace, Leaderboard, Settings, Docs and `/llms.txt`, Sign out. **Also keep** the role switcher and admin links that exist today. They are real features the mockup omitted.
+   - Avatar menu: name, role, points, Theme (System / Light / Dark), Switch organisation, Leaderboard, Settings, Docs and `/llms.txt`, Sign out. **Also keep** the role switcher and admin links that exist today. They are real features the mockup omitted.
    - Remove the floating Report issue button from `app/(app)/layout.tsx` and `app/(auth)/layout.tsx`. If `REPORT_FORM_URL` is set, keep that link inside the avatar menu so the capability is not deleted.
    - Remove the in-page `DashboardSidebar` from `app/(app)/dashboard/page.tsx` and `app/(app)/issues/(list)/page.tsx` so those pages do not render a second sidebar. Leave their page bodies otherwise untouched for the lane agents.
 4. Export stable presentational pieces from `components/shell/` and stop. Suggested exports: `PageHeading` (title, optional description, actions slot for **New issue**), `SurfaceCard`, `PillButton` styles. Screen agents use these. They do not edit them.
@@ -38,7 +38,7 @@ Build, in this order:
 - `app/globals.css`, `app/theme-brand.css`, `app/theme-dark.css`, `app/layout.tsx`
 - `app/(app)/layout.tsx`, `app/(auth)/layout.tsx`
 - `components/app-header.tsx`, `components/dashboard-sidebar.tsx`, `components/shell/**`
-- `components/theme-toggle.tsx`, `components/workspace-switcher.tsx`, `components/brand-lockup.tsx`, `components/project-switcher.tsx`
+- `components/theme-toggle.tsx`, `components/organisation-switcher.tsx`, `components/brand-lockup.tsx`, `components/project-switcher.tsx`
 - `components/page-container.ts`, `lib/header-nav.ts`
 - `components/ui/button.tsx`, `input.tsx`, `badge.tsx`, `select.tsx`, `textarea.tsx`
 - `design-handoff/**`
@@ -110,7 +110,7 @@ No mockup. Do not invent a new layout. Apply `PageHeading`, surface cards, pills
 | Lane | Owns |
 | --- | --- |
 | Work queues | `app/(app)/escalations/**`, `app/(app)/questions/**`, `app/(app)/redesigns/**`, `app/(app)/notifications/**`, `app/(app)/docs/**`, `app/(app)/feed/**`, `app/(app)/jobs/**`, `components/escalation-controls.tsx`, `components/goal-budgets.tsx`, `components/mark-all-read-button.tsx` |
-| Workspace admin | `app/(app)/projects/**`, `app/(app)/milestones/**`, `app/(app)/admin/**`, `app/(app)/points/**`, `app/(app)/tenants/**`, `app/(app)/users/**`, `components/milestone-manager.tsx`, `components/milestone-progress.tsx`, `components/milestone-due.tsx`, `components/points-ledger.tsx`, `components/points-summary.tsx`, `components/project-reward-rules-display.tsx`, `components/project-reward-rules-section.tsx` |
+| Organisation admin | `app/(app)/projects/**`, `app/(app)/milestones/**`, `app/(app)/admin/**`, `app/(app)/points/**`, `app/(app)/organisations/**`, `app/(app)/users/**`, `components/milestone-manager.tsx`, `components/milestone-progress.tsx`, `components/milestone-due.tsx`, `components/points-ledger.tsx`, `components/points-summary.tsx`, `components/project-reward-rules-display.tsx`, `components/project-reward-rules-section.tsx` |
 
 `app/(app)/team/page.tsx` is a redirect. Leave it.
 

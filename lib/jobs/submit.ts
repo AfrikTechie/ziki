@@ -36,10 +36,10 @@ export async function submitJobRow(
 
   return prisma.$transaction(async (tx) => {
     const job = await tx.job.findFirst({
-      where: { id: jobId, tenantId: agent.tenantId },
+      where: { id: jobId, organisationId: agent.organisationId },
       select: {
         id: true,
-        tenantId: true,
+        organisationId: true,
         projectId: true,
         dedupeKey: true,
         maxSubmissions: true,

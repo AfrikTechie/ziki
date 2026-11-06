@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { answerSchema, answerAgentQuestion } from "@/lib/agent-questions";
 import { IssueApiError } from "@/lib/agent-api/errors";
 
@@ -17,8 +17,8 @@ export async function answerQuestionAction(
   formData: FormData,
 ): Promise<AnswerActionResult> {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { ok: false, error: "Workspace membership required." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { ok: false, error: "Organisation membership required." };
 
   const questionId = formData.get("questionId");
   if (typeof questionId !== "string" || !questionId) return { ok: false, error: "Invalid question." };
@@ -27,7 +27,7 @@ export async function answerQuestionAction(
   if (!parsed.success) return { ok: false, error: "Write an answer before sending it." };
 
   try {
-    await answerAgentQuestion(user.id, tenantId, questionId, parsed.data.answer);
+    await answerAgentQuestion(user.id, organisationId, questionId, parsed.data.answer);
   } catch (error) {
     if (error instanceof IssueApiError) return { ok: false, error: error.message };
     throw error;

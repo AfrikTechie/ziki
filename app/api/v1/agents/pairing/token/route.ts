@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     case "issued": {
       // The key is shown only in this response, so the work URL is a best effort and never fails it.
       const project = result.projectId
-        ? await prisma.project.findUnique({ where: { id: result.projectId }, select: { slug: true, tenant: { select: { slug: true } } } }).catch(() => null)
+        ? await prisma.project.findUnique({ where: { id: result.projectId }, select: { slug: true, organisation: { select: { slug: true } } } }).catch(() => null)
         : null;
       return NextResponse.json(
         {

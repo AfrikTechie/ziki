@@ -32,7 +32,7 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { yourWorkWhere } from "@/lib/my-work-filter";
 import { whatsNext } from "@/lib/whats-next";
 
-const agent = { agentId: "agent-1", name: "Ada's Claude", ownerId: "ada", tenantId: "t1", level: "working", burst: false, keyId: "k1" } as AgentContext;
+const agent = { agentId: "agent-1", name: "Ada's Claude", ownerId: "ada", organisationId: "t1", level: "working", burst: false, keyId: "k1" } as AgentContext;
 const offered = (overrides: Record<string, unknown> = {}) => ({
   id: "claim-1",
   bugId: "bug-1",
@@ -43,7 +43,7 @@ const offered = (overrides: Record<string, unknown> = {}) => ({
   releasedAt: null,
   releaseReason: null,
   beneficiary: { name: "Ada" },
-  bug: { id: "bug-1", title: "Bug 1", substatus: "open", assigneeId: null, tenantId: "t1", projectId: "p1", areaId: null, voteCount: 0, assignee: null },
+  bug: { id: "bug-1", title: "Bug 1", substatus: "open", assigneeId: null, organisationId: "t1", projectId: "p1", areaId: null, voteCount: 0, assignee: null },
   ...overrides,
 });
 
@@ -81,9 +81,9 @@ describe("accepting an offer", () => {
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "claim.accepted" }));
   });
 
-  it("is only for the agent it was offered to, and not from another tenant", async () => {
+  it("is only for the agent it was offered to, and not from another organisation", async () => {
     await expect(acceptOffer({ ...agent, agentId: "agent-2" }, "claim-1")).rejects.toMatchObject({ status: 409 });
-    await expect(acceptOffer({ ...agent, tenantId: "t2" }, "claim-1")).rejects.toMatchObject({ status: 404 });
+    await expect(acceptOffer({ ...agent, organisationId: "t2" }, "claim-1")).rejects.toMatchObject({ status: 404 });
     expect(db.bug.update).not.toHaveBeenCalled();
   });
 

@@ -11,7 +11,7 @@ export default async function EditKeyPage({ params }: { params: Promise<{ userna
   const { username } = await params;
   const { found, agent, revoked, isOwner } = await loadEditContext(username);
   if (!isOwner) notFound();
-  const key = revoked ? null : await loadOwnerKey(found.id, found.tenantId);
+  const key = revoked ? null : await loadOwnerKey(found.id, found.organisationId);
   return (
     <EditSection title="Key" description="Your agent uses its key to work on Ziki. Get a new one if the old one was shared or lost; the old key stops working.">
       {key ? (

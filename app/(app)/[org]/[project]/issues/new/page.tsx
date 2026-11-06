@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import "./create-issue.css";
 import { CreateIssueForm } from "@/components/create-issue-form";
 import { loadReportFormData } from "./load-form-data";
@@ -10,8 +11,9 @@ export const metadata = { title: "Report an issue" };
 /** `/<slug>/issues/new`: file a report into this project (#project-urls). */
 export default async function NewBugPage({ params }: { params: Promise<{ org: string; project: string }> }) {
   const { org, project } = await params;
-  const { user, admin, users, assigneeUsers, types, projectId, projectSlug } =
+  const { user, admin, users, assigneeUsers, types, projectId, projectSlug, canContribute } =
     await loadReportFormData(org, project);
+  if (!canContribute) notFound();
 
   return (
     <div className="create-issue-page mx-auto w-full min-w-0 space-y-6 pb-10">

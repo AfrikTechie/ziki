@@ -36,7 +36,7 @@ export async function findReviewableIssues(
   if (reviewType === "test") {
     const testCandidates = await prisma.bug.findMany({
       where: {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         projectId,
         ...trackFilter(track),
         isDeleted: false,

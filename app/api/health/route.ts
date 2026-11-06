@@ -12,7 +12,7 @@ import {
   ACTIVE_ROLE_COOKIE_NAME,
 } from "@/lib/roles";
 import { isSuperAdminEmail } from "@/lib/super-admin";
-import { defaultTenantProject } from "@/lib/tenant";
+import { defaultOrganisationProject } from "@/lib/organisation";
 import { moveTo } from "@/lib/issue-substatus";
 
 export const dynamic = "force-dynamic";
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
 
         const bug = await tx.bug.create({
           data: {
-            ...(await defaultTenantProject(tx)),
+            ...(await defaultOrganisationProject(tx)),
             beneficiaryUserId: user.id,
             title: `Health Check Bug ${testId}`,
             description:

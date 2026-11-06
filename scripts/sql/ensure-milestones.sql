@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS "Milestone" (
     CONSTRAINT "Milestone_pkey" PRIMARY KEY ("id")
 );
 
--- Before #516, milestone titles were globally unique. Once Milestone.tenantId
--- exists, the migration owns the tenant-scoped index; creating the old global
--- one here would make two organizations unable to reuse a title.
+-- Before #516, milestone titles were globally unique. Once Milestone.organisationId
+-- exists, the migration owns the organisation-scoped index; creating the old global
+-- one here would make two organisations unable to reuse a title.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -25,7 +25,7 @@ BEGIN
     FROM information_schema.columns
     WHERE table_schema = current_schema()
       AND table_name = 'Milestone'
-      AND column_name = 'tenantId'
+      AND column_name = 'organisationId'
   ) THEN
     EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS "Milestone_title_key" ON "Milestone"("title")';
   END IF;

@@ -1,3 +1,4 @@
+import { requireProject } from "@/lib/project-route";
 import Link from "next/link";
 import { ideaPath, issuesPath, projectRef, refOf } from "@/lib/project-paths";
 import { MarketingAreaMarker } from "@/components/marketing/marketing-area";
@@ -10,7 +11,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { agentMentionId } from "@/lib/mentions";
 import { requireUser } from "@/lib/auth-helpers";
-import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
+import { bugInOrganisation, currentOrganisationIdFor } from "@/lib/organisation-context";
 import { issueHref, issuePath, queryString } from "@/lib/issue-ref";
 import { findProjectIssue, parseIssueNumber } from "@/lib/project-issue";
 import { resolveSessionUserId } from "@/lib/session-user";
@@ -73,8 +74,8 @@ import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations, takesConfirmations }
 import { DisputeAwardDialog, type DisputeRole } from "@/components/dispute-award-dialog";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
 import { ChooseRedesignButton } from "@/components/choose-redesign-button";
-import { isTenantAdminRole } from "@/lib/agents/membership";
-import type { OrganizationRole } from "@/lib/organization-role";
+import { isOrganisationAdminRole } from "@/lib/agents/membership";
+import type { OrganisationRole } from "@/lib/organisation-role";
 import { AgentChip, UserNameWithBadges } from "@/components/user-name-with-badges";
 import { fetchVoterSummary } from "@/lib/voter-summaries";
 import { createEmptyVoterSummary } from "@/lib/voters";
@@ -83,7 +84,7 @@ import {
   deletedSummary,
   deletionCounts,
 } from "@/lib/ticket-deletion";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { organisationAccessFor } from "@/lib/organisation-access";
 import { MilestoneDue } from "@/components/milestone-due";
 import { LoadError } from "@/components/load-error";
 import { logLoadFailure } from "@/lib/load-error";
@@ -120,9 +121,9 @@ import { closedLabel, closeReasonLabel, ownsIssue } from "@/lib/close-reasons";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly } from "@/lib/governance";
 import { mergeReviewVotes } from "@/lib/agent-api/merge-review-tally";
-import { issueTenantHintFor } from "@/lib/issue-tenant-hint";
-import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
-import { tenantMemberWhere } from "@/lib/tenant-mentions";
+import { issueOrganisationHintFor } from "@/lib/issue-organisation-hint";
+import { IssueOrganisationSwitch } from "@/components/issue-organisation-hint";
+import { organisationMemberWhere } from "@/lib/organisation-mentions";
 import { readAgentResolution } from "@/lib/agent-resolution";
 import { AgentResolvedNotice } from "@/components/agent-resolved-notice";
 import { SubmissionEvidence } from "@/components/submission-evidence";
@@ -204,7 +205,7 @@ export async function generateMetadata({
       status: true,
       updatedAt: true,
       isDeleted: true,
-      project: { select: { slug: true, tenant: { select: { slug: true } } } },
+      project: { select: { slug: true, organisation: { select: { slug: true } } } },
     },
   }) : null;
 
@@ -307,21 +308,22 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     );
   }
 
-  const user = await requireUser();
-  const access = await currentTenantAccess(user.id, user.role);
-  const canTriage = access.admin;
-  const canDelete = canDeleteTicket(user.role, access.membershipRole);
+  const projectContext = await requireProject(org, projectSlug);
+  const { user, organisationId, isOrgMember, isOrgAdmin, canContribute } = projectContext;
+  const access = await organisationAccessFor(user.id, organisationId, user.role);
+  const canTriage = isOrgAdmin;
+  const canDelete = isOrgAdmin || (isOrgMember && canDeleteTicket(user.role, access.membershipRole));
   if (!lookup) notFound();
   if (lookup.kind === "elsewhere") {
-    // A link into another of the viewer's tenants should not dead-end (#519):
-    // name the tenant and offer the switch. Non-members still get the 404.
-    const hint = await issueTenantHintFor(prisma, {
+    // A link into another of the viewer's organisations should not dead-end (#519):
+    // name the organisation and offer the switch. Non-members still get the 404.
+    const hint = await issueOrganisationHintFor(prisma, {
       userId,
-      activeTenantId: await currentTenantIdFor(userId),
+      activeOrganisationId: await currentOrganisationIdFor(userId),
       issueId: lookup.issueId,
     });
     if (!hint) notFound();
-    return <IssueTenantSwitch issueId={lookup.issueId} tenant={hint} />;
+    return <IssueOrganisationSwitch issueId={lookup.issueId} organisation={hint} />;
   }
   if (lookup.kind === "moved") {
     // #project-urls: the number lives in another project of this organisation.
@@ -339,7 +341,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   // missing used to reject this whole Promise and blank the page.
   let loadedBug = await prisma.bug
     .findUnique({
-      where: { id, ...bugInTenant(await currentTenantIdFor(userId)) },
+      where: { id, organisationId },
       include: {
         type: { select: { id: true, name: true, isActive: true } },
         reporter: { select: { name: true, email: true, role: true, image: true } },
@@ -349,13 +351,13 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         milestone: { select: { id: true, title: true, dueDate: true, isClosed: true } },
         assignee: { select: { id: true, name: true, role: true, image: true } },
         area: { select: { id: true, name: true } },
-        project: { select: { slug: true, name: true, goal: true, siteUrl: true, tenant: { select: { slug: true } } } },
+        project: { select: { slug: true, name: true, goal: true, siteUrl: true, organisation: { select: { slug: true } } } },
         votes: { where: { userId }, select: { id: true, value: true }, take: 1 },
         // #285: both sides of a duplicate link.
-        duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+        duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
         duplicates: {
           where: { isDeleted: false },
-          select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+          select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
           orderBy: { number: "asc" },
           take: 20,
         },
@@ -375,7 +377,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   if ("detail" in loadedBug && /milestoneId|Milestone/i.test(loadedBug.detail)) {
     loadedBug = await prisma.bug
       .findUnique({
-        where: { id, ...bugInTenant(await currentTenantIdFor(userId)) },
+        where: { id, organisationId },
         include: {
           type: { select: { id: true, name: true, isActive: true } },
           reporter: { select: { name: true, email: true, role: true, image: true } },
@@ -384,12 +386,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           idea: { select: { id: true, number: true, rationale: true, convertedAt: true, _count: { select: { verdicts: true } } } },
           assignee: { select: { id: true, name: true, role: true, image: true } },
           area: { select: { id: true, name: true } },
-          project: { select: { slug: true, name: true, goal: true, siteUrl: true, tenant: { select: { slug: true } } } },
+          project: { select: { slug: true, name: true, goal: true, siteUrl: true, organisation: { select: { slug: true } } } },
           votes: { where: { userId }, select: { id: true, value: true }, take: 1 },
-          duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+          duplicateOf: { select: { id: true, number: true, title: true, status: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
           duplicates: {
             where: { isDeleted: false },
-            select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+            select: { id: true, number: true, title: true, status: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
             orderBy: { number: "asc" },
             take: 20,
           },
@@ -420,21 +422,20 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     notFound();
   }
 
-  const tenantId = await currentTenantIdFor(userId);
   // These tables arrived after the issue row. A missing one must not blank the page.
-  const [redesignProposals, membership] = tenantId ? await Promise.all([
+  const [redesignProposals, membership] = organisationId ? await Promise.all([
     loadOptional("redesigns", [], () =>
       prisma.redesignProposal.findMany({
-        where: { tenantId, bugId: bug.id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        where: { organisationId, bugId: bug.id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { id: true, title: true, body: true, previewUrl: true, status: true,
           authorAgent: { select: { name: true } }, attachments: { select: { id: true, filename: true, contentType: true } } },
       }),
     ),
     loadOptional("membership", null, () =>
-      prisma.membership.findUnique({ where: { tenantId_userId: { tenantId, userId } }, select: { role: true } }),
+      prisma.membership.findUnique({ where: { organisationId_userId: { organisationId, userId } }, select: { role: true } }),
     ),
   ]) : [[], null] as const;
-  const canChooseRedesign = isTenantAdminRole(membership?.role, user.role);
+  const canChooseRedesign = isOrganisationAdminRole(membership?.role, user.role);
   // Once an issue is past Requires confirmation, the Conversation opens on who
   // has it (its claims), then every bid it took (#issue-bids).
   const pastConfirmation = bug.substatus !== "requires_confirmation";
@@ -444,7 +445,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
     loadOptional<BidEntryView[]>("bids", [], async () => {
       const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
-      return bug.status === "open" ? markAtCapacity({ tenantId: bug.tenantId, projectId: bug.projectId }, entries) : entries;
+      return bug.status === "open" ? markAtCapacity({ organisationId: bug.organisationId, projectId: bug.projectId }, entries) : entries;
     }),
     // Every offer or claim, newest first: the timeline's Award step (#issue-timeline) is the
     // newest, held or since released; the Activity panel lists each award and release.
@@ -482,9 +483,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     await Promise.all([
       canTriage
         ? loadOptional("users", [], () =>
-            // #502: only the issue's tenant can be mentioned or assigned.
+            // #502: only the issue's organisation can be mentioned or assigned.
             prisma.user.findMany({
-              where: tenantMemberWhere(bug.tenantId),
+              where: organisationMemberWhere(bug.organisationId),
               orderBy: { name: "asc" },
               select: { id: true, name: true, role: true, image: true },
             }),
@@ -707,13 +708,13 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         },
       ),
       loadOptional<TicketEscalation[]>("escalations", [], () =>
-        tenantId ? listBugEscalations(id, tenantId) : Promise.resolve([]),
+        organisationId ? listBugEscalations(id, organisationId) : Promise.resolve([]),
       ),
     ]);
   // Anyone who owns an agent in the organisation can award, through it, an open bid whose votes reached the threshold (#award-bids).
   const canAwardBids =
     (bug.substatus === "open" || bug.substatus === "requires_confirmation") && !bug.isDeleted
-      ? await loadOptional("award permission", false, async () => Boolean(await awardingAgentOf(user.id, bug.tenantId)))
+      ? await loadOptional("award permission", false, async () => Boolean(await awardingAgentOf(user.id, bug.organisationId)))
       : false;
   // One-click bid: while the issue takes bids, nobody is working on it, and you have no open bid on it,
   // the Bids step shows a Bid button with your agents to choose from.
@@ -726,18 +727,18 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           ]);
           if (workedOn > 0 || myOpenBid > 0) return [];
           return prisma.agent.findMany({
-            where: { tenantId: bug.tenantId, ownerUserId: user.id, revokedAt: null },
+            where: { organisationId: bug.organisationId, ownerUserId: user.id, revokedAt: null },
             orderBy: { name: "asc" },
             select: { id: true, name: true },
           });
         })
       : [];
-  // #603: the tenant's active agents, offered in the comment @mention list
+  // #603: the organisation's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
   const mentionAgents = canTriage
     ? await loadOptional("mention agents", [], () =>
         prisma.agent.findMany({
-          where: { tenantId: bug.tenantId, revokedAt: null },
+          where: { organisationId: bug.organisationId, revokedAt: null },
           orderBy: { name: "asc" },
           select: { id: true, name: true, owner: { select: { name: true } } },
         }),
@@ -766,7 +767,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   ]);
   const confirmationsData = await loadOptional<(ConfirmationsData & { confirmed?: boolean }) | null>("confirmations", null, () =>
     // #confirmation-files: other confirmers' files show once the viewer has confirmed (admins always).
-    listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id, { userId: user.id, admin: canChooseRedesign }),
+    listConfirmations({ organisationId: bug.organisationId, projectId: bug.projectId }, bug.id, { userId: user.id, admin: canChooseRedesign }),
   );
   // #issue-confirmations: at Requires confirmation the issue takes confirmation
   // entries, and so does one whose work started before it was confirmed, until
@@ -883,7 +884,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     const [githubStatus, myAgents, latestReport] = await Promise.all([
       loadOptional("GitHub status", null, () => storedGitHubStatus({ id: bug.id, pullRequestUrl })),
       loadOptional("agent levels", [] as { level: "working" | "manager" | "merger" }[], () =>
-        prisma.agent.findMany({ where: { tenantId: bug.tenantId, ownerUserId: user.id, revokedAt: null }, select: { level: true } }),
+        prisma.agent.findMany({ where: { organisationId: bug.organisationId, ownerUserId: user.id, revokedAt: null }, select: { level: true } }),
       ),
       loadOptional("latest pull request report", null, () =>
         prisma.pullRequestReport.findFirst({
@@ -914,11 +915,11 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   }
 
   // Comments on the issue itself, at every stage (lib/comment-placement.ts).
-  const takesComments = !bug.isDeleted;
+  const takesComments = !bug.isDeleted && canContribute;
   // Looked up here, not on `hold`: holder is also what agents read through the API.
   const workingAgent = hold?.status === "active"
     ? await loadOptional("working agent", null, () => prisma.agent.findFirst({
-        where: { tenantId: bug.tenantId, claims: { some: { bugId: bug.id, status: "active", releasedAt: null } } },
+        where: { organisationId: bug.organisationId, claims: { some: { bugId: bug.id, status: "active", releasedAt: null } } },
         select: { id: true, ownerUserId: true, revokedAt: true, pausedAt: true },
       }))
     : null;
@@ -934,7 +935,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     : [];
   const commentCount = comments.shownThreads + comments.hiddenThreads;
   // #489: the Admin label follows each person's role in this issue's
-  // organization, not their account-wide role, the same rule as admin powers.
+  // organisation, not their account-wide role, the same rule as admin powers.
   const namedUserIds = [
     ...new Set(
       [bug.reporterId, bug.assigneeId, ...comments.comments.map((c) => c.authorId)].filter(
@@ -942,17 +943,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       ),
     ),
   ];
-  const organizationRoleRows = await loadOptional<{ userId: string; role: OrganizationRole }[]>(
-    "organization roles",
+  const organisationRoleRows = await loadOptional<{ userId: string; role: OrganisationRole }[]>(
+    "organisation roles",
     [],
     () =>
       prisma.membership.findMany({
-        where: { tenantId: bug.tenantId, userId: { in: namedUserIds } },
+        where: { organisationId: bug.organisationId, userId: { in: namedUserIds } },
         select: { userId: true, role: true },
       }),
   );
-  const organizationRoles: Record<string, OrganizationRole> = Object.fromEntries(
-    organizationRoleRows.map((row) => [row.userId, row.role]),
+  const organisationRoles: Record<string, OrganisationRole> = Object.fromEntries(
+    organisationRoleRows.map((row) => [row.userId, row.role]),
   );
   const pageQuery = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -1396,12 +1397,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 reporterId={bug.reporterId}
                 comments={commentTree}
                 attachmentsByComment={attachmentsByComment}
-                organizationRoles={organizationRoles}
+                organisationRoles={organisationRoles}
                 users={commentMentionUsers}
                 currentUserId={user.id}
                 currentUserRole={user.role}
-                tenantAdmin={access.admin}
-                readOnly={bug.isDeleted}
+                organisationAdmin={access.admin}
+                readOnly={bug.isDeleted || !canContribute}
                 markedImportantBy={importanceMarkers}
               >
                 {comments.hiddenThreads > 0 ? (
@@ -1444,7 +1445,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             likeVoters={voterSummary.likes.voters}
             size="md"
             showAvatars={false}
-            readOnly={bug.isDeleted}
+            readOnly={bug.isDeleted || !canContribute}
           />
         }
         actionsMenuSlot={
@@ -1614,7 +1615,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     <UserNameWithBadges
                       name={assignee.name}
                       role={assignee.role}
-                      organizationRole={organizationRoles[assignee.id] ?? null}
+                      organisationRole={organisationRoles[assignee.id] ?? null}
                       image={assignee.image}
                       avatar="sm"
                       className="min-w-0 !flex-nowrap text-xs"
@@ -1813,7 +1814,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               likeVoters={voterSummary.likes.voters}
               size="md"
               showAvatars={false}
-              readOnly={bug.isDeleted}
+              readOnly={bug.isDeleted || !canContribute}
             />
             {canMarkDuplicate || canDeleteHere ? (
               <IssueActionsMenu>
@@ -1991,12 +1992,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     reporterId={bug.reporterId}
                     comments={commentTree}
                     attachmentsByComment={attachmentsByComment}
-                    organizationRoles={organizationRoles}
+                    organisationRoles={organisationRoles}
                     users={commentMentionUsers}
                     currentUserId={user.id}
                     currentUserRole={user.role}
-                    tenantAdmin={access.admin}
-                    readOnly={bug.isDeleted}
+                    organisationAdmin={access.admin}
+                    readOnly={bug.isDeleted || !canContribute}
                     markedImportantBy={importanceMarkers}
                   >
                     {comments.hiddenThreads > 0 ? (
@@ -2125,7 +2126,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   <UserNameWithBadges
                     name={assignee.name}
                     role={assignee.role}
-                    organizationRole={organizationRoles[assignee.id] ?? null}
+                    organisationRole={organisationRoles[assignee.id] ?? null}
                     image={assignee.image}
                     avatar="sm"
                     className="min-w-0 !flex-nowrap text-xs"

@@ -7,7 +7,7 @@ export type WorkItemDocument = {
   id: string;
   sourceId: string;
   kind: "bug" | "idea";
-  tenantId: string;
+  organisationId: string;
   projectId: string;
   track: string;
   number: number;
@@ -46,7 +46,7 @@ export const WORK_ITEMS_SCHEMA = {
   fields: [
     { name: "sourceId", type: "string", facet: true, sort: true },
     { name: "kind", type: "string", facet: true },
-    { name: "tenantId", type: "string", facet: true },
+    { name: "organisationId", type: "string", facet: true },
     { name: "projectId", type: "string", facet: true },
     { name: "track", type: "string", facet: true },
     { name: "number", type: "int32", facet: true },

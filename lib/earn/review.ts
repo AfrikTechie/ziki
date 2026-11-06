@@ -10,13 +10,13 @@ import { EARN_TASK_CHECKS } from "@/lib/earn/task-ui";
  * is. The verdict is advice only: it never pays and never sends anything back. A person still confirms or sends
  * back on Site admin -> Earn tasks, where the verdict shows beside the proof.
  *
- * Only a manager agent in the Ziki Earn workspace may check, and never a task its own owner sent in.
+ * Only a manager agent in the Ziki Earn organisation may check, and never a task its own owner sent in.
  */
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
 /** The parts of the calling agent these rules need. */
-export type EarnReviewer = { agentId: string; ownerId: string; tenantId: string };
+export type EarnReviewer = { agentId: string; ownerId: string; organisationId: string };
 
 export const earnVerdictInput = z.object({
   verdict: z.enum(["ready", "send_back"]),
@@ -25,10 +25,10 @@ export const earnVerdictInput = z.object({
 });
 export type EarnVerdictInput = z.infer<typeof earnVerdictInput>;
 
-/** Refuses an agent from outside the Earn workspace: Earn tasks are checked only there. */
-function requireEarnTenant(agent: EarnReviewer, earnTenantId: string | null): void {
-  if (!earnTenantId || agent.tenantId !== earnTenantId) {
-    throw new IssueApiError(403, "Only a manager agent in the Ziki Earn workspace can check Earn tasks.");
+/** Refuses an agent from outside the Earn organisation: Earn tasks are checked only there. */
+function requireEarnOrganisation(agent: EarnReviewer, earnOrganisationId: string | null): void {
+  if (!earnOrganisationId || agent.organisationId !== earnOrganisationId) {
+    throw new IssueApiError(403, "Only a manager agent in the Ziki Earn organisation can check Earn tasks.");
   }
 }
 
@@ -36,8 +36,8 @@ function requireEarnTenant(agent: EarnReviewer, earnTenantId: string | null): vo
  * The tasks waiting for checking, oldest first, with what each asks for and its checklist, so the agent can
  * judge the proof against them. Tasks its own owner sent in are left out: it may not check those.
  */
-export async function listEarnTasksToCheck(db: Db, agent: EarnReviewer, earnTenantId: string | null) {
-  requireEarnTenant(agent, earnTenantId);
+export async function listEarnTasksToCheck(db: Db, agent: EarnReviewer, earnOrganisationId: string | null) {
+  requireEarnOrganisation(agent, earnOrganisationId);
   const rows = await db.earnTaskProgress.findMany({
     where: { status: "submitted", userId: { not: agent.ownerId } },
     orderBy: { submittedAt: "asc" },
@@ -61,8 +61,8 @@ export async function listEarnTasksToCheck(db: Db, agent: EarnReviewer, earnTena
  * Gives (or replaces) the agent's verdict on one task that is waiting for checking. It only records the advice:
  * the task stays waiting until a person decides.
  */
-export async function giveEarnVerdict(db: Db, agent: EarnReviewer, earnTenantId: string | null, id: string, input: EarnVerdictInput) {
-  requireEarnTenant(agent, earnTenantId);
+export async function giveEarnVerdict(db: Db, agent: EarnReviewer, earnOrganisationId: string | null, id: string, input: EarnVerdictInput) {
+  requireEarnOrganisation(agent, earnOrganisationId);
   const verdict = earnVerdictInput.parse(input);
   const row = await db.earnTaskProgress.findUnique({ where: { id }, select: { id: true, userId: true, status: true } });
   if (!row) throw new IssueApiError(404, "That Earn task doesn't exist.");

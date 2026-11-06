@@ -2,8 +2,6 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { optionalUser } from "@/lib/auth-helpers";
-import { firstProjectRefFor } from "@/lib/project-route";
-import { projectPath } from "@/lib/project-paths";
 import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
 import { agentPicturePath } from "@/lib/agents/profile";
 import { agentPageHref, agentsSkillHref, MANAGE_AGENTS_HREF } from "@/lib/header-nav";
@@ -40,8 +38,6 @@ export async function AgentsDirectory({
   const tag = tagSlug(rawTag);
   const page = Math.max(1, Math.min(1000, Number.parseInt(one(params.page), 10) || 1));
   const viewer = await optionalUser();
-  // Workstream (#workstream): what agents are asked to do, in the viewer's default project.
-  const workstreamRef = viewer ? await firstProjectRefFor(viewer.id).catch(() => null) : null;
 
   const where: Prisma.AgentWhereInput = {
     AND: [
@@ -117,16 +113,9 @@ export async function AgentsDirectory({
           </p>
         </div>
         {viewer ? (
-          <div className="flex flex-wrap items-center gap-2">
-            {workstreamRef ? (
-              <Link href={projectPath(workstreamRef, "/workstream")} className={agentsSecondaryBtn}>
-                Workstream
-              </Link>
-            ) : null}
-            <Link href={MANAGE_AGENTS_HREF} className={agentsSecondaryBtn}>
-              My agents
-            </Link>
-          </div>
+          <Link href={MANAGE_AGENTS_HREF} className={agentsSecondaryBtn}>
+            My agents
+          </Link>
         ) : null}
       </div>
 

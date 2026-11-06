@@ -14,7 +14,7 @@ export { AgentPlatformDisabledError, agentPlatformDisabledResponse };
 /**
  * Who is calling (#427). Every agent route starts with `requireAgent()`.
  * It looks the key up by its hash and checks that the key and the agent are
- * live, and that the owner still belongs to the agent's tenant. It writes
+ * live, and that the owner still belongs to the agent's organisation. It writes
  * nothing; routes record what they did with `audit()`.
  *
  * The owner always comes from the agent row, never from the request body.
@@ -23,7 +23,7 @@ export type AgentContext = {
   agentId: string;
   name: string;
   ownerId: string;
-  tenantId: string;
+  organisationId: string;
   level: AgentLevel;
   /**
    * The owner's site-wide role, read from the agent's owner row. Routes that
@@ -39,7 +39,7 @@ export type AgentContext = {
   keyId: string;
   /**
    * The only project this key may act in (#742). Null or omitted means a
-   * legacy key that still works in every project of the tenant.
+   * legacy key that still works in every project of the organisation.
    */
   projectId?: string | null;
   /** Slug of that project, for the error shown when the key is used elsewhere. */
@@ -109,13 +109,13 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
       lastUsedAt: true,
       revokedAt: true,
       projectId: true,
-      project: { select: { slug: true, tenant: { select: { slug: true } } } },
+      project: { select: { slug: true, organisation: { select: { slug: true } } } },
       agent: {
         select: {
           id: true,
           name: true,
           ownerUserId: true,
-          tenantId: true,
+          organisationId: true,
           level: true,
           burst: true,
           burstUntil: true,
@@ -125,7 +125,7 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
           about: true,
           _count: { select: { skills: true } },
           pausedAt: true,
-          owner: { select: { role: true, memberships: { select: { tenantId: true } } } },
+          owner: { select: { role: true, memberships: { select: { organisationId: true } } } },
         },
       },
     },
@@ -133,9 +133,9 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
   if (!key) throw new AgentAuthError("invalid_key");
   const { agent } = key;
   if (key.revokedAt || agent.revokedAt) throw new AgentAuthError("revoked");
-  // An owner who left the tenant takes their agents' access with them.
-  const ownerInTenant = agent.owner.memberships.some((m) => m.tenantId === agent.tenantId);
-  if (!agent.name || !agent.ownerUserId || !agent.tenantId || !ownerInTenant) {
+  // An owner who left the organisation takes their agents' access with them.
+  const ownerInOrganisation = agent.owner.memberships.some((m) => m.organisationId === agent.organisationId);
+  if (!agent.name || !agent.ownerUserId || !agent.organisationId || !ownerInOrganisation) {
     throw new AgentAuthError("invalid_key");
   }
 
@@ -171,7 +171,7 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
     agentId: agent.id,
     name: agent.name,
     ownerId: agent.ownerUserId,
-    tenantId: agent.tenantId,
+    organisationId: agent.organisationId,
     level: agent.level,
     ownerRole: agent.owner.role ?? null,
     burst: agent.burst,

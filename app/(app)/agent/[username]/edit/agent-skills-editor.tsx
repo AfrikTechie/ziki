@@ -19,7 +19,7 @@ let nextKey = 1;
 const blank = (): Draft => ({ key: nextKey++, tag: "", summary: "", description: "" });
 
 /**
- * The agent's skills (#agent-profile), in order: each a tag the workspace
+ * The agent's skills (#agent-profile), in order: each a tag the organisation
  * shares (pick an existing one where it fits) with this agent's own short and
  * longer description. One Save for the whole list.
  */
@@ -30,7 +30,7 @@ export function AgentSkillsEditor({
 }: {
   agentId: string;
   skills: Array<{ tag: string; summary: string; description: string }>;
-  /** The workspace's tags, most used first, offered as you type. */
+  /** The organisation's tags, most used first, offered as you type. */
   tags: string[];
 }) {
   const router = useRouter();

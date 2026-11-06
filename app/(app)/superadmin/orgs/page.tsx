@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Organisations · Super admin" };
 /** Every organisation on the site. Each row opens that organisation's page. */
 export default async function SuperadminOrgsPage() {
   await requireSuperAdmin();
-  const organizations = await prisma.tenant.findMany({
+  const organisations = await prisma.organisation.findMany({
     orderBy: { name: "asc" },
     select: {
       slug: true,
@@ -25,7 +25,7 @@ export default async function SuperadminOrgsPage() {
       <div>
         <h1 className="text-xl font-semibold text-zk-text sm:text-2xl">Organisations</h1>
         <p className="mt-1 text-sm text-zk-text2">
-          Every organisation on the site ({organizations.length}). Open one to manage it.
+          Every organisation on the site ({organisations.length}). Open one to manage it.
         </p>
       </div>
 
@@ -42,10 +42,10 @@ export default async function SuperadminOrgsPage() {
             </tr>
           </thead>
           <tbody>
-            {organizations.length === 0 ? (
+            {organisations.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-6 text-center text-zk-muted">No organisations yet.</td></tr>
             ) : null}
-            {organizations.map((org) => (
+            {organisations.map((org) => (
               <tr key={org.slug} className="border-b border-zk-divider last:border-0 hover:bg-zk-chip">
                 <td className="px-4 py-3">
                   <Link href={`/superadmin/orgs/${org.slug}`} className="font-medium text-zk-accent hover:underline">

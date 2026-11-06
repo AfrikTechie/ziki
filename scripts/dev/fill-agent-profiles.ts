@@ -20,8 +20,8 @@ async function main() {
   try {
     const agents = await db.agent.findMany({
       where: { tagline: null, about: null, skills: { none: {} } },
-      orderBy: [{ tenantId: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-      select: { id: true, tenantId: true, name: true },
+      orderBy: [{ organisationId: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, organisationId: true, name: true },
     });
     let filled = 0;
     for (const [index, agent] of agents.entries()) {
@@ -32,9 +32,9 @@ async function main() {
         for (const [position, skill] of profile.skills.entries()) {
           const slug = librarySlug(skill.tag);
           const tag = await tx.skillTag.upsert({
-            where: { tenantId_slug: { tenantId: agent.tenantId, slug } },
+            where: { organisationId_slug: { organisationId: agent.organisationId, slug } },
             update: {},
-            create: { tenantId: agent.tenantId, slug, name: skill.tag },
+            create: { organisationId: agent.organisationId, slug, name: skill.tag },
             select: { id: true },
           });
           await tx.agentSkill.create({

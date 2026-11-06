@@ -6,7 +6,7 @@ import { attachmentResponseHeaders } from "@/lib/attachments";
 
 /**
  * GET /api/v1/attachments/{id} — an agent reads a file's bytes with its key
- * (#722): any attachment on an issue, idea or comment in its tenant, or its
+ * (#722): any attachment on an issue, idea or comment in its organisation, or its
  * owner's own upload not yet attached. 404 otherwise, never a login redirect.
  */
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {

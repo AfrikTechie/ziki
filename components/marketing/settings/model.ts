@@ -17,7 +17,7 @@ export type MarketingTaskType = {
 export type MarketingSettingsData = {
   /** Send-backs a marketing delivery takes before the task reopens for bids (1–10). */
   revisionLimit: number;
-  /** Workspace owners and admins manage the settings; members read them. */
+  /** Organisation owners and admins manage the settings; members read them. */
   canManage: boolean;
   types: MarketingTaskType[];
   brief: MarketingBrief;

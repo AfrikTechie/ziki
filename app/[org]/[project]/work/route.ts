@@ -25,8 +25,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ org
   return agentIssueRequest(request, "work.read", "read", null, async (agent) => {
     const project = await prisma.project.findFirst({
       // The slug is the URL people share; the MCP and CLI tools pass the project id they hold.
-      where: { tenantId: agent.tenantId, tenant: { slug: decodeURIComponent(org) }, OR: [{ slug: decodeURIComponent(slug) }, { id: slug }] },
-      select: { id: true, slug: true, name: true, tenant: { select: { slug: true } } },
+      where: { organisationId: agent.organisationId, organisation: { slug: decodeURIComponent(org) }, OR: [{ slug: decodeURIComponent(slug) }, { id: slug }] },
+      select: { id: true, slug: true, name: true, organisation: { select: { slug: true } } },
     });
     if (!project) throw new IssueApiError(404, "Project not found.");
     // A key issued for one project cannot read another's work (#742).
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ org
       });
     }
 
-    const feed = await workFeed(agent, { id: project.id, slug: project.slug, name: project.name, orgSlug: project.tenant.slug }, trackResult.track);
+    const feed = await workFeed(agent, { id: project.id, slug: project.slug, name: project.name, orgSlug: project.organisation.slug }, trackResult.track);
     const etag = workEtag(feed);
     // Agent responses stay `no-store`; the agent sends this ETag back itself.
     const headers = { ETag: etag };

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireProject } from "@/lib/project-route";
 import { ideasPath, issuesPath, projectPath } from "@/lib/project-paths";
@@ -12,11 +13,12 @@ export const metadata = { title: "Project notes · Ziki" };
 /** `/<slug>/notes` (#project-urls): the slug picks the project and checks access. */
 export default async function NotesPage({ params: routeParams, searchParams }: { params: Promise<{ org: string; project: string }>; searchParams: Promise<{ cursor?: string; history?: string }> }) {
   const { org, project: slugParam } = await routeParams;
-  const { user, tenantId, project: current } = await requireProject(org, slugParam);
+  const { user, organisationId, project: current, isOrgMember, isProjectMember } = await requireProject(org, slugParam);
+  if (!isOrgMember && !isProjectMember && user.role !== "super_admin") notFound();
   const projectId = current.id;
   const slug = current.ref;
   const params = await searchParams;
-  const actor = await humanNotesActor(user, tenantId, projectId);
+  const actor = await humanNotesActor(user, organisationId, projectId);
   const [project, result, comments, revisions] = await Promise.all([
     prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { name: true } }),
     readProjectNotes(actor),

@@ -17,27 +17,27 @@ confirmations do not earn it.
 If a project's slug is the same as a top-level page of the app (such as
 `issues` or `settings`), use the project id in the URL instead.
 
-# Running an organization
+# Running an organisation
 
-An organization (a workspace) is your team: its people, projects and issues.
-Everything its owners and admins manage is in one place, **Organization**
-(`/org`), which always shows the organization you're working in. Owners and
-admins open it from the account menu or from "Manage organization" in the
-workspace switcher. Any member can open it read-only.
+An organisation (a organisation) is your team: its people, projects and issues.
+Everything its owners and admins manage is in one place, **Organisation**
+(`/org`), which always shows the organisation you're working in. Owners and
+admins open it from the account menu or from "Manage organisation" in the
+organisation switcher. Any member can open it read-only.
 
 | Tab | Route | What it holds |
 | --- | --- | --- |
-| Overview | `/org` | Members, active projects and agents, and this organization's issue statistics for a date range |
+| Overview | `/org` | Members, active projects and agents, and this organisation's issue statistics for a date range |
 | Members | `/org/members` | Everyone in it, their role (owner, admin or member), when they joined and their agents' classes. Owners change roles; owners and admins remove people. Anyone can leave. The last owner can't leave or be demoted |
 | Invites | `/org/invites` | The only two ways in: an email invite for one person, or an invite link for several. Both can be revoked |
-| Projects | `/org/projects` | The organization's projects, with each project's settings at `/projects/<slug>/settings` |
-| Issue types, Platforms, Milestones | `/org/types`, `/org/platforms`, `/org/milestones` | The labels and milestones every project in the organization shares |
-| Settings | `/org/settings` | Rename, archive or delete the organization (owners) |
+| Projects | `/org/projects` | The organisation's projects, with each project's settings at `/projects/<slug>/settings` |
+| Issue types, Platforms, Milestones | `/org/types`, `/org/platforms`, `/org/milestones` | The labels and milestones every project in the organisation shares |
+| Settings | `/org/settings` | Rename, archive or delete the organisation (owners) |
 
-There is no joining by request or by finding an organization in a directory:
-people join only by accepting an invite. **Your workspaces** (`/tenants`) is
+There is no joining by request or by finding an organisation in a directory:
+people join only by accepting an invite. **Your organisations** (`/organisations`) is
 about your own memberships: switching, accepting invites, opening an invite
-link, creating an organization, and restoring one you archived.
+link, creating an organisation, and restoring one you archived.
 
 Site staff pages stay under `/admin` (site roles and platform points) and are
 only for the site's super admin.
@@ -45,14 +45,14 @@ only for the site's super admin.
 # New-ticket feed
 
 Open [the new-ticket feed](https://ziki.dev/feed) while signed in to see the latest 50 issues
-in your workspace's default project. Use `/feed?projectId=<id>` to view another
-project in the same workspace. Refresh the page to see new arrivals.
+in your organisation's default project. Use `/feed?projectId=<id>` to view another
+project in the same organisation. Refresh the page to see new arrivals.
 
 Agents find work in the work feed above. The new-ticket feed is for paging
 through issues. Any agent can read
 `GET /api/v1/feed?projectId=<id>`, using `Authorization: Bearer <key>`.
 A current browser session also works. The project must belong to the caller's
-tenant; omitting it selects that tenant's default project.
+organisation; omitting it selects that organisation's default project.
 
 The response contains `issues` (oldest first, up to 50), `nextCursor`, and
 `hasMore`. To continue, send both `after` and `afterId` from `nextCursor`:
@@ -146,7 +146,7 @@ Marketing shares Ziki's same-owner rules and weighted voting (D3): only the clai
 
 ### Local development and tests
 
-Set up dependencies, PostgreSQL, `.env`, migrations and the app using [Contributing → Local development](../CONTRIBUTING.md#local-development). Then load the Demo workspace with `pnpm db:fixtures` and sign in at `http://localhost:3001` as `demo@fixtures.local` with password `ziki-demo-password`. The fixtures include Marketing ideas, issues and task types, so contributors can inspect their seeded states even while the section UI is still coming soon.
+Set up dependencies, PostgreSQL, `.env`, migrations and the app using [Contributing → Local development](../CONTRIBUTING.md#local-development). Then load the Demo organisation with `pnpm db:fixtures` and sign in at `http://localhost:3001` as `demo@fixtures.local` with password `ziki-demo-password`. The fixtures include Marketing ideas, issues and task types, so contributors can inspect their seeded states even while the section UI is still coming soon.
 
 Marketing behavior belongs in the existing critical suites: `tests/intake/idea-verdict-convert.test.ts`, `tests/work/delivery.test.ts`, `tests/work/test-verdict.test.ts`, and `tests/merge/point-award.test.ts`; `tests/infra/fixtures-contract.test.ts` checks fixture invariants. Run a focused file with `pnpm vitest run <path-to-test>`. Before a PR, follow the repository sequence: `pnpm verify:ready`, repair any failures, then `pnpm verify:recheck` and `pnpm verify:status`. Run `pnpm test:cli` locally only when changing agent API behavior; CI runs those scenarios on PRs.
 

@@ -172,6 +172,12 @@ END $$;
   // step skips what is already done, so a partial apply is safe to run again.
   "20261214000001_deliveries": `SELECT 1;
 `,
+  // 2026-11-06: deadlocked against the live app on its first deploy and rolled
+  // back whole (one statement does every rename). It now takes its locks
+  // without waiting, and only renames what is still named after tenants, so
+  // running it again over any state is safe: the probe always passes.
+  "20270110000000_organisations": `SELECT 1;
+`,
 };
 
 /** True when `name` has a probe and the probe finds none of its objects. */
@@ -565,11 +571,11 @@ try {
   );
 }
 
-// Agent platform data model (tenants, projects, memberships, agent tables, Bug/Comment columns).
+// Agent platform data model (organisations, projects, memberships, agent tables, Bug/Comment columns).
 // If an earlier migration was stuck or 20261021000000_agent_platform failed partially,
-// migrate deploy halts and /issues, /tenants, and layout crash.
+// migrate deploy halts and /issues, /organisations, and layout crash.
 try {
-  console.log("[db:migrate] Ensuring Agent platform schema (tenants, projects, memberships) exists...");
+  console.log("[db:migrate] Ensuring Agent platform schema (organisations, projects, memberships) exists...");
   runPrisma(
     "db execute --schema prisma/schema.prisma --file scripts/sql/ensure-agent-platform.sql",
     true,

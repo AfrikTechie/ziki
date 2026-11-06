@@ -280,11 +280,11 @@ type Db = PrismaClient | Prisma.TransactionClient;
  */
 export async function loadPointHistory(
   db: Db,
-  scope: { tenantId: string; userId: string },
+  scope: { organisationId: string; userId: string },
   opts?: { from?: Date; to?: Date },
 ): Promise<PointHistoryEntry[]> {
   const where: Prisma.PointEntryWhereInput = {
-    tenantId: scope.tenantId,
+    organisationId: scope.organisationId,
     userId: scope.userId,
   };
   if (opts?.from || opts?.to) {

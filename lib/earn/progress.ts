@@ -154,20 +154,20 @@ export async function submitTask(db: Db, userId: string, n: number, proofInput: 
 }
 
 /**
- * The Earn workspace, where all earn money lives: the $5 welcome and every
- * confirmed task. Never a person's own workspaces, so earn money never counts
+ * The Earn organisation, where all earn money lives: the $5 welcome and every
+ * confirmed task. Never a person's own organisations, so earn money never counts
  * in their points, leaderboards or totals there. It is made the first time it
  * is needed (an upsert on the unique slug, so two at once make one), and a
  * person does not have to be a member of it.
  */
-export async function earnTenantId(db: Db, earnTenantSlug: string): Promise<string> {
-  const tenant = await db.tenant.upsert({
-    where: { slug: earnTenantSlug },
-    create: { slug: earnTenantSlug, name: "Ziki Earn" },
+export async function earnOrganisationId(db: Db, earnOrganisationSlug: string): Promise<string> {
+  const organisation = await db.organisation.upsert({
+    where: { slug: earnOrganisationSlug },
+    create: { slug: earnOrganisationSlug, name: "Ziki Earn" },
     update: {},
     select: { id: true },
   });
-  return tenant.id;
+  return organisation.id;
 }
 
 /** Whether the account signed up after Earn went live: only those are shown the "$5 awarded" pop-up. */
@@ -181,13 +181,13 @@ export async function isNewEarnAccount(db: Db, userId: string): Promise<boolean>
  * opens an earn page, new account or old. It is its own reward, separate from
  * the sign-up bonus the site pays every account. Under the `earn:` key prefix,
  * so the earn balance counts it, and unique per person, so asking again pays
- * nothing. It lands in the Earn workspace only. Returns true when it was paid now.
+ * nothing. It lands in the Earn organisation only. Returns true when it was paid now.
  */
-export async function grantWelcome(db: Db, userId: string, earnTenantSlug: string): Promise<boolean> {
+export async function grantWelcome(db: Db, userId: string, earnOrganisationSlug: string): Promise<boolean> {
   const sourceKey = `${EARN_KEY_PREFIX}welcome:${userId}`;
   if (await db.pointEntry.findUnique({ where: { sourceKey }, select: { id: true } })) return false;
-  const tenantId = await earnTenantId(db, earnTenantSlug);
-  return award(db, { tenantId, userId, bugId: null, role: "signup", points: SIGNUP_BONUS, sourceKey, exact: true });
+  const organisationId = await earnOrganisationId(db, earnOrganisationSlug);
+  return award(db, { organisationId, userId, bugId: null, role: "signup", points: SIGNUP_BONUS, sourceKey, exact: true });
 }
 
 export type DecideResult = { ok: true } | { ok: false; error: string };
@@ -200,7 +200,7 @@ export type DecideResult = { ok: true } | { ok: false; error: string };
  */
 export async function confirmTask(
   prisma: PrismaClient,
-  args: { userId: string; taskKey: string; staffId: string; earnTenantSlug: string; note?: string },
+  args: { userId: string; taskKey: string; staffId: string; earnOrganisationSlug: string; note?: string },
 ): Promise<DecideResult> {
   const task = EARN_TASKS.find((candidate) => candidate.id === args.taskKey);
   if (!task) return { ok: false, error: "That task doesn't exist." };
@@ -210,16 +210,16 @@ export async function confirmTask(
       data: { status: "confirmed", decidedAt: new Date(), decidedById: args.staffId, note: args.note?.trim() || null },
     });
     if (count !== 1) return { ok: false as const, error: "Nothing to confirm: it isn't waiting for checking." };
-    const tenantId = await earnTenantId(tx, args.earnTenantSlug);
+    const organisationId = await earnOrganisationId(tx, args.earnOrganisationSlug);
     await award(tx, {
-      tenantId,
+      organisationId,
       userId: args.userId,
       bugId: null,
       // The ledger has no earn role yet; a research job's payout is the closest existing one.
       role: "submission",
       points: task.pay,
       sourceKey: earnSourceKey(args.userId, task.id),
-      // Earn pays fixed amounts: a workspace multiplier must not change what a task pays.
+      // Earn pays fixed amounts: an organisation multiplier must not change what a task pays.
       exact: true,
     });
     return { ok: true as const };

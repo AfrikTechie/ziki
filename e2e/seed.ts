@@ -37,13 +37,13 @@ async function main() {
     await prisma.$executeRawUnsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
   }
 
-  // The wipe above also removes the Zedu tenant the migration creates (#423).
+  // The wipe above also removes the Zedu organisation the migration creates (#423).
   // Put it back with the migration's ids; issues are created inside it.
-  const tenant = await prisma.tenant.create({
-    data: { id: "tenant_zedu", slug: "zedu", name: "Ziki" },
+  const organisation = await prisma.organisation.create({
+    data: { id: "organisation_zedu", slug: "zedu", name: "Ziki" },
   });
   await prisma.project.create({
-    data: { id: "project_zedu", tenantId: tenant.id, slug: "zedu", name: "Ziki", workflow: { create: {} } },
+    data: { id: "project_zedu", organisationId: organisation.id, slug: "zedu", name: "Ziki", workflow: { create: {} } },
   });
 
   for (const [name, description] of [
@@ -52,7 +52,7 @@ async function main() {
     ["Design", "UI/UX and visual design tasks"],
     ["Marketing", "Marketing and promotion related tasks"],
   ]) {
-    await prisma.issueType.create({ data: { tenantId: tenant.id, name, description, isActive: true } });
+    await prisma.issueType.create({ data: { organisationId: organisation.id, name, description, isActive: true } });
   }
 
   // Cost 4: these are throwaway test accounts and the suite signs in often.
@@ -82,18 +82,18 @@ async function main() {
       },
     });
   }
-  // Every test account is a Zedu member. Site admins are organization admins
+  // Every test account is a Zedu member. Site admins are organisation admins
   // too: delete and triage follow the membership role, not the site-wide one.
   const users = await prisma.user.findMany({ select: { id: true, role: true } });
   await prisma.membership.createMany({
     data: users.map((user) => ({
-      tenantId: tenant.id,
+      organisationId: organisation.id,
       userId: user.id,
       role: user.role === "super_admin" ? "owner" : user.role === "admin" ? "admin" : "member",
     })),
   });
-  // The Demo workspace (scripts/dev/fixtures): realistic issues in every state,
-  // in a workspace of its own, so the suite runs against data like real Ziki's.
+  // The Demo organisation (scripts/dev/fixtures): realistic issues in every state,
+  // in a organisation of its own, so the suite runs against data like real Ziki's.
   await loadFixtures({ db: prisma, quiet: true });
   console.log("e2e seed: database reset and seeded, with the Demo fixtures");
 }

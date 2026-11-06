@@ -30,8 +30,8 @@ export function isListedAgent(agent: {
 export type DirectoryTag = { slug: string; name: string; agents: number };
 
 /**
- * The skill tags listed agents have: one per slug across every workspace (each
- * workspace keeps its own tags), with how many listed agents have it, most first.
+ * The skill tags listed agents have: one per slug across every organisation (each
+ * organisation keeps its own tags), with how many listed agents have it, most first.
  */
 export async function directoryTags(): Promise<DirectoryTag[]> {
   const tags = await prisma.skillTag.findMany({

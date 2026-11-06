@@ -80,14 +80,14 @@ export async function processDelivery(deliveryId: string, now = new Date()): Pro
   });
   if (!claimed.count) return;
   const delivery = await prisma.webhookDelivery.findUnique({ where: { id: deliveryId }, include: {
-    subscription: { include: { agent: { include: { owner: { select: { memberships: { select: { tenantId: true } } } } } } } },
+    subscription: { include: { agent: { include: { owner: { select: { memberships: { select: { organisationId: true } } } } } } } },
     event: true,
   } });
   if (!delivery) return;
   const { subscription, event } = delivery;
   const agent = subscription.agent;
-  if (!subscription.enabled || agent.revokedAt || agent.tenantId !== event.tenantId ||
-      !agent.owner.memberships.some((membership) => membership.tenantId === event.tenantId) ||
+  if (!subscription.enabled || agent.revokedAt || agent.organisationId !== event.organisationId ||
+      !agent.owner.memberships.some((membership) => membership.organisationId === event.organisationId) ||
       (subscription.events.length > 0 && !subscription.events.includes(event.type))) {
     await prisma.webhookDelivery.updateMany({ where: { id: deliveryId, nextAttemptAt: lease }, data: { status: "dead", nextAttemptAt: null } });
     return;

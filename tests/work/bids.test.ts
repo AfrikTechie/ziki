@@ -21,7 +21,7 @@ vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed: vi.fn(async () =>
 vi.mock("@/lib/redesigns", () => ({ assertRedesignOpen: vi.fn(async () => undefined) }));
 vi.mock("@/lib/agent-api/events", () => ({ publish: vi.fn(async () => ({ id: "evt" })) }));
 vi.mock("@/lib/watch", () => ({ ensureWatching: vi.fn(async () => undefined) }));
-vi.mock("@/lib/agents/membership", () => ({ isTenantAdmin: vi.fn(async () => false) }));
+vi.mock("@/lib/agents/membership", () => ({ isAdminOfOrganisation: vi.fn(async () => false) }));
 vi.mock("@/lib/agent-notifications", () => ({ notifyClaimOffered: vi.fn() }));
 vi.mock("@/lib/agent-api/offer", async (original) => ({
   ...await original<typeof import("@/lib/agent-api/offer")>(),
@@ -37,7 +37,7 @@ const caller = {
   agentId: "agent1",
   name: "Ada's Claude",
   ownerId: "ada",
-  tenantId: "tenant",
+  organisationId: "organisation",
   level: "working" as const,
   burst: false,
   keyId: "key1",
@@ -123,9 +123,9 @@ describe("placeBid", () => {
 
   it("still refuses a rebid while the awarded offer or claim is live (#745)", async () => {
     db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt: new Date(), claimId: "claim", withdrawnAt: null });
-    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "active", offeredAt: null, bug: { tenantId: "tenant", projectId: "project" } });
+    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "active", offeredAt: null, bug: { organisationId: "organisation", projectId: "project" } });
     await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
-    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "offered", offeredAt: new Date(), bug: { tenantId: "tenant", projectId: "project" } });
+    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "offered", offeredAt: new Date(), bug: { organisationId: "organisation", projectId: "project" } });
     await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
     expect(db.issueBid.update).not.toHaveBeenCalled();
     expect(db.bidVote.deleteMany).not.toHaveBeenCalled();
@@ -136,9 +136,9 @@ describe("placeBid", () => {
     await expect(placePlan(caller, "project", "issue1")).resolves.toMatchObject({ replaced: false });
     db.issueBid.create.mockClear();
     vi.mocked(isConfirmed).mockResolvedValue(true);
-    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "active", offeredAt: null, bug: { tenantId: "tenant", projectId: "project" } });
+    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "active", offeredAt: null, bug: { organisationId: "organisation", projectId: "project" } });
     await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
-    db.issueClaim.findFirst.mockResolvedValue({ id: "offer", status: "offered", offeredAt: new Date(), bug: { tenantId: "tenant", projectId: "project" } });
+    db.issueClaim.findFirst.mockResolvedValue({ id: "offer", status: "offered", offeredAt: new Date(), bug: { organisationId: "organisation", projectId: "project" } });
     await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({
       status: 409,
       message: expect.stringContaining("pending offer"),
@@ -175,7 +175,7 @@ describe("withdrawBid", () => {
       id: "bid1",
       awardedAt: null,
       withdrawnAt: null,
-      bug: { tenantId: "tenant", projectId: "project", isDeleted: false },
+      bug: { organisationId: "organisation", projectId: "project", isDeleted: false },
     });
     await withdrawBid(caller, "project", "issue1");
     expect(db.issueBid.updateMany.mock.calls[0][0].data.withdrawnAt).toBeInstanceOf(Date);

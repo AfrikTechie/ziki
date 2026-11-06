@@ -3,11 +3,11 @@ import { redirect } from "next/navigation";
 import "./team.css";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import {
-  paginatedTenantLeaderboard,
+  paginatedOrganisationLeaderboard,
   pointTotals,
-  tenantRankFor,
+  organisationRankFor,
   DEFAULT_LEADERBOARD_LIMIT,
   type LeaderboardEntry,
 } from "@/lib/points/leaderboard";
@@ -25,7 +25,7 @@ import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 import { projectContextFor } from "@/lib/project-context";
 import { teamAgentsForMembers, teamAssignedWorkForMembers, type TeamAgent, type TeamAgentWork } from "@/lib/team-directory";
 import { MemberAssignedWork } from "@/components/member-assigned-work";
-import { isTenantAdminRole } from "@/lib/agents/membership";
+import { isOrganisationAdminRole } from "@/lib/agents/membership";
 import { settableLevels } from "@/lib/agents/levels";
 import { TeamAgentTable } from "./team-agent-table";
 import { RankingRow } from "./ranking-row";
@@ -83,18 +83,18 @@ function parseSort(raw: string | undefined): SortKey {
 }
 
 /** Every ranked member: the list below joins them with the whole team, so it needs them all. */
-async function loadAllEntries(tenantId: string): Promise<LeaderboardEntry[]> {
-  const first = await paginatedTenantLeaderboard(prisma, tenantId, { page: 1, limit: 100 });
+async function loadAllEntries(organisationId: string): Promise<LeaderboardEntry[]> {
+  const first = await paginatedOrganisationLeaderboard(prisma, organisationId, { page: 1, limit: 100 });
   if (first.totalPages <= 1) return first.entries;
   const rest = await Promise.all(
     Array.from({ length: first.totalPages - 1 }, (_, i) =>
-      paginatedTenantLeaderboard(prisma, tenantId, { page: i + 2, limit: 100 }),
+      paginatedOrganisationLeaderboard(prisma, organisationId, { page: i + 2, limit: 100 }),
     ),
   );
   return [first.entries, ...rest.map((r) => r.entries)].flat();
 }
 
-/** A workspace member with their leaderboard standing and their Team details. */
+/** An organisation member with their leaderboard standing and their Team details. */
 type RankedMember = {
   userId: string;
   name: string;
@@ -126,7 +126,7 @@ function sortMembers(members: RankedMember[], sort: SortKey): RankedMember[] {
 
 /**
  * Ranking: the leaderboard's podium and your standing on top, then every
- * member of the workspace with their points, plus the Team details (role,
+ * member of the organisation with their points, plus the Team details (role,
  * active claims, recent points and agents) the leaderboard didn't show (#428, #657).
  */
 export default async function RankingPanel({
@@ -146,18 +146,18 @@ export default async function RankingPanel({
   const showCapacityOnly = params.capacity === "1";
 
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) {
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) {
     return (
       <section className="team-empty">
-        <h2>No workspace yet</h2>
-        <p>Join or create a workspace to see its ranking and team.</p>
-        <Link href="/tenants" className="team-primary">Create or join a workspace</Link>
+        <h2>No organisation yet</h2>
+        <p>Join or create an organisation to see its ranking and team.</p>
+        <Link href="/organisations" className="team-primary">Create or join an organisation</Link>
       </section>
     );
   }
 
-  let standing: Awaited<ReturnType<typeof tenantRankFor>>;
+  let standing: Awaited<ReturnType<typeof organisationRankFor>>;
   let myTotals: { points: number; solvedTasks: number };
   let ranked: LeaderboardEntry[];
   let targetPoints: number;
@@ -170,10 +170,10 @@ export default async function RankingPanel({
   let maxActiveClaims: number;
   let activeProjectId: string | null;
   try {
-    const context = await projectContextFor(prisma, tenantId);
+    const context = await projectContextFor(prisma, organisationId);
     activeProjectId = context.activeProjectId;
     members = await prisma.membership.findMany({
-      where: { tenantId },
+      where: { organisationId },
       orderBy: { user: { name: "asc" } },
       select: { role: true, user: { select: { id: true, name: true, image: true } } },
     });
@@ -181,14 +181,14 @@ export default async function RankingPanel({
     // The leaderboard shows $ earned this week (since Monday, UTC) beside all time.
     const since = startOfWeekUtc();
     [standing, myTotals, ranked, targetPoints, agentsMap, recentPoints, activeClaims] = await Promise.all([
-      tenantRankFor(prisma, tenantId, user.id),
-      pointTotals(prisma, tenantId, user.id),
-      loadAllEntries(tenantId),
+      organisationRankFor(prisma, organisationId, user.id),
+      pointTotals(prisma, organisationId, user.id),
+      loadAllEntries(organisationId),
       getPlatformRewardConfig(prisma).then((config) => config.target),
-      teamAgentsForMembers(prisma, tenantId, memberIds),
+      teamAgentsForMembers(prisma, organisationId, memberIds),
       prisma.pointEntry.groupBy({
         by: ["userId"],
-        where: { tenantId, createdAt: { gte: since } },
+        where: { organisationId, createdAt: { gte: since } },
         _sum: { points: true },
       }),
       prisma.issueClaim.groupBy({
@@ -197,7 +197,7 @@ export default async function RankingPanel({
           beneficiaryUserId: { in: memberIds },
           status: "active",
           releasedAt: null,
-          bug: { tenantId, ...(activeProjectId ? { projectId: activeProjectId } : {}) },
+          bug: { organisationId, ...(activeProjectId ? { projectId: activeProjectId } : {}) },
         },
         _count: { _all: true },
       }),
@@ -208,13 +208,13 @@ export default async function RankingPanel({
         beneficiaryUserId: user.id,
         status: "active",
         releasedAt: null,
-        bug: { tenantId },
+        bug: { organisationId },
       },
       select: { bug: { select: { reward: true } } },
     });
     myInMotion = myClaims.reduce((sum, claim) => sum + pointsNumber(claim.bug.reward), 0);
     // #447: assigned issues no agent has claimed, shown once per member.
-    assignedMap = await teamAssignedWorkForMembers(prisma, tenantId, agentsMap);
+    assignedMap = await teamAssignedWorkForMembers(prisma, organisationId, agentsMap);
     maxActiveClaims = activeProjectId
       ? (await workflowFor(activeProjectId)).maxActiveClaims
       : DEFAULT_PROJECT_WORKFLOW.maxActiveClaims;
@@ -241,10 +241,10 @@ export default async function RankingPanel({
   }
 
   const viewerMembership = members.find((membership) => membership.user.id === user.id);
-  const manageLevels = isTenantAdminRole(viewerMembership?.role, user.role)
-    ? settableLevels({ isOwner: false, isTenantAdmin: true })
+  const manageLevels = isOrganisationAdminRole(viewerMembership?.role, user.role)
+    ? settableLevels({ isOwner: false, isAdminOfOrganisation: true })
     : null;
-  const capacityScope = activeProjectId ? "selected project" : "workspace";
+  const capacityScope = activeProjectId ? "selected project" : "organisation";
   const rankedById = new Map(ranked.map((entry) => [entry.userId, entry]));
   const recentById = new Map(recentPoints.map((row) => [row.userId, pointsNumber(row._sum.points)]));
   const claimsById = new Map(activeClaims.map((row) => [row.beneficiaryUserId, row._count._all]));
@@ -531,7 +531,7 @@ export default async function RankingPanel({
 
         {rows.length === 0 ? (
           <p className="px-1 py-6 text-sm text-zk-muted">
-            {everyone.length === 0 ? "This workspace has no members yet." : "No people match these filters."}
+            {everyone.length === 0 ? "This organisation has no members yet." : "No people match these filters."}
           </p>
         ) : (
           <div className="overflow-x-auto">

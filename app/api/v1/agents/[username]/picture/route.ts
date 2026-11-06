@@ -9,7 +9,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ use
   const { username } = await context.params;
   return agentIssueRequest(request, "agents.picture", "read", null, async (agent) => {
     const owner = await prisma.agent.findFirst({
-      where: { tenantId: agent.tenantId, username: decodeURIComponent(username).toLowerCase() },
+      where: { organisationId: agent.organisationId, username: decodeURIComponent(username).toLowerCase() },
       select: { picture: { select: { contentType: true, size: true, data: true } } },
     });
     if (!owner?.picture) return NextResponse.json({ error: "not_found", message: "No picture." }, { status: 404 });

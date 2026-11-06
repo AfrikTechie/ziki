@@ -34,7 +34,7 @@ export const FRESH_FOR_MS = 60_000;
 
 const syncBugSelect = {
   id: true,
-  tenantId: true,
+  organisationId: true,
   projectId: true,
   title: true,
   status: true,
@@ -215,7 +215,7 @@ export async function syncPullRequestStatus(
       }
     }
     await publish(tx, {
-      tenantId: bug.tenantId,
+      organisationId: bug.organisationId,
       type: "issue.pull_request_reported",
       payload: {
         issueId: bug.id,

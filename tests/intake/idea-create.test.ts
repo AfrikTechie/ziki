@@ -26,10 +26,10 @@ vi.mock("@/lib/search-index", () => ({ searchWorkItems: indexedSearch }));
 
 const sessionUser = vi.hoisted(() => ({ resolve: vi.fn() }));
 vi.mock("@/lib/session-user", () => ({ resolveSessionUserId: sessionUser.resolve }));
-const currentTenant = vi.hoisted(() => ({ get: vi.fn() }));
-vi.mock("@/lib/tenant-context", () => ({
-  currentTenantIdFor: currentTenant.get,
-  bugInTenant: (tenantId: string) => ({ tenantId }),
+const currentOrganisation = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock("@/lib/organisation-context", () => ({
+  currentOrganisationIdFor: currentOrganisation.get,
+  bugInOrganisation: (organisationId: string) => ({ organisationId }),
 }));
 const activeProject = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/lib/project-context", () => ({ activeProjectIdFor: activeProject.get }));
@@ -66,8 +66,8 @@ import { structureIdea } from "@/lib/idea-structuring";
 import { parseIdeaTrack } from "@/lib/marketing/idea-track";
 
 const NOW = new Date("2026-10-19T12:00:00Z");
-const agent = { agentId: "agent1", tenantId: "tenant_zedu" };
-const scope = { tenantId: "t1", projectId: "p1" };
+const agent = { agentId: "agent1", organisationId: "organisation_zedu" };
+const scope = { organisationId: "t1", projectId: "p1" };
 const insert = vi.fn();
 const input = (overrides: Partial<CreatePolicyInput> = {}): CreatePolicyInput => ({
   agent,
@@ -91,37 +91,37 @@ const idea = {
 const listedIssues = [
   {
     id: "product-local", number: 10, title: "Product search marker", summary: "Product summary.", description: "Search phrase.",
-    status: "open", substatus: "open", track: "product", tenantId: "t1", projectId: "p1", isDeleted: false,
+    status: "open", substatus: "open", track: "product", organisationId: "t1", projectId: "p1", isDeleted: false,
     voteCount: 1, category: null, reward: 1, rewardEstimateCount: 0, rewardFixedAt: null,
     createdAt: new Date("2026-10-20T10:00:00Z"), updatedAt: new Date("2026-10-20T10:00:00Z"),
   },
   {
     id: "marketing-local", number: 11, title: "Marketing campaign", summary: "Marketing summary.", description: "Search phrase.",
-    status: "resolved", substatus: "published", track: "marketing", tenantId: "t1", projectId: "p1", isDeleted: false,
+    status: "resolved", substatus: "published", track: "marketing", organisationId: "t1", projectId: "p1", isDeleted: false,
     voteCount: 2, category: null, reward: 2, rewardEstimateCount: 0, rewardFixedAt: null,
     createdAt: new Date("2026-10-20T09:00:00Z"), updatedAt: new Date("2026-10-20T09:00:00Z"),
   },
   {
     id: "other-project", number: 12, title: "Product other project", summary: "Other project.", description: "Search phrase.",
-    status: "open", substatus: "open", track: "product", tenantId: "t1", projectId: "p2", isDeleted: false,
+    status: "open", substatus: "open", track: "product", organisationId: "t1", projectId: "p2", isDeleted: false,
     voteCount: 3, category: null, reward: 3, rewardEstimateCount: 0, rewardFixedAt: null,
     createdAt: new Date("2026-10-20T08:00:00Z"), updatedAt: new Date("2026-10-20T08:00:00Z"),
   },
   {
-    id: "other-tenant", number: 13, title: "Marketing other tenant", summary: "Other tenant.", description: "Search phrase.",
-    status: "open", substatus: "open", track: "marketing", tenantId: "t2", projectId: "p1", isDeleted: false,
+    id: "other-organisation", number: 13, title: "Marketing other organisation", summary: "Other organisation.", description: "Search phrase.",
+    status: "open", substatus: "open", track: "marketing", organisationId: "t2", projectId: "p1", isDeleted: false,
     voteCount: 4, category: null, reward: 4, rewardEstimateCount: 0, rewardFixedAt: null,
     createdAt: new Date("2026-10-20T07:00:00Z"), updatedAt: new Date("2026-10-20T07:00:00Z"),
   },
 ] as const;
 
 const countedBugs = [
-  { tenantId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open", substatus: "open" },
-  { tenantId: "t1", projectId: "p1", track: "marketing", isDeleted: false, status: "resolved", substatus: "published" },
+  { organisationId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open", substatus: "open" },
+  { organisationId: "t1", projectId: "p1", track: "marketing", isDeleted: false, status: "resolved", substatus: "published" },
 ] as const;
 const countedIdeas = [
-  { tenantId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open" },
-  { tenantId: "t1", projectId: "p1", track: "marketing", isDeleted: false, status: "rejected" },
+  { organisationId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open" },
+  { organisationId: "t1", projectId: "p1", track: "marketing", isDeleted: false, status: "rejected" },
 ] as const;
 
 function filterIssueRows(where: Record<string, unknown>) {
@@ -130,7 +130,7 @@ function filterIssueRows(where: Record<string, unknown>) {
     | { OR?: Array<{ title?: { contains?: string }; description?: { contains?: string } }> }
     | undefined;
   return listedIssues.filter((row) => {
-    if (row.tenantId !== where.tenantId || row.projectId !== where.projectId || row.track !== where.track) return false;
+    if (row.organisationId !== where.organisationId || row.projectId !== where.projectId || row.track !== where.track) return false;
     return !textSearch?.OR || textSearch.OR.some((condition) =>
       (condition.title?.contains && row.title.toLowerCase().includes(condition.title.contains.toLowerCase()))
       || (condition.description?.contains && row.description.toLowerCase().includes(condition.description.contains.toLowerCase())),
@@ -148,7 +148,7 @@ beforeEach(() => {
   db.category.findMany.mockResolvedValue([]);
   db.projectArea.findMany.mockResolvedValue([]);
   sessionUser.resolve.mockResolvedValue({ userId: "user-1" });
-  currentTenant.get.mockResolvedValue("t1");
+  currentOrganisation.get.mockResolvedValue("t1");
   activeProject.get.mockResolvedValue("p1");
   rateLimit.consume.mockResolvedValue({ allowed: true });
   db.idea.findMany.mockResolvedValue([idea]);
@@ -180,11 +180,11 @@ describe("creating an idea", () => {
     expect(insert).not.toHaveBeenCalled();
   });
 
-  it("flags a similar report in this tenant and project until it is acknowledged", async () => {
+  it("flags a similar report in this organisation and project until it is acknowledged", async () => {
     db.$queryRaw.mockResolvedValue([similarRow]);
     expect(await createIdeaWithPolicy(input())).toMatchObject({ status: 409, error: "similar_issues" });
     const values = (db.$queryRaw.mock.calls[0] as unknown[]).slice(1);
-    expect(values).toEqual(expect.arrayContaining(["tenant_zedu", "project_zedu"]));
+    expect(values).toEqual(expect.arrayContaining(["organisation_zedu", "project_zedu"]));
     expect(await createIdeaWithPolicy(input({ acknowledgeSimilar: true }))).toMatchObject({ status: 201 });
   });
 });
@@ -237,7 +237,7 @@ describe("seeing an idea", () => {
 
   it("lists the project's ideas and names a bad filter", async () => {
     const page = await listAgentIdeas(scope, new URLSearchParams("status=open"));
-    expect(db.idea.findMany.mock.calls[0][0].where).toMatchObject({ tenantId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open" });
+    expect(db.idea.findMany.mock.calls[0][0].where).toMatchObject({ organisationId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open" });
     expect(page.items[0]).toMatchObject({ id: "i1", convertible: true });
     await expect(listAgentIdeas(scope, new URLSearchParams("status=idea"))).rejects.toMatchObject({ status: 400 });
   });
@@ -248,7 +248,7 @@ describe("seeing an idea", () => {
     const page = await listAgentIdeas(scope, new URLSearchParams("track=marketing&status=rejected"));
 
     expect(db.idea.findMany.mock.calls.at(-1)?.[0].where).toMatchObject({
-      tenantId: "t1",
+      organisationId: "t1",
       projectId: "p1",
       track: "marketing",
       status: "rejected",
@@ -264,11 +264,11 @@ describe("seeing an idea", () => {
     expect(result.items).toHaveLength(1);
     const query = db.idea.findMany.mock.calls.at(-1)![0];
     expect(query.where.id).toEqual({ in: ["i1"] });
-    expect(query.where).toMatchObject({ tenantId: "t1", projectId: "p1", track: "product", isDeleted: false });
+    expect(query.where).toMatchObject({ organisationId: "t1", projectId: "p1", track: "product", isDeleted: false });
     expect(query.where).not.toHaveProperty("AND");
     expect(query.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
     expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "idea", tenantId: "t1", projectId: "p1", track: "product",
+      kind: "idea", organisationId: "t1", projectId: "p1", track: "product",
       sortBy: "createdAt:desc,sourceId:desc", perPage: 2,
     }));
   });
@@ -278,7 +278,7 @@ describe("seeing an idea", () => {
     expect(page.items).toHaveLength(1);
     expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({ kind: "idea", track: "marketing" }));
     expect(db.idea.findMany.mock.calls.at(-1)![0].where).toMatchObject({
-      tenantId: "t1", projectId: "p1", track: "marketing", isDeleted: false,
+      organisationId: "t1", projectId: "p1", track: "marketing", isDeleted: false,
     });
     expect(db.idea.findMany.mock.calls.at(-1)![0].where).toHaveProperty("AND");
   });
@@ -299,12 +299,12 @@ describe("listing issues by track", () => {
     db.bug.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => filterIssueRows(where));
   });
 
-  it("defaults to product, preserving the existing list while excluding other projects and tenants", async () => {
+  it("defaults to product, preserving the existing list while excluding other projects and organisations", async () => {
     const page = await listAgentIssues(scope, new URLSearchParams());
     const blankTrack = await listAgentIssues(scope, new URLSearchParams("track="));
 
     expect(db.bug.findMany.mock.calls[0][0].where).toMatchObject({
-      tenantId: "t1",
+      organisationId: "t1",
       projectId: "p1",
       track: "product",
     });
@@ -316,7 +316,7 @@ describe("listing issues by track", () => {
     const page = await listAgentIssues(scope, new URLSearchParams("track=marketing"));
 
     expect(db.bug.findMany.mock.calls[0][0].where).toMatchObject({
-      tenantId: "t1",
+      organisationId: "t1",
       projectId: "p1",
       track: "marketing",
     });
@@ -327,7 +327,7 @@ describe("listing issues by track", () => {
     const page = await listAgentIssues(scope, new URLSearchParams("track=marketing&q=search%20phrase"));
 
     expect(db.bug.findMany.mock.calls[0][0].where).toMatchObject({
-      tenantId: "t1",
+      organisationId: "t1",
       projectId: "p1",
       track: "marketing",
     });
@@ -343,12 +343,12 @@ describe("listing issues by track", () => {
     expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 
-  it("keeps a project-limited key inside its project and tenant", async () => {
+  it("keeps a project-limited key inside its project and organisation", async () => {
     const limitedAgent = {
       agentId: "agent-1",
       name: "Agent",
       ownerId: "owner-1",
-      tenantId: "t1",
+      organisationId: "t1",
       level: "working",
       burst: false,
       keyId: "key-1",
@@ -363,25 +363,25 @@ describe("listing issues by track", () => {
     db.project.findFirst.mockResolvedValue(null);
     await expect(issueProject(
       { ...limitedAgent, projectId: null },
-      new URLSearchParams("projectId=another-tenant-project"),
+      new URLSearchParams("projectId=another-organisation-project"),
     )).rejects.toMatchObject({ status: 404 });
     expect(db.project.findFirst.mock.calls.map(([args]) => args.where)).toEqual([
-      { id: "p2", tenantId: "t1" },
-      { id: "another-tenant-project", tenantId: "t1" },
+      { id: "p2", organisationId: "t1" },
+      { id: "another-organisation-project", organisationId: "t1" },
     ]);
     expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 });
 
 describe("counting issues by track", () => {
-  const groupedCounts = <T extends { tenantId: string; projectId: string; track: string; isDeleted: boolean }>(
+  const groupedCounts = <T extends { organisationId: string; projectId: string; track: string; isDeleted: boolean }>(
     rows: readonly T[],
     key: string,
     where: Record<string, unknown>,
   ) => {
     const values = new Map<string, number>();
     for (const row of rows) {
-      if (row.tenantId !== where.tenantId || row.projectId !== where.projectId || row.track !== where.track || row.isDeleted) continue;
+      if (row.organisationId !== where.organisationId || row.projectId !== where.projectId || row.track !== where.track || row.isDeleted) continue;
       const value = String((row as T & Record<string, unknown>)[key]);
       values.set(value, (values.get(value) ?? 0) + 1);
     }
@@ -418,8 +418,8 @@ describe("counting issues by track", () => {
 
 describe("issue suggestions by track", () => {
   const suggestionIssues = [
-    { id: "product-42", number: 42, title: "Product issue 42", status: "open", track: "product", tenantId: "t1", projectId: "p1", isDeleted: false, project: { slug: "acme", tenant: { slug: "acme" } } },
-    { id: "marketing-43", number: 43, title: "Marketing issue 43", status: "open", track: "marketing", tenantId: "t1", projectId: "p1", isDeleted: false, project: { slug: "acme", tenant: { slug: "acme" } } },
+    { id: "product-42", number: 42, title: "Product issue 42", status: "open", track: "product", organisationId: "t1", projectId: "p1", isDeleted: false, project: { slug: "acme", organisation: { slug: "acme" } } },
+    { id: "marketing-43", number: 43, title: "Marketing issue 43", status: "open", track: "marketing", organisationId: "t1", projectId: "p1", isDeleted: false, project: { slug: "acme", organisation: { slug: "acme" } } },
   ];
 
   beforeEach(() => {
@@ -427,7 +427,7 @@ describe("issue suggestions by track", () => {
       const matches = (where.OR as Array<{ number?: number; title?: { contains?: string } }> | undefined) ?? [];
       const ids = typeof where.id === "object" && where.id && "in" in where.id ? (where.id as { in: string[] }).in : null;
       return suggestionIssues.filter((row) =>
-        row.tenantId === where.tenantId
+        row.organisationId === where.organisationId
         && row.projectId === where.projectId
         && row.track === where.track
         && !row.isDeleted
@@ -515,7 +515,7 @@ describe("structuring an idea as it is submitted", () => {
 
 /** Already vetted: an idea the owner says was approved elsewhere skips the verdicts, with a note and a daily limit. */
 describe("already vetted ideas", () => {
-  const owner = { agentId: "agent1", name: "Ada's Claude", ownerId: "ada", tenantId: "t1", level: "working" as const, burst: false, keyId: "k1" };
+  const owner = { agentId: "agent1", name: "Ada's Claude", ownerId: "ada", organisationId: "t1", level: "working" as const, burst: false, keyId: "k1" };
 
   it("takes alreadyVetted only with a note saying where it was approved, and a note only with alreadyVetted", () => {
     expect(() => assertVettedFields({})).not.toThrow();

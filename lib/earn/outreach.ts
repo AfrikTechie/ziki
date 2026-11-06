@@ -127,10 +127,10 @@ export const EARN_REF_MAX_AGE = 60 * 60 * 24 * 30;
  * Traces a new account back to the business link it came from (#earn-outreach): a signed-in person whose
  * browser carries a link's note, whose account was made after that link was first opened, and who isn't the
  * earner themselves, is that business signing up. Each account counts for one business, once. Then, once that
- * account owns a workspace of its own (not Ziki Earn), the business has started a project. Safe to call on every
+ * account owns an organisation of its own (not Ziki Earn), the business has started a project. Safe to call on every
  * page: it only writes the first time each thing happens.
  */
-export async function syncReferral(db: Db, userId: string, code: string | null, earnTenantId: string | null) {
+export async function syncReferral(db: Db, userId: string, code: string | null, earnOrganisationId: string | null) {
   if (code) {
     const [contact, user] = await Promise.all([
       db.earnContact.findUnique({ where: { code }, select: { id: true, userId: true, signedUpUserId: true, openedAt: true, createdAt: true } }),
@@ -144,7 +144,7 @@ export async function syncReferral(db: Db, userId: string, code: string | null, 
   }
   const signedUp = await db.earnContact.findUnique({ where: { signedUpUserId: userId }, select: { id: true, startedAt: true } });
   if (signedUp && !signedUp.startedAt) {
-    const owned = await db.membership.count({ where: { userId, role: "owner", ...(earnTenantId ? { tenantId: { not: earnTenantId } } : {}) } });
+    const owned = await db.membership.count({ where: { userId, role: "owner", ...(earnOrganisationId ? { organisationId: { not: earnOrganisationId } } : {}) } });
     if (owned > 0) await db.earnContact.update({ where: { id: signedUp.id }, data: { startedAt: new Date() } });
   }
 }

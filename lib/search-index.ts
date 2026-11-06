@@ -22,7 +22,7 @@ export function searchOutboxPolicy(env: NodeJS.ProcessEnv = process.env) {
 
 export function bugSearchDocument(row: Bug): WorkItemDocument {
   return {
-    id: documentId("bug", row.id), sourceId: row.id, kind: "bug", tenantId: row.tenantId,
+    id: documentId("bug", row.id), sourceId: row.id, kind: "bug", organisationId: row.organisationId,
     projectId: row.projectId, track: row.track, number: row.number, numberText: String(row.number), title: row.title,
     description: row.description, status: row.status, substatus: row.substatus,
     substatusOrder: SUBSTATUS_ORDER.indexOf(row.substatus),
@@ -42,7 +42,7 @@ export function bugSearchDocument(row: Bug): WorkItemDocument {
 
 export function ideaSearchDocument(row: Idea): WorkItemDocument {
   return {
-    id: documentId("idea", row.id), sourceId: row.id, kind: "idea", tenantId: row.tenantId,
+    id: documentId("idea", row.id), sourceId: row.id, kind: "idea", organisationId: row.organisationId,
     projectId: row.projectId, track: row.track, number: row.number, numberText: String(row.number), title: row.title,
     description: row.description, status: row.status, typeId: row.typeId ?? undefined,
     areaId: row.areaId ?? undefined, substatusOrder: 0,
@@ -137,7 +137,7 @@ const CLAIM_ONE = `
   ) RETURNING claimed.*`;
 
 type OutboxEvent = {
-  id: bigint; kind: string; sourceId: string; action: string; tenantId: string | null;
+  id: bigint; kind: string; sourceId: string; action: string; organisationId: string | null;
   projectId: string | null; status: string; attempts: number; availableAt: Date;
   claimedAt: Date | null; processedAt: Date | null; lastError: string | null; createdAt: Date;
 };
@@ -264,14 +264,14 @@ export async function indexAllWorkItems(batchSize = 200, afterBatch?: () => Prom
   return totals;
 }
 
-export async function searchWorkItems(input: { query: string; kind: "bug" | "idea"; tenantId: string; projectId?: string; track?: string; includeDeleted?: boolean; page?: number; perPage?: number; sortBy?: string; queryBy?: string; extraFilters?: string[] }) {
+export async function searchWorkItems(input: { query: string; kind: "bug" | "idea"; organisationId: string; projectId?: string; track?: string; includeDeleted?: boolean; page?: number; perPage?: number; sortBy?: string; queryBy?: string; extraFilters?: string[] }) {
   // A configured endpoint is not enough: until durable capture is enabled,
   // the collection may be stale or empty and PostgreSQL must remain the path.
   typesenseConfig();
   const [control] = await prisma.$queryRaw<Array<{ indexingEnabled: boolean }>>`SELECT "indexingEnabled" FROM "SearchIndexControl" WHERE "id"=1`;
   if (!control?.indexingEnabled) throw new Error("Typesense indexing is disabled; use PostgreSQL search.");
   await ensureWorkItemsCollection();
-  const filters = [`kind:=${input.kind}`, `tenantId:=${input.tenantId}`];
+  const filters = [`kind:=${input.kind}`, `organisationId:=${input.organisationId}`];
   if (input.projectId) filters.push(`projectId:=${input.projectId}`);
   if (input.track) filters.push(`track:=${input.track}`);
   if (!input.includeDeleted) filters.push("isDeleted:=false");

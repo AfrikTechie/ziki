@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { optionalUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { missingProfileFields } from "@/lib/agents/work-gate";
 import { agentEditHref, AGENTS_DIRECTORY_HREF, MANAGE_AGENTS_HREF } from "@/lib/header-nav";
 import { agentsLink, agentsMutedClass, agentsPrimaryBtn, agentsSecondaryBtn, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
@@ -25,8 +25,8 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
  * An agent's public profile (#agent-profile), at /agent/{username}: anyone may
  * open it, signed in or not. Everyone sees the profile itself: picture, name,
  * rating, tagline, About me, What I can do for you and skills. What belongs to
- * its workspace stays there: who it works for, its projects and the reviews
- * and its activity (they name the workspace's issues) show to members, its
+ * its organisation stays there: who it works for, its projects and the reviews
+ * and its activity (they name the organisation's issues) show to members, its
  * activity collapsed until opened. Only they see the link to edit it, at /agent/{username}/edit.
  */
 export default async function AgentProfilePage({
@@ -45,8 +45,8 @@ export default async function AgentProfilePage({
   const isOwner = viewer?.id === found.ownerUserId;
   const [isAdmin, membership] = viewer
     ? await Promise.all([
-        isTenantAdmin(viewer, found.tenantId),
-        prisma.membership.findUnique({ where: { tenantId_userId: { tenantId: found.tenantId, userId: viewer.id } }, select: { userId: true } }),
+        isAdminOfOrganisation(viewer, found.organisationId),
+        prisma.membership.findUnique({ where: { organisationId_userId: { organisationId: found.organisationId, userId: viewer.id } }, select: { userId: true } }),
       ])
     : [false, null];
   const isMember = Boolean(membership) || isAdmin;
@@ -56,13 +56,13 @@ export default async function AgentProfilePage({
   if (!profile) notFound();
   const [reviews, ownAgents] = await Promise.all([
     isMember ? loadReviews(found.id, profile.deliveredBugIds) : Promise.resolve([]),
-    viewer ? loadOwnAgents(viewer.id, profile.tenantId, found.id) : Promise.resolve([]),
+    viewer ? loadOwnAgents(viewer.id, profile.organisationId, found.id) : Promise.resolve([]),
   ]);
   const reviewCount = isMember ? reviews.length : 0;
   // #seo-agents: structured data for a public (set-up, not revoked) profile only.
   const jsonLd = await agentProfileJsonLd(username);
   // Its key is its owner's alone: not even a team admin is shown it.
-  const ownerKey = isOwner && !profile.agent.revokedAt ? await loadOwnerKey(found.id, found.tenantId) : null;
+  const ownerKey = isOwner && !profile.agent.revokedAt ? await loadOwnerKey(found.id, found.organisationId) : null;
   const missing = missingProfileFields({ ...profile.agent, skillCount: profile.agent.skills.length });
   const blocked = !profile.agent.revokedAt && missing.length > 0;
 
@@ -82,7 +82,7 @@ export default async function AgentProfilePage({
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
         <div className="min-w-0 space-y-10">
-          <AgentProfileHeader agent={profile.agent} reviewCount={reviewCount} showWorkspace={isMember} />
+          <AgentProfileHeader agent={profile.agent} reviewCount={reviewCount} showOrganisation={isMember} />
 
           {isMember ? (
             <AgentReviews agentName={profile.agent.name} reviews={reviews} stats={<AgentStats counts={profile.agent.counts} />} />
@@ -92,11 +92,11 @@ export default async function AgentProfilePage({
                 Reviews and Activity
               </h2>
               <AgentStats counts={profile.agent.counts} />
-              <p className={agentsMutedClass}>Its reviews name its workspace&apos;s issues, so only that workspace&apos;s members see them.</p>
+              <p className={agentsMutedClass}>Its reviews name its organisation&apos;s issues, so only that organisation&apos;s members see them.</p>
             </section>
           )}
 
-          {/* Activity names its workspace's issues: members of that workspace only, never a guest. */}
+          {/* Activity names its organisation's issues: members of that organisation only, never a guest. */}
           {isMember ? <AgentActivity items={profile.activity} /> : null}
         </div>
 

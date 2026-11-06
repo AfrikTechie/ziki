@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth-helpers";
-import { isTenantAdmin } from "@/lib/agents/membership";
-import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
+import { currentOrganisationIdFor, NO_ORGANISATION_MESSAGE } from "@/lib/organisation-context";
 import { prisma } from "@/lib/prisma";
 import { nextProjectSlug, projectAreaSchema, urlSlugBase } from "@/app/(app)/projects/validation";
 
@@ -12,17 +12,17 @@ export type ProjectAreaActionResult = { ok: true } | { ok: false; error: string 
 
 async function projectSettingsAccess(slug: string) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { ok: false as const, error: NO_TENANT_MESSAGE };
-  if (!(await isTenantAdmin(user, tenantId))) {
-    return { ok: false as const, error: "Only workspace owners and admins can change project areas." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { ok: false as const, error: NO_ORGANISATION_MESSAGE };
+  if (!(await isAdminOfOrganisation(user, organisationId))) {
+    return { ok: false as const, error: "Only organisation owners and admins can change project areas." };
   }
   const project = await prisma.project.findFirst({
-    where: { tenantId, slug },
+    where: { organisationId, slug },
     select: { id: true, slug: true },
   });
   if (!project) return { ok: false as const, error: "Project not found." };
-  return { ok: true as const, user, tenantId, project };
+  return { ok: true as const, user, organisationId, project };
 }
 
 function revalidateProject(slug: string) {
@@ -77,7 +77,7 @@ export async function createProjectAreaAction(
         });
         await tx.projectAuditEvent.create({
           data: {
-            tenantId: access.tenantId,
+            organisationId: access.organisationId,
             projectId: access.project.id,
             actorUserId: access.user.id,
             action: "area.created",
@@ -122,7 +122,7 @@ export async function updateProjectAreaAction(
       await tx.projectArea.update({ where: { id: area.id }, data: parsed.data });
       await tx.projectAuditEvent.create({
         data: {
-          tenantId: access.tenantId,
+          organisationId: access.organisationId,
           projectId: access.project.id,
           actorUserId: access.user.id,
           action: "area.updated",
@@ -154,7 +154,7 @@ export async function deleteProjectAreaAction(
     await tx.projectArea.delete({ where: { id: area.id } });
     await tx.projectAuditEvent.create({
       data: {
-        tenantId: access.tenantId,
+        organisationId: access.organisationId,
         projectId: access.project.id,
         actorUserId: access.user.id,
         action: "area.deleted",

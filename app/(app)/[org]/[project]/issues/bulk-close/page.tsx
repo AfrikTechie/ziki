@@ -27,12 +27,12 @@ export default async function BulkClosePage({ params, searchParams }: {
 }) {
   const { org, project: slugParam } = await params;
   const query = await searchParams;
-  const { user, tenantId, project } = await requireProject(org, slugParam);
-  const agent = await awardingAgentOf(user.id, tenantId);
+  const { user, organisationId, project } = await requireProject(org, slugParam);
+  const agent = await awardingAgentOf(user.id, organisationId);
   const canClose = agent?.level === "manager" || agent?.level === "merger";
   const [bugs, workflow] = await Promise.all([
     prisma.bug.findMany({
-      where: { tenantId, projectId: project.id, ...PRODUCT_TRACK, isDeleted: false, ...POSSIBLY_DELIVERED_WHERE },
+      where: { organisationId, projectId: project.id, ...PRODUCT_TRACK, isDeleted: false, ...POSSIBLY_DELIVERED_WHERE },
       orderBy: { number: "asc" },
       take: 100,
       select: { id: true, number: true, title: true },

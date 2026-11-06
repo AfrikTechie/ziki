@@ -75,7 +75,7 @@ const fail = (status: 403 | 404 | 409 | 422, error: RepairError, message: string
 /** Replace issue `issueRef`'s linked pull request with one in the project's repository. */
 export async function repairPullRequestLink(
   agent: AgentContext,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   issueRef: string,
   input: Omit<RepairPullRequestInput, "projectId">,
 ): Promise<RepairResult> {
@@ -158,7 +158,7 @@ export async function repairPullRequestLink(
       { bugId: bug.id, db: tx },
     );
     await publish(tx, {
-      tenantId: scope.tenantId,
+      organisationId: scope.organisationId,
       type: "issue.updated",
       actorAgentId: agent.agentId,
       bugId: bug.id,

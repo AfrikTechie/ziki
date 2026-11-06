@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { updateProjectAction } from "@/app/(app)/projects/actions";
 import type { ProjectActionResult } from "@/app/(app)/projects/actions";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,9 @@ type Project = {
   repoUrl: string | null;
   stagingUrl: string | null;
   siteUrl: string | null;
+  visibility?: "public" | "private";
+  isOpenForContributors?: boolean;
+  contributorGuidelines?: string | null;
   rewardConfig?: unknown;
 };
 
@@ -27,6 +30,9 @@ export function ProjectSettingsForm({
   defaults?: ProjectRewardConfig | null;
 }) {
   const [result, action, pending] = useActionState<ProjectActionResult | undefined, FormData>(updateProjectAction, undefined);
+  const [visibility, setVisibility] = useState<"public" | "private">(project.visibility === "public" ? "public" : "private");
+  const [isOpenForContributors, setIsOpenForContributors] = useState(Boolean(project.isOpenForContributors));
+
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="slug" value={project.slug} />
@@ -51,6 +57,85 @@ export function ProjectSettingsForm({
         <Input id="project-staging-url" name="stagingUrl" type="url" inputMode="url" placeholder="https://staging.example.com" defaultValue={project.stagingUrl ?? ""} />
         {result?.field === "stagingUrl" ? <span className="text-xs text-zk-bad-fg">{result.fieldErrors?.stagingUrl ?? result.error}</span> : null}
       </label>
+
+      <div className="space-y-3 rounded-xl border border-zk-border bg-zk-card p-4">
+        <h4 className="text-sm font-semibold text-zk-text">Visibility and Collaboration</h4>
+        
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-zk-text cursor-pointer">
+            <input
+              type="radio"
+              name="visibility"
+              value="private"
+              checked={visibility === "private"}
+              onChange={() => {
+                setVisibility("private");
+                setIsOpenForContributors(false);
+              }}
+              className="text-zk-accent focus:ring-zk-accent"
+            />
+            <span>Private</span>
+          </label>
+          <p className="text-xs text-zk-muted pl-6">
+            Only members of this organisation can view, open, and contribute to this project.
+          </p>
+
+          <label className="flex items-center gap-2 text-sm font-medium text-zk-text cursor-pointer">
+            <input
+              type="radio"
+              name="visibility"
+              value="public"
+              checked={visibility === "public"}
+              onChange={() => setVisibility("public")}
+              className="text-zk-accent focus:ring-zk-accent"
+            />
+            <span>Public</span>
+          </label>
+          <p className="text-xs text-zk-muted pl-6">
+            Listed on /discover and readable by any signed-in user. Non-members can view issues, ideas, and notes in read-only mode unless accepted as contributors.
+          </p>
+        </div>
+
+        {visibility === "public" ? (
+          <div className="pt-2 border-t border-zk-border space-y-3">
+            <div>
+              <label htmlFor="project-open-collaboration" className="flex items-center gap-2 text-sm font-medium text-zk-text cursor-pointer">
+                <input
+                  id="project-open-collaboration"
+                  type="checkbox"
+                  name="isOpenForContributors"
+                  value="true"
+                  checked={isOpenForContributors}
+                  onChange={(e) => setIsOpenForContributors(e.target.checked)}
+                  className="rounded border-zk-border text-zk-accent focus:ring-zk-accent"
+                />
+                <span>Open for collaboration</span>
+              </label>
+              <p className="mt-1 text-xs text-zk-muted pl-6">
+                Allow external signed-in contributors to apply to join this project.
+              </p>
+            </div>
+
+            {isOpenForContributors ? (
+              <label htmlFor="project-guidelines" className="block space-y-1 text-sm font-medium text-zk-text">
+                Contributor guidelines
+                <Textarea
+                  id="project-guidelines"
+                  name="contributorGuidelines"
+                  defaultValue={project.contributorGuidelines ?? ""}
+                  placeholder="Explain guidelines or requirements for external contributors..."
+                  maxLength={4000}
+                  rows={4}
+                  aria-describedby="project-guidelines-hint"
+                />
+                <span id="project-guidelines-hint" className="block text-xs font-normal text-zk-muted">
+                  Optional guidelines shown to applicants when requesting to join. Maximum 4,000 characters.
+                </span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       <ProjectRewardRulesSection
         initialConfig={project.rewardConfig as ProjectRewardConfig | null}

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { LocalTime } from "@/components/local-time";
 import { useToast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
-import { createInviteAction, type CreateInviteActionResult } from "@/app/(app)/tenants/actions";
+import { createInviteAction, type CreateInviteActionResult } from "@/app/(app)/organisations/actions";
 
 const FORM_ID = "invite";
 
@@ -28,7 +28,7 @@ function deliveryNote(sent: Sent): string {
  * An owner or admin invites someone by email (#444). The link is shown here
  * once: only its hash is stored, so it can't be shown again.
  */
-export function InviteForm({ tenantId }: { tenantId: string }) {
+export function InviteForm({ organisationId }: { organisationId: string }) {
   const formRef = useRef<HTMLFormElement>(null);
   const toast = useToast();
   const { fieldErrors, show, clear, attrs } = useFieldErrors(FORM_ID, formRef);
@@ -98,7 +98,7 @@ export function InviteForm({ tenantId }: { tenantId: string }) {
 
   return (
     <form ref={formRef} action={action} className="mt-4 space-y-1" noValidate>
-      <input type="hidden" name="tenantId" value={tenantId} />
+      <input type="hidden" name="organisationId" value={organisationId} />
       <label htmlFor="invite-email" className="block text-sm font-medium text-zk-text">
         Email address
       </label>

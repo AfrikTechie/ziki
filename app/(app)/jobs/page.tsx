@@ -1,24 +1,24 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantAccess } from "@/lib/tenant-access";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { CreateJobForm } from "@/components/create-job-form";
 import { formatZ } from "@/lib/points/rules";
 
 export const dynamic = "force-dynamic";
 
-/** Research jobs for the current organization (#617). */
+/** Research jobs for the current organisation (#617). */
 export default async function JobsPage() {
   const user = await requireUser();
-  const [tenantId, access] = await Promise.all([
-    currentTenantIdFor(user.id),
-    currentTenantAccess(user.id, user.role),
+  const [organisationId, access] = await Promise.all([
+    currentOrganisationIdFor(user.id),
+    currentOrganisationAccess(user.id, user.role),
   ]);
 
-  const jobs = tenantId
+  const jobs = organisationId
     ? await prisma.job.findMany({
-        where: { tenantId },
+        where: { organisationId },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 100,
         select: {

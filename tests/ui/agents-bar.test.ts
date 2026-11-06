@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { dockVisibleOn, leaderboardInMenu, leaderboardVisible } from "@/lib/agents-dock";
+import { dockVisibleOn, leaderboardVisible } from "@/lib/agents-dock";
 import { projectRef } from "@/lib/project-paths";
 import { parseDismissed, withDismissed } from "@/lib/onboarding";
-import { NEXT_STEP_COOKIE, workspaceNextStep, type WorkspaceNextStepInput } from "@/lib/workspace-next-step";
+import { NEXT_STEP_COOKIE, organisationNextStep, type OrganisationNextStepInput } from "@/lib/organisation-next-step";
 
 const ref = projectRef("zedu", "acme");
 
 /**
  * The agents bar (#agents-dock): which pages draw it, when the Leaderboard
  * link is worth showing, and the one next step
- * a workspace card names in place of the empty bar. Pure rules.
+ * a organisation card names in place of the empty bar. Pure rules.
  */
 
 describe("dockVisibleOn: where the agents bar shows", () => {
@@ -28,7 +28,6 @@ describe("dockVisibleOn: where the agents bar shows", () => {
     "/inbox",
     "/inbox/escalations/abc",
     "/home",
-    "/activity",
     "/feed",
   ])("shows on %s when you have agents", (path) => {
     expect(dockVisibleOn(path, 1)).toBe(true);
@@ -51,7 +50,6 @@ describe("dockVisibleOn: where the agents bar shows", () => {
 
   it.each([
     "/settings",
-    "/settings/profile",
     "/settings/agents",
     "/settings/agent/robo",
     "/projects/acme/settings",
@@ -61,8 +59,8 @@ describe("dockVisibleOn: where the agents bar shows", () => {
     "/superadmin",
     "/superadmin/users",
     "/superadmin/orgs/acme",
-    "/tenants",
-    "/tenants/invite/abc",
+    "/organisations",
+    "/organisations/invite/abc",
     "/security",
     "/points/disputes",
     "/points/disputes/new",
@@ -75,7 +73,7 @@ describe("dockVisibleOn: where the agents bar shows", () => {
   });
 
   it("hides everywhere when you have no agents", () => {
-    for (const path of ["/zedu/acme", "/zedu/acme/issues", "/zedu/acme/42", "/zedu/acme/workstream", "/inbox", "/home", "/activity", "/feed", "/agents/mine", "/settings", "/docs"]) {
+    for (const path of ["/zedu/acme", "/zedu/acme/issues", "/zedu/acme/42", "/zedu/acme/workstream", "/inbox", "/home", "/feed", "/agents/mine", "/settings", "/docs"]) {
       expect(dockVisibleOn(path, 0)).toBe(false);
     }
   });
@@ -90,10 +88,9 @@ describe("dockVisibleOn: where the agents bar shows", () => {
     expect(dockVisibleOn("/zedu/acme/42x", 1)).toBe(false);
     expect(dockVisibleOn("/zedu/acme/organisation", 1)).toBe(false);
     expect(dockVisibleOn("/homepage", 1)).toBe(false);
-    // Home, feed and activity are those pages only, not what sits below them.
+    // Home and feed are those pages only, not what sits below them.
     expect(dockVisibleOn("/home/extra", 1)).toBe(false);
     expect(dockVisibleOn("/feed/x", 1)).toBe(false);
-    expect(dockVisibleOn("/activity/x", 1)).toBe(false);
     // A project that happens to be called "feeds" is a project: its landing page is a work page.
     expect(dockVisibleOn("/zedu/feeds", 1)).toBe(true);
     // Under issues, whatever it is.
@@ -167,7 +164,7 @@ describe("dockVisibleOn: where the agents bar shows", () => {
 });
 
 describe("leaderboardVisible: you can't be the only person on a leaderboard", () => {
-  it("hides it for a one-member workspace", () => {
+  it("hides it for a one-member organisation", () => {
     expect(leaderboardVisible(1)).toBe(false);
     expect(leaderboardVisible(0)).toBe(false);
   });
@@ -183,31 +180,8 @@ describe("leaderboardVisible: you can't be the only person on a leaderboard", ()
   });
 });
 
-describe("leaderboardInMenu: the account menu only offers what the bar isn't showing", () => {
-  it("is in the menu when the bar isn't drawn (no agents, or a page that hides it)", () => {
-    expect(leaderboardInMenu("/zedu/acme/issues", 0, 5)).toBe(true);
-    expect(leaderboardInMenu("/settings", 2, 5)).toBe(true);
-    expect(leaderboardInMenu("/agents/mine", 2, 5)).toBe(true);
-  });
-
-  it("is left out when the bar is showing it", () => {
-    expect(leaderboardInMenu("/zedu/acme/issues", 1, 5)).toBe(false);
-    expect(leaderboardInMenu("/home", 3, 2)).toBe(false);
-  });
-
-  it("is never offered in a workspace of one member, bar or no bar", () => {
-    expect(leaderboardInMenu("/zedu/acme/issues", 0, 1)).toBe(false);
-    expect(leaderboardInMenu("/settings", 2, 1)).toBe(false);
-  });
-
-  it("is offered when the member count is unknown and the bar isn't there", () => {
-    expect(leaderboardInMenu("/settings", 0, null)).toBe(true);
-    expect(leaderboardInMenu("/zedu/acme/issues", 1, null)).toBe(false);
-  });
-});
-
-describe("workspaceNextStep: the one next thing, from who you are", () => {
-  const base: WorkspaceNextStepInput = {
+describe("organisationNextStep: the one next thing, from who you are", () => {
+  const base: OrganisationNextStepInput = {
     slug: ref,
     membershipRole: "owner",
     appRole: "user",
@@ -217,7 +191,7 @@ describe("workspaceNextStep: the one next thing, from who you are", () => {
     pendingInvites: 0,
     dismissed: false,
   };
-  const ask = (over: Partial<WorkspaceNextStepInput>) => workspaceNextStep({ ...base, ...over });
+  const ask = (over: Partial<OrganisationNextStepInput>) => organisationNextStep({ ...base, ...over });
 
   it("tells an owner with no agents to connect one", () => {
     const card = ask({});
@@ -254,7 +228,7 @@ describe("workspaceNextStep: the one next thing, from who you are", () => {
     expect(ask({ agentCount: 1, memberCount: 1, membershipRole: "admin" })).toBeNull();
   });
 
-  it("says nothing when you aren't a member of the workspace", () => {
+  it("says nothing when you aren't a member of the organisation", () => {
     expect(ask({ membershipRole: null })).toBeNull();
   });
 
@@ -264,13 +238,13 @@ describe("workspaceNextStep: the one next thing, from who you are", () => {
     expect(ask({ dismissed: true, agentCount: 1, memberCount: 1 })).toBeNull();
   });
 
-  it("treats the site super admin as an admin of the workspace", () => {
+  it("treats the site super admin as an admin of the organisation", () => {
     expect(ask({ membershipRole: "member", appRole: "super_admin" })?.id).toBe("connect-agent");
   });
 });
 
 describe("the next-step card's dismissal cookie", () => {
-  it("is kept per workspace, newest last", () => {
+  it("is kept per organisation, newest last", () => {
     expect(NEXT_STEP_COOKIE).toBe("ziki_next_step_dismissed");
     const once = withDismissed(undefined, "t1");
     const twice = withDismissed(once, "t2");

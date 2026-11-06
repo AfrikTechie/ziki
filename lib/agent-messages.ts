@@ -1,18 +1,18 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import type { Actor } from "@/lib/agents/registry";
 import { parseEscalationBody } from "@/lib/agent-questions";
 
 /**
  * A person writing to an agent (#605). `AgentQuestion` goes agent → owner;
  * this goes the other way: "focus on desktop bugs today", "stop working on
- * #212". The owner, or an admin of the agent's tenant, sends a message; the
+ * #212". The owner, or an admin of the agent's organisation, sends a message; the
  * agent reads it as an inbox item of kind `message`. The owner also keeps a
  * standing brief on `Agent.instructions`, returned by `GET /api/v1/agents/me`.
  *
- * Messages are not tenant events: the feed is tenant-wide and a message is
+ * Messages are not organisation events: the feed is organisation-wide and a message is
  * meant for one agent, so the body only goes to that agent's inbox.
  */
 
@@ -30,15 +30,15 @@ export type AgentMessageResult<T = object> = ({ ok: true } & T) | { ok: false; e
 
 const NOT_FOUND = "That agent doesn't exist, or it isn't yours to message.";
 
-/** The agent, and whether the actor may write to it: its owner or an admin of its tenant. */
+/** The agent, and whether the actor may write to it: its owner or an admin of its organisation. */
 async function writableAgent(actor: Actor, agentId: string) {
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
-    select: { id: true, name: true, tenantId: true, ownerUserId: true, revokedAt: true, instructions: true },
+    select: { id: true, name: true, organisationId: true, ownerUserId: true, revokedAt: true, instructions: true },
   });
   if (!agent) return null;
   const isOwner = agent.ownerUserId === actor.id;
-  if (!isOwner && !(await isTenantAdmin(actor, agent.tenantId))) return null;
+  if (!isOwner && !(await isAdminOfOrganisation(actor, agent.organisationId))) return null;
   return { agent, isOwner };
 }
 
@@ -68,13 +68,13 @@ export async function sendAgentMessage(
         payload: {
           messageId: created.id,
           agentId,
-          from: { type: "user", id: actor.id, name: actor.name ?? null, role: isOwner ? "owner" : "tenant_admin" },
+          from: { type: "user", id: actor.id, name: actor.name ?? null, role: isOwner ? "owner" : "organisation_admin" },
           body: parsed.data.body,
         },
         createdAt: created.createdAt,
       },
     });
-    await audit({ agentId, tenantId: agent.tenantId }, "message.sent", created.id, { by: isOwner ? "owner" : "tenant_admin" }, {
+    await audit({ agentId, organisationId: agent.organisationId }, "message.sent", created.id, { by: isOwner ? "owner" : "organisation_admin" }, {
       db: tx,
       actorUserId: actor.id,
     });
@@ -96,7 +96,7 @@ export async function setAgentInstructions(actor: Actor, agentId: string, input:
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({ where: { id: agentId }, data: { instructions } });
     await audit(
-      { agentId, tenantId: writable.agent.tenantId },
+      { agentId, organisationId: writable.agent.organisationId },
       "agent.instructions_changed",
       `agent:${agentId}`,
       { length: instructions?.length ?? 0 },
@@ -136,7 +136,7 @@ export type AgentThreadEntry =
       answer: string | null;
       answeredAt: Date | null;
       createdAt: Date;
-      bug: { id: string; number: number; title: string; project: { slug: string; tenant: { slug: string } } } | null;
+      bug: { id: string; number: number; title: string; project: { slug: string; organisation: { slug: string } } } | null;
     }
   | {
       kind: "message";
@@ -167,7 +167,7 @@ export async function listAgentThread(actor: Actor, agentId: string, take = 100)
             answer: true,
             answeredAt: true,
             createdAt: true,
-            bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+            bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
           },
         })
       : Promise.resolve([]),

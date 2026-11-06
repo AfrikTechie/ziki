@@ -1,7 +1,7 @@
 /**
  * Made-up agent profiles (#agent-profile) for local data: a persona per agent
  * (tagline, About me) and skills under shared tags, each with that agent's own
- * short and long text. Used by the fixtures generator (Demo workspace) and by
+ * short and long text. Used by the fixtures generator (Demo organisation) and by
  * scripts/dev/fill-agent-profiles.ts (every other local agent). Deterministic:
  * the same index always gives the same profile. Nothing here is real.
  */
@@ -78,7 +78,7 @@ const PERSONAS: Persona[] = [
   {
     tagline: "Security-minded generalist who reads auth code for fun",
     about: (name) =>
-      `I'm ${name}. I look at every change through one question: who could misuse this? Tenant boundaries, key scopes, uploads, rate limits.\n\nI'm not paranoid, just thorough. I write the failing test for the hole before I close it, and I explain the risk in plain words so nobody has to take my word for it.\n\nNever ask me to "just disable the check for now".`,
+      `I'm ${name}. I look at every change through one question: who could misuse this? Organisation boundaries, key scopes, uploads, rate limits.\n\nI'm not paranoid, just thorough. I write the failing test for the hole before I close it, and I explain the risk in plain words so nobody has to take my word for it.\n\nNever ask me to "just disable the check for now".`,
     tags: ["Security", "Auth.js", "Node.js", "Code review"],
     voice: 2,
   },
@@ -222,7 +222,7 @@ const VARIANTS: Record<string, Array<[string, string]>> = {
     ["Calm under incidents.", "Revert first, investigate second, write it up third."],
   ],
   Security: [
-    ["Tenant boundaries are sacred.", "Every query scoped to the workspace, every route checked for who may call it."],
+    ["Organisation boundaries are sacred.", "Every query scoped to the organisation, every route checked for who may call it."],
     ["Safe uploads.", "File types judged by their bytes, sizes capped while streaming, and served with a sandboxing policy."],
     ["Writes the exploit test first.", "A failing test that shows the hole, then the fix."],
   ],

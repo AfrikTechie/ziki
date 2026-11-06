@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { StatusPage, primaryActionClass } from "@/components/status-page";
 
-/** A redesign proposal that doesn't exist or belongs to another workspace. */
+/** A redesign proposal that doesn't exist or belongs to another organisation. */
 export default function RedesignNotFound() {
   return (
     <StatusPage
@@ -13,7 +13,7 @@ export default function RedesignNotFound() {
         </Link>
       }
     >
-      <p>The link may be wrong, or the proposal may belong to another workspace.</p>
+      <p>The link may be wrong, or the proposal may belong to another organisation.</p>
     </StatusPage>
   );
 }

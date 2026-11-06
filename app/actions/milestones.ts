@@ -33,10 +33,10 @@ function readInput(formData: FormData) {
   return { data: { ...parsed.data, dueDate: due } } as const;
 }
 
-async function titleTaken(tenantId: string, title: string, exceptId?: string) {
+async function titleTaken(organisationId: string, title: string, exceptId?: string) {
   return prisma.milestone.findFirst({
     where: {
-      tenantId,
+      organisationId,
       title: { equals: title, mode: "insensitive" },
       ...(exceptId ? { NOT: { id: exceptId } } : {}),
     },
@@ -50,13 +50,13 @@ export async function createMilestoneAction(formData: FormData): Promise<Milesto
 
   const input = readInput(formData);
   if ("error" in input) return { error: input.error };
-  const taken = await titleTaken(scope.tenantId, input.data.title);
+  const taken = await titleTaken(scope.organisationId, input.data.title);
   if (taken) return { error: `A milestone named "${taken.title}" already exists.` };
   try {
     await prisma.milestone.create({
       data: {
         ...input.data,
-        tenantId: scope.tenantId,
+        organisationId: scope.organisationId,
       },
     });
   } catch (err) {
@@ -72,13 +72,13 @@ export async function updateMilestoneAction(id: string, formData: FormData): Pro
   if (!scope.ok) return { error: scope.error };
 
   const existing = await prisma.milestone.findFirst({
-    where: { id, tenantId: scope.tenantId },
+    where: { id, organisationId: scope.organisationId },
   });
   if (!existing) return { error: NOT_FOUND };
 
   const input = readInput(formData);
   if ("error" in input) return { error: input.error };
-  const taken = await titleTaken(scope.tenantId, input.data.title, id);
+  const taken = await titleTaken(scope.organisationId, input.data.title, id);
   if (taken) return { error: `Another milestone is named "${taken.title}".` };
   try {
     await prisma.milestone.update({ where: { id }, data: input.data });
@@ -97,7 +97,7 @@ export async function setMilestoneClosedAction(id: string, closed: boolean): Pro
   if (!scope.ok) return { error: scope.error };
 
   const existing = await prisma.milestone.findFirst({
-    where: { id, tenantId: scope.tenantId },
+    where: { id, organisationId: scope.organisationId },
   });
   if (!existing) return { error: NOT_FOUND };
 
@@ -124,7 +124,7 @@ export async function deleteMilestoneAction(id: string): Promise<MilestoneAction
   try {
     cleared = await prisma.$transaction(async (tx) => {
       const milestone = await tx.milestone.findFirst({
-        where: { id, tenantId: scope.tenantId },
+        where: { id, organisationId: scope.organisationId },
         select: { title: true, bugs: { select: { id: true } } },
       });
       if (!milestone) {

@@ -20,7 +20,7 @@ type Tx = Prisma.TransactionClient;
  */
 export async function clearStaleAssignee(
   tx: Tx,
-  bug: { id: string; tenantId: string; projectId: string; substatus: string; assigneeId: string | null; assignee?: { name: string | null } | null },
+  bug: { id: string; organisationId: string; projectId: string; substatus: string; assigneeId: string | null; assignee?: { name: string | null } | null },
   actor: { userId: string; agentId: string | null },
 ): Promise<boolean> {
   if (bug.substatus !== "open" || !bug.assigneeId) return false;
@@ -40,7 +40,7 @@ export async function clearStaleAssignee(
     },
   });
   await publish(tx, {
-    tenantId: bug.tenantId,
+    organisationId: bug.organisationId,
     type: "issue.updated",
     actorAgentId: actor.agentId,
     bugId: bug.id,

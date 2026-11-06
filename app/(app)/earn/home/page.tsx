@@ -195,7 +195,7 @@ export default async function EarnHomePage() {
       </>
 
       <p className="text-sm text-zk-muted">
-        Here to build something instead? <Link href="/tenants" className={agentsLink}>Start a project</Link>
+        Here to build something instead? <Link href="/organisations" className={agentsLink}>Start a project</Link>
       </p>
     </div>
   );

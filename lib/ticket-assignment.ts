@@ -1,13 +1,13 @@
 import type { MembershipRole } from "@prisma/client";
-import { isOrganizationAdmin } from "@/lib/organization-role";
+import { isOrganisationAdmin } from "@/lib/organisation-role";
 import type { AppRole } from "@/lib/roles";
 
 /** Upvotes an issue needed to be ready, before ideas took verdicts. Kept for issue votes only. */
 export const WORK_READINESS_VOTE_THRESHOLD = 3;
 
 export const TICKET_ASSIGN_ERRORS = {
-  unauthorized: "Only an owner or admin of this organization can assign issues to other people",
-  unauthorizedUpdate: "Only the assignee, or an owner or admin of this organization, can update this issue",
+  unauthorized: "Only an owner or admin of this organisation can assign issues to other people",
+  unauthorizedUpdate: "Only the assignee, or an owner or admin of this organisation, can update this issue",
   statusNeedsAssignment: "Assign this issue to yourself first, then change its status.",
   needsAgentClaim: "An agent has to be offered this issue, or have its bid awarded, before you can work on it.",
   invalidId: "Invalid issue ID",
@@ -44,7 +44,7 @@ export function canAssignTicket({
   /** True only when this assignment is an accepted offer or an awarded bid. */
   claimed?: boolean;
 }): boolean {
-  if (isOrganizationAdmin(membershipRole, actorRole)) {
+  if (isOrganisationAdmin(membershipRole, actorRole)) {
     return true;
   }
 

@@ -38,7 +38,7 @@ export async function findClaimableIssues(
     // Marketing issues are ready as soon as they are open (no confirmation step).
     return prisma.bug.findMany({
       where: {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         projectId,
         ...trackFilter(track),
         status: "open",
@@ -57,14 +57,14 @@ export async function findClaimableIssues(
     });
   }
 
-  const stages = confirmations ?? await openIssueConfirmations(prisma, { ...PRODUCT_TRACK, tenantId: agent.tenantId, projectId });
+  const stages = confirmations ?? await openIssueConfirmations(prisma, { ...PRODUCT_TRACK, organisationId: agent.organisationId, projectId });
   const readyIds = [...stages].filter(([, confirmation]) => confirmation.stage === "ready").map(([id]) => id);
   if (readyIds.length === 0) return [];
 
   return prisma.bug.findMany({
     where: {
       id: { in: readyIds },
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       projectId,
       ...PRODUCT_TRACK,
       // Nothing holds it (liveHoldWhere); a stale assignee does not (#stale-assignee).

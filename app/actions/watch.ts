@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { prisma } from "@/lib/prisma";
-import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
+import { bugInOrganisation, currentOrganisationIdFor } from "@/lib/organisation-context";
 import { requireUser } from "@/lib/auth-helpers";
 import { finishedWatchedWhere } from "@/lib/watching";
 
@@ -14,10 +14,25 @@ export async function setWatchingAction(
 ): Promise<{ ok?: boolean; error?: string }> {
   const user = await requireUser();
   const bug = await prisma.bug.findUnique({
-    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(user.id)) },
-    select: { id: true, isDeleted: true },
+    where: { id: bugId },
+    select: { id: true, isDeleted: true, organisationId: true, projectId: true, project: { select: { visibility: true } } },
   });
   if (!bug || bug.isDeleted) return { error: "Issue not found" };
+
+  const canAccess =
+    user.role === "super_admin" ||
+    bug.project.visibility === "public" ||
+    Boolean(
+      await prisma.projectMembership.findFirst({
+        where: { projectId: bug.projectId, userId: user.id },
+        select: { id: true },
+      }) ||
+      await prisma.membership.findFirst({
+        where: { organisationId: bug.organisationId, userId: user.id },
+        select: { id: true },
+      })
+    );
+  if (!canAccess) return { error: "Issue not found" };
 
   await prisma.issueWatch.upsert({
     where: { userId_bugId: { userId: user.id, bugId } },
@@ -47,7 +62,14 @@ export async function unwatchFinishedAction(): Promise<{
 }> {
   const user = await requireUser();
   const bugs = await prisma.bug.findMany({
-    where: { ...finishedWatchedWhere(user.id), ...bugInTenant(await currentTenantIdFor(user.id)) },
+    where: {
+      ...finishedWatchedWhere(user.id),
+      OR: [
+        { organisation: { memberships: { some: { userId: user.id } } } },
+        { project: { memberships: { some: { userId: user.id } } } },
+        { project: { visibility: "public" } },
+      ],
+    },
     select: { id: true },
   });
   const ids = bugs.map((b) => b.id);

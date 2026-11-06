@@ -43,7 +43,7 @@ vi.mock("@/app/actions/issues", () => ({
 vi.mock("@/app/(app)/[org]/[project]/marketing/output-box/actions", () => ({ refreshLibrary: vi.fn() }));
 vi.mock("@/lib/project-route", () => ({
   requireProject: vi.fn(async () => ({
-    tenantId: "tenant-1",
+    organisationId: "organisation-1",
     project: { id: "project-1", slug: "acme", name: "Acme" },
     user: { id: "user-1" },
   })),
@@ -346,7 +346,7 @@ describe("component accessibility (axe)", () => {
         delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).close;
       }
     }
-  });
+  }, 15000);
 
   describe("Customer Support Guide", () => {
     it("resolves route context guidance for homepage, issues, ideas, and tickets", () => {

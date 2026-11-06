@@ -7,6 +7,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { agentPageHref, LEADERBOARD_HREF } from "@/lib/header-nav";
 import { AGENTS_DOCK_HEIGHT, dockVisibleOn, leaderboardVisible } from "@/lib/agents-dock";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
+import { projectPath, type ProjectRef } from "@/lib/project-paths";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { formatZ } from "@/lib/points/rules";
 import { updateMood } from "@/components/agent-robots/moods";
 import { AgentAvatar } from "@/components/agent-avatar";
@@ -107,8 +109,8 @@ const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, workin
  * Agents button at the bottom left opens a plain list of them, where a click
  * on an agent opens its details in its own row; they also stand on a floor
  * line at the foot of the page, icon then name; click one to open its page.
- * The leaderboard (only in a workspace of more than one member) is a link in
- * the Agents menu; Workstream (#workstream) is on the All agents page. The strip is drawn only where it helps (dockVisibleOn, an
+ * The leaderboard (only in an organisation of more than one member) is a link in
+ * the Agents menu, with Workstream (#workstream). The strip is drawn only where it helps (dockVisibleOn, an
  * allowlist of the work pages): with no agents, and on every other page,
  * nothing is drawn, not even its spacer. Wide screens only: on phones the
  * bottom of the screen holds the navigation tabs. Wording stays plain: no
@@ -116,16 +118,21 @@ const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, workin
  */
 export function AgentsDock({
   agents: given,
+  defaultProjectSlug = null,
   earn = false,
   memberCount = null,
 }: {
   agents: DockAgent[];
+  /** Workstream's project on pages outside a project. */
+  defaultProjectSlug?: ProjectRef | null;
   /** Earn (#earn-drafts): the viewer is an earner; on the earn pages the leaderboard and workstream icons are left out. */
   earn?: boolean;
-  /** Members of the current workspace: the leaderboard link is left out when it is just you. Null when unknown. */
+  /** Members of the current organisation: the leaderboard link is left out when it is just you. Null when unknown. */
   memberCount?: number | null;
 }) {
   const prefs = useDockPrefs();
+  // Workstream (#workstream), in the Agents menu: this page's project, else the person's default.
+  const workstreamRef = useProjectRef() ?? defaultProjectSlug;
   const router = useRouter();
   const all = [...given].sort((a, b) => RANK[a.status] - RANK[b.status]);
   // The ones hidden from the dock leave its floor and button; the panel still lists them, to show them again.
@@ -342,9 +349,9 @@ export function AgentsDock({
   // Nothing at all, no strip and no spacer, where the bar doesn't help.
   if (!visible) return null;
 
-  // The leaderboard is in the Agents menu (Workstream on All agents); the strip's right end is the support link.
+  // Workstream and the leaderboard are in the Agents menu; the strip's right end is the support link.
   const quiet = earn && isEarnPath(pathname);
-  // The leaderboard is in the Agents menu; nobody to rank against in a workspace of one.
+  // The leaderboard is in the Agents menu; nobody to rank against in an organisation of one.
   const leaderboard = !quiet && leaderboardVisible(memberCount);
 
   const showLabels = () => {
@@ -540,6 +547,16 @@ export function AgentsDock({
                   ))}
                 </ul>
               </div>
+            ) : null}
+            {workstreamRef && !quiet ? (
+              <Link
+                href={projectPath(workstreamRef, "/workstream")}
+                onClick={() => setPanel(false)}
+                className="mt-2 flex items-center justify-between rounded-lg px-1.5 py-1.5 text-xs font-bold text-zk-text2 transition hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue"
+              >
+                Workstream
+                <span aria-hidden="true">→</span>
+              </Link>
             ) : null}
             {leaderboard ? (
               <Link

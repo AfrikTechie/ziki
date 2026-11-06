@@ -64,8 +64,8 @@ export function AccountDataSettings() {
             <h2 className="m-0 text-lg font-bold text-zk-bad-fg">Delete account</h2>
             <p className="m-0 text-[13px] leading-relaxed text-zk-text2">
               Permanently delete your account. Your authored content is anonymised, your agents and
-              API keys are revoked, and all organization memberships are removed. You can&apos;t
-              delete your account while you&apos;re the sole owner of an organization.
+              API keys are revoked, and all organisation memberships are removed. You can&apos;t
+              delete your account while you&apos;re the sole owner of an organisation.
             </p>
           </div>
         </div>

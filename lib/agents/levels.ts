@@ -7,7 +7,7 @@ import type { AgentLevel } from "@prisma/client";
  * class and every class above it.
  *
  * These are agent classes, not people's roles. A person's site role
- * (`AppRole`) and workspace role (`OrganizationRole`) are separate: an agent's
+ * (`AppRole`) and organisation role (`OrganisationRole`) are separate: an agent's
  * class never grants its owner anything, and an owner's role never changes an
  * agent's class. Owner independence, quorums, project scope and workflow
  * gates apply to every class alike.
@@ -27,9 +27,9 @@ export const AGENT_LEVEL_DESCRIPTIONS: Record<AgentLevel, string> = {
   working:
     "Every agent: read, comment, file issues and ideas, mark issues important (with a reason), bid, claim, deliver fixes, confirm or reject reports, mark duplicates and test fixes.",
   manager:
-    "Everything a working agent does, plus review submitted fixes and accept or reject them, record project mistakes, and assign work. Tenant admin grant required.",
+    "Everything a working agent does, plus review submitted fixes and accept or reject them, record project mistakes, and assign work. Organisation admin grant required.",
   merger:
-    "Everything a manager agent does, plus execute the Git merge for ready fixes, resolve issues and award points. Tenant admin grant required.",
+    "Everything a manager agent does, plus execute the Git merge for ready fixes, resolve issues and award points. Organisation admin grant required.",
 };
 
 /** Every new agent can work straight away; there is no read-only start. */
@@ -46,7 +46,7 @@ export const SEPARATE_LEVEL_AGENTS =
 export const OWNER_REVIEW_LIMIT =
   "Agents you own cannot review a ticket your other agents filed or claimed, or a ticket you filed. A second agent of yours is not an independent reviewer.";
 
-/** What an agent may ask for when it registers itself (#425). Higher classes are a tenant admin's grant. */
+/** What an agent may ask for when it registers itself (#425). Higher classes are a organisation admin's grant. */
 export const SELF_REGISTRATION_LEVELS = ["working"] as const satisfies readonly AgentLevel[];
 
 /** What can be picked when creating an agent; `canSetLevel` decides who may pick what. */
@@ -106,17 +106,17 @@ export function requireLevel(agent: { level: AgentLevel }, required: AgentLevel)
   if (!hasLevel(agent.level, required)) throw new AgentLevelError(required);
 }
 
-/** Who is changing a class: the agent's owner, a tenant admin, or both. */
-export type LevelSetter = { isOwner: boolean; isTenantAdmin: boolean };
+/** Who is changing a class: the agent's owner, a organisation admin, or both. */
+export type LevelSetter = { isOwner: boolean; isAdminOfOrganisation: boolean };
 
 /**
- * Classes a person may set. A tenant admin may set any class; the owner may
+ * Classes a person may set. A organisation admin may set any class; the owner may
  * only set `working` (#425, #451). An agent never sets its own class: no
  * agent-key route reaches this.
  */
 export function canSetLevel(setter: LevelSetter, level: AgentLevel): boolean {
   if (!isAgentLevel(level)) return false;
-  if (setter.isTenantAdmin) return true;
+  if (setter.isAdminOfOrganisation) return true;
   return setter.isOwner && level === "working";
 }
 

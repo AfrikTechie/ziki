@@ -47,52 +47,52 @@ const BAR: Record<CheckState, string> = { ok: "bg-emerald-500", warn: "bg-amber-
  */
 export default async function OrganisationProjectsPage({ params, searchParams }: Props) {
   const { org } = await params;
-  const { user, tenant } = await requireOrg(org);
-  if (!tenant) {
+  const { user, organisation } = await requireOrg(org);
+  if (!organisation) {
     const target = await projectFirstTarget(user, `/${org}/ideas`);
     if (target) permanentRedirect(target);
     notFound();
   }
-  const tenantId = tenant.id;
+  const organisationId = organisation.id;
   const rawFilter = (await searchParams).health;
   const filter = FILTERS.find((f) => f.value && f.value === (Array.isArray(rawFilter) ? rawFilter[0] : rawFilter))?.value ?? null;
 
   const allProjects = await prisma.project.findMany({
-    where: { tenantId, archivedAt: null },
+    where: { organisationId, archivedAt: null },
     orderBy: { name: "asc" },
     select: { id: true, slug: true, name: true, _count: { select: { bugs: { where: { isDeleted: false } } } } },
   });
   // A project with no issues yet has nothing to score: it isn't listed.
   const projects = allProjects.filter((p) => p._count.bugs > 0);
   const hiddenCount = allProjects.length - projects.length;
-  const health = await projectHealthFor(tenantId, projects.map((p) => p.id));
+  const health = await projectHealthFor(organisationId, projects.map((p) => p.id));
   const rows = projects
     .map((p) => ({ id: p.id, slug: p.slug, name: p.name, health: health.get(p.id)! }))
     // The ones that need attention first.
     .sort((a, b) => a.health.score - b.health.score || a.name.localeCompare(b.name));
   const counts = (value: HealthStatus | null) => (value ? rows.filter((r) => r.health.status === value).length : rows.length);
   const shown = filter ? rows.filter((r) => r.health.status === filter) : rows;
-  const filterHref = (value: HealthStatus | null) => orgHomePath(tenant.slug, value ? `health=${value}` : undefined);
+  const filterHref = (value: HealthStatus | null) => orgHomePath(organisation.slug, value ? `health=${value}` : undefined);
 
   return (
     <>
-    <ProjectBreadcrumb project={{ orgSlug: tenant.slug }} />
+    <ProjectBreadcrumb project={{ orgSlug: organisation.slug }} />
     <div className="mx-auto w-full max-w-6xl space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">Projects</h1>
           <p className="mt-1 text-sm text-zk-text2">
-            {tenant.name}: health is scored from 0 to 100 from six checks on each project&apos;s work, as of now.
+            {organisation.name}: health is scored from 0 to 100 from six checks on each project&apos;s work, as of now.
             {hiddenCount ? ` ${hiddenCount === 1 ? "1 project with no issues yet isn't" : `${hiddenCount} projects with no issues yet aren't`} listed.` : ""}
           </p>
         </div>
-        {allProjects.length ? <NewProjectForm /> : null}
+        {allProjects.length ? <NewProjectForm orgSlug={organisation.slug} /> : null}
       </header>
 
       {allProjects.length ? null : (
         <div className="space-y-3">
-          <p className="text-sm text-zk-text2">{tenant.name} has no projects yet. Create the first one to start collecting ideas and issues.</p>
-          <NewProjectForm startOpen />
+          <p className="text-sm text-zk-text2">{organisation.name} has no projects yet. Create the first one to start collecting ideas and issues.</p>
+          <NewProjectForm orgSlug={organisation.slug} startOpen />
         </div>
       )}
 
@@ -119,7 +119,7 @@ export default async function OrganisationProjectsPage({ params, searchParams }:
           {shown.map((row) => (
             <li key={row.id}>
               <Link
-                href={ideasPath(projectRef(tenant.slug, row.slug))}
+                href={ideasPath(projectRef(organisation.slug, row.slug))}
                 className="group flex items-center gap-5 rounded-2xl border border-zk-border bg-zk-surface px-5 py-4 transition hover:border-electric-blue-strong/60 hover:shadow-sm"
               >
                 <ScoreRing score={row.health.score} status={row.health.status} />

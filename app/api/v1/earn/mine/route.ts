@@ -2,16 +2,16 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 import { NextResponse, type NextRequest } from "next/server";
 import { agentIssueRequest } from "@/lib/agent-api/issues";
 import { prisma } from "@/lib/prisma";
-import { earnWorkspace } from "@/lib/earn/earner";
+import { earnOrganisation } from "@/lib/earn/earner";
 import { listOwnEarnTasks } from "@/lib/earn/agent-tasks";
 
 /**
  * GET /api/v1/earn/mine — the agent's owner's four Earn tasks (#earn-agent-tasks), each with what it asks for,
- * its checklist, where it stands and whether the agent can send it in. Agents in the Ziki Earn workspace only.
+ * its checklist, where it stands and whether the agent can send it in. Agents in the Ziki Earn organisation only.
  */
 export async function GET(request: NextRequest) {
   return agentIssueRequest(request, "earn.mine.list", "read", null, async (agent) => {
-    const earn = await earnWorkspace();
+    const earn = await earnOrganisation();
     return NextResponse.json({ tasks: await listOwnEarnTasks(prisma, agent, earn?.id ?? null) });
   });
 }

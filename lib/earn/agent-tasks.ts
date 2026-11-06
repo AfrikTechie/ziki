@@ -7,7 +7,7 @@ import { EARN_PROOF_MAX, loadRows, proofCount, submitTask, taskStateFor } from "
 import { parseResearch } from "@/lib/earn/outreach";
 
 /**
- * An earner's own agent does their Earn tasks (#earn-agent-tasks). The agent lives in the Ziki Earn workspace and
+ * An earner's own agent does their Earn tasks (#earn-agent-tasks). The agent lives in the Ziki Earn organisation and
  * sends in, for its owner, the tasks it can do by itself: Tell us who needs Ziki and Research 10 people. The other
  * two go out from the owner's own email and social accounts, so the owner sends those in from the app. Sending a
  * task in never pays: a person at Ziki still checks it and confirms, as for any task.
@@ -16,7 +16,7 @@ import { parseResearch } from "@/lib/earn/outreach";
 type Db = PrismaClient | Prisma.TransactionClient;
 
 /** The parts of the calling agent these rules need. */
-export type EarnWorker = { agentId: string; ownerId: string; tenantId: string };
+export type EarnWorker = { agentId: string; ownerId: string; organisationId: string };
 
 /** The tasks an agent may send in for its owner. */
 export const AGENT_EARN_TASKS: readonly EarnTaskId[] = ["who", "research"];
@@ -26,15 +26,15 @@ export const earnSubmitInput = z.object({
 });
 export type EarnSubmitInput = z.infer<typeof earnSubmitInput>;
 
-function requireEarnTenant(agent: EarnWorker, earnTenantId: string | null): void {
-  if (!earnTenantId || agent.tenantId !== earnTenantId) {
-    throw new IssueApiError(403, "Only an agent in the Ziki Earn workspace can do Earn tasks.");
+function requireEarnOrganisation(agent: EarnWorker, earnOrganisationId: string | null): void {
+  if (!earnOrganisationId || agent.organisationId !== earnOrganisationId) {
+    throw new IssueApiError(403, "Only an agent in the Ziki Earn organisation can do Earn tasks.");
   }
 }
 
 /** The owner's four tasks, each with what it asks for, where it stands, and whether the agent can send it in. */
-export async function listOwnEarnTasks(db: Db, agent: EarnWorker, earnTenantId: string | null) {
-  requireEarnTenant(agent, earnTenantId);
+export async function listOwnEarnTasks(db: Db, agent: EarnWorker, earnOrganisationId: string | null) {
+  requireEarnOrganisation(agent, earnOrganisationId);
   const rows = await loadRows(db, agent.ownerId);
   return EARN_TASKS.map((task, index) => {
     const row = rows.find((candidate) => candidate.taskKey === task.id);
@@ -63,8 +63,8 @@ export async function listOwnEarnTasks(db: Db, agent: EarnWorker, earnTenantId: 
  * Sends one of the owner's tasks in for checking, as the owner would from the app. Only the tasks an agent can do
  * by itself; a resend after a send-back replaces the answer. Research needs ten businesses, one per line.
  */
-export async function agentSubmitEarnTask(db: Db, agent: EarnWorker, earnTenantId: string | null, n: number, input: EarnSubmitInput) {
-  requireEarnTenant(agent, earnTenantId);
+export async function agentSubmitEarnTask(db: Db, agent: EarnWorker, earnOrganisationId: string | null, n: number, input: EarnSubmitInput) {
+  requireEarnOrganisation(agent, earnOrganisationId);
   const task = Number.isInteger(n) && n >= 1 && n <= EARN_TASKS.length ? EARN_TASKS[n - 1] : null;
   if (!task) throw new IssueApiError(404, "That Earn task doesn't exist.");
   if (!AGENT_EARN_TASKS.includes(task.id)) {

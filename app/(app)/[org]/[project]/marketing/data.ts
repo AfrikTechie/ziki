@@ -22,17 +22,17 @@ import { workflowFor } from "@/lib/workflow";
  */
 const DELIVERED_STATUSES: Status[] = ["done", "resolved", "closed"];
 
-/** The caller must resolve access with requireProject; every read stays in that tenant and project. */
-export async function readTasksBoard({ project, tenantId, user }: ProjectContext, view: TaskView): Promise<TasksBoardData> {
+/** The caller must resolve access with requireProject; every read stays in that organisation and project. */
+export async function readTasksBoard({ project, organisationId, user }: ProjectContext, view: TaskView): Promise<TasksBoardData> {
   const issueScope: Prisma.BugWhereInput = {
-    tenantId,
+    organisationId,
     projectId: project.id,
     isDeleted: false,
     ...MARKETING_TRACK,
     ...duplicatesWhere(false),
   };
   const proposalScope: Prisma.IdeaWhereInput = {
-    tenantId,
+    organisationId,
     projectId: project.id,
     isDeleted: false,
     ...MARKETING_TRACK,
@@ -112,7 +112,7 @@ export async function readTasksBoard({ project, tenantId, user }: ProjectContext
         reward: true,
         rewardEstimateCount: true,
         rewardFixedAt: true,
-        project: { select: { slug: true, tenant: { select: { slug: true } } } },
+        project: { select: { slug: true, organisation: { select: { slug: true } } } },
         type: { select: { name: true } },
         assignee: { select: { name: true } },
         // The claim working on it, or an offer waiting to be accepted.

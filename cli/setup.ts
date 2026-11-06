@@ -7,18 +7,18 @@ import { localDatabaseUrl } from "./env";
 import type { Keyring, KeyringAgent } from "./keyring";
 
 /**
- * The local sandbox the CLI acts in: its own workspace and project, so the
+ * The local sandbox the CLI acts in: its own organisation and project, so the
  * CLI never touches your other local data. Five owners, each with one agent,
  * cover every agent class and give the independent owners that confirming,
  * testing and accepting need.
  */
-export function sandbox(): { tenantSlug: string; projectSlug: string; name: string } {
+export function sandbox(): { organisationSlug: string; projectSlug: string; name: string } {
   // The CLI tests use their own sandboxes (ZIKI_CLI_SANDBOX=cli-test-<n>), rebuilt on
   // every run, so they never retire the keys you use day to day.
   const slug = process.env.ZIKI_CLI_SANDBOX?.trim() || "cli-sandbox";
   if (!/^cli-[a-z0-9-]+$/.test(slug)) throw new Error(`ZIKI_CLI_SANDBOX must start with "cli-"; got "${slug}".`);
   const name = slug === "cli-sandbox" ? "CLI Sandbox" : `CLI ${slug.slice(4)}`;
-  return { tenantSlug: slug, projectSlug: slug, name };
+  return { organisationSlug: slug, projectSlug: slug, name };
 }
 
 export const SANDBOX_AGENTS: readonly {
@@ -28,7 +28,7 @@ export const SANDBOX_AGENTS: readonly {
   level: AgentLevel;
   membership: MembershipRole;
 }[] = [
-  // The workspace owner: may post jobs, which need a workspace admin behind the key.
+  // The organisation owner: may post jobs, which need a organisation admin behind the key.
   { agent: "ada", owner: "cli-ada@cli.test", ownerName: "Ada (CLI)", level: "working", membership: "owner" },
   { agent: "bob", owner: "cli-bob@cli.test", ownerName: "Bob (CLI)", level: "working", membership: "member" },
   { agent: "cara", owner: "cli-cara@cli.test", ownerName: "Cara (CLI)", level: "working", membership: "member" },
@@ -38,7 +38,7 @@ export const SANDBOX_AGENTS: readonly {
 
 /**
  * A scripted session makes far more writes than the standard 30 an hour, so
- * the sandbox agents get the burst budget a tenant admin can grant. It never
+ * the sandbox agents get the burst budget a organisation admin can grant. It never
  * expires (`burstUntil: null`).
  */
 const SANDBOX_BUDGET = { burst: true, burstUntil: null } as const;
@@ -61,24 +61,24 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
   const SANDBOX = sandbox();
 
   if (options.reset) {
-    const existing = await prisma.tenant.findUnique({ where: { slug: SANDBOX.tenantSlug }, select: { id: true } });
+    const existing = await prisma.organisation.findUnique({ where: { slug: SANDBOX.organisationSlug }, select: { id: true } });
     if (existing) {
-      // Issues and ideas RESTRICT deleting their workspace; everything else cascades or is nulled.
-      await prisma.bug.deleteMany({ where: { tenantId: existing.id } });
-      await prisma.idea.deleteMany({ where: { tenantId: existing.id } });
-      await prisma.tenant.delete({ where: { id: existing.id } });
+      // Issues and ideas RESTRICT deleting their organisation; everything else cascades or is nulled.
+      await prisma.bug.deleteMany({ where: { organisationId: existing.id } });
+      await prisma.idea.deleteMany({ where: { organisationId: existing.id } });
+      await prisma.organisation.delete({ where: { id: existing.id } });
     }
   }
 
-  const tenant = await prisma.tenant.upsert({
-    where: { slug: SANDBOX.tenantSlug },
+  const organisation = await prisma.organisation.upsert({
+    where: { slug: SANDBOX.organisationSlug },
     update: {},
-    create: { slug: SANDBOX.tenantSlug, name: SANDBOX.name },
+    create: { slug: SANDBOX.organisationSlug, name: SANDBOX.name },
   });
   const project =
-    (await prisma.project.findFirst({ where: { tenantId: tenant.id, slug: SANDBOX.projectSlug } })) ??
+    (await prisma.project.findFirst({ where: { organisationId: organisation.id, slug: SANDBOX.projectSlug } })) ??
     (await prisma.project.create({
-      data: { tenantId: tenant.id, slug: SANDBOX.projectSlug, name: SANDBOX.name, workflow: { create: {} } },
+      data: { organisationId: organisation.id, slug: SANDBOX.projectSlug, name: SANDBOX.name, workflow: { create: {} } },
     }));
   // Work in progress is up for a sense check at once (#abandon), so the scenarios need not wait two hours.
   await prisma.projectWorkflow.upsert({
@@ -96,13 +96,13 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
       create: { email: spec.owner, name: spec.ownerName, role: "user", emailVerified: new Date(), emailNotifications: false },
     });
     await prisma.membership.upsert({
-      where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+      where: { organisationId_userId: { organisationId: organisation.id, userId: user.id } },
       update: { role: spec.membership },
-      create: { tenantId: tenant.id, userId: user.id, role: spec.membership },
+      create: { organisationId: organisation.id, userId: user.id, role: spec.membership },
     });
 
     const existing = await prisma.agent.findFirst({
-      where: { tenantId: tenant.id, ownerUserId: user.id, name: spec.agent, revokedAt: null },
+      where: { organisationId: organisation.id, ownerUserId: user.id, name: spec.agent, revokedAt: null },
       select: { id: true },
     });
     let agentId: string;
@@ -121,7 +121,7 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
       rawKey = key.raw;
     } else {
       const issued = await insertAgentWithKey(prisma, {
-        tenantId: tenant.id,
+        organisationId: organisation.id,
         ownerUserId: user.id,
         name: spec.agent,
         model: "Ziki CLI",
@@ -132,11 +132,11 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
       agentId = issued.agentId;
       rawKey = issued.rawKey;
     }
-    await ensureSandboxProfile(agentId, tenant.id, spec.agent);
+    await ensureSandboxProfile(agentId, organisation.id, spec.agent);
     agents[spec.agent] = { name: spec.agent, agentId, key: rawKey, level: spec.level as KeyringAgent["level"], ownerEmail: spec.owner, projectId: project.id };
   }
 
-  return { serverUrl: options.serverUrl, current: "ada", agents, sandbox: SANDBOX.tenantSlug };
+  return { serverUrl: options.serverUrl, current: "ada", agents, sandbox: SANDBOX.organisationSlug };
 }
 
 export async function disconnect(): Promise<void> {
@@ -152,7 +152,7 @@ const SANDBOX_SKILL = { name: "CLI testing", slug: "cli-testing" } as const;
  * agent that set its profile up. Only fills what is missing: a scenario that
  * changes the profile keeps its change until the sandbox is reset.
  */
-async function ensureSandboxProfile(agentId: string, tenantId: string, name: string): Promise<void> {
+async function ensureSandboxProfile(agentId: string, organisationId: string, name: string): Promise<void> {
   await prisma.agent.updateMany({
     where: { id: agentId, tagline: null },
     data: { tagline: `${name}, the Ziki CLI's test agent` },
@@ -162,9 +162,9 @@ async function ensureSandboxProfile(agentId: string, tenantId: string, name: str
     data: { about: `I'm ${name}. I run the Ziki CLI scenarios against a local server, one step of the lifecycle at a time.` },
   });
   const tag = await prisma.skillTag.upsert({
-    where: { tenantId_slug: { tenantId, slug: SANDBOX_SKILL.slug } },
+    where: { organisationId_slug: { organisationId, slug: SANDBOX_SKILL.slug } },
     update: {},
-    create: { tenantId, slug: SANDBOX_SKILL.slug, name: SANDBOX_SKILL.name },
+    create: { organisationId, slug: SANDBOX_SKILL.slug, name: SANDBOX_SKILL.name },
     select: { id: true },
   });
   await prisma.agentSkill.upsert({

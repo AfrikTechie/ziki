@@ -61,7 +61,7 @@ function scheduleReviewDeadlineExpiry(offerId: string, deadlineMs = REVIEW_DEADL
 
 const bugReviewSelect = {
   id: true,
-  tenantId: true,
+  organisationId: true,
   projectId: true,
   title: true,
   status: true,
@@ -86,23 +86,23 @@ const bugReviewSelect = {
 type LoadedBug = Prisma.BugGetPayload<{ select: typeof bugReviewSelect }>;
 
 /**
- * Finds eligible reviewer candidates for a bug in the given tenant, enforces
+ * Finds eligible reviewer candidates for a bug in the given organisation, enforces
  * independence, and sorts them according to the fairness policy.
  */
 async function findEligibleReviewerCandidates(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   bug: LoadedBug,
   excludeUserIds: Set<string> = new Set(),
 ): Promise<ReviewOfferCandidate[]> {
-  // Reviewers: members of the tenant with an active agent. Every agent class may review.
+  // Reviewers: members of the organisation with an active agent. Every agent class may review.
   const memberships = await db.membership.findMany({
     where: {
-      tenantId,
+      organisationId,
       user: {
         agents: {
           some: {
-            tenantId,
+            organisationId,
             revokedAt: null,
           },
         },
@@ -114,7 +114,7 @@ async function findEligibleReviewerCandidates(
         select: {
           agents: {
             where: {
-              tenantId,
+              organisationId,
               revokedAt: null,
             },
             orderBy: { createdAt: "asc" },
@@ -150,7 +150,7 @@ async function findEligibleReviewerCandidates(
       beneficiaryUserId: { in: userIds },
       releasedAt: null,
       status: "active",
-      bug: { tenantId },
+      bug: { organisationId },
     },
     _count: { _all: true },
   });
@@ -216,12 +216,12 @@ export type CreateReviewOffersOptions = {
  */
 export async function createReviewOffers(
   db: Db,
-  caller: { agentId?: string; tenantId: string },
+  caller: { agentId?: string; organisationId: string },
   bugId: string,
   options: CreateReviewOffersOptions,
 ) {
   const bug = await db.bug.findFirst({
-    where: { id: bugId, tenantId: caller.tenantId, isDeleted: false },
+    where: { id: bugId, organisationId: caller.organisationId, isDeleted: false },
     select: bugReviewSelect,
   });
   if (!bug) return { offers: [] };
@@ -254,7 +254,7 @@ export async function createReviewOffers(
   const needed = Math.max(0, verdictsNeeded - activeExistingCount);
   if (needed <= 0) return { offers: [] };
 
-  const candidates = await findEligibleReviewerCandidates(db, caller.tenantId, bug, excludeUserIds);
+  const candidates = await findEligibleReviewerCandidates(db, caller.organisationId, bug, excludeUserIds);
   if (!candidates.length) return { offers: [] };
 
   // Pick up to `needed` reviewers, ensuring every reviewer has a distinct owner (#442 / #597)
@@ -285,7 +285,7 @@ export async function createReviewOffers(
     const expiresAt = new Date(offer.offeredAt.getTime() + REVIEW_OFFER_TTL_MS).toISOString();
 
     await publish(db, {
-      tenantId: bug.tenantId,
+      organisationId: bug.organisationId,
       type: "review.requested",
       actorAgentId: caller.agentId ?? null,
       bugId: bug.id,
@@ -320,7 +320,7 @@ export async function acceptReviewOffer(agent: AgentContext, offerId: string) {
       },
     });
 
-    if (!offer || offer.bug.tenantId !== agent.tenantId) {
+    if (!offer || offer.bug.organisationId !== agent.organisationId) {
       throw new IssueApiError(404, "Review offer not found.");
     }
 
@@ -405,7 +405,7 @@ export async function reofferReview(
   const { verdictsNeeded } = await workflowFor(bug.projectId, db);
   if (excludeUserIds.size >= verdictsNeeded) return null;
 
-  const candidates = await findEligibleReviewerCandidates(db, bug.tenantId, bug, excludeUserIds);
+  const candidates = await findEligibleReviewerCandidates(db, bug.organisationId, bug, excludeUserIds);
   const next = candidates.find((c) => !excludeUserIds.has(c.beneficiaryUserId));
   if (!next) return null;
 
@@ -424,7 +424,7 @@ export async function reofferReview(
   const expiresAt = new Date(newOffer.offeredAt.getTime() + REVIEW_OFFER_TTL_MS).toISOString();
 
   await publish(db, {
-    tenantId: bug.tenantId,
+    organisationId: bug.organisationId,
     type: "review.requested",
     bugId: bug.id,
     payload: {
@@ -505,7 +505,7 @@ export async function handleTestVerdictSubmitted(
   params: {
     bugId: string;
     agentId: string;
-    tenantId: string;
+    organisationId: string;
     pullRequestUrl: string | null;
   },
 ): Promise<{ completed: boolean; count: number }> {
@@ -526,7 +526,7 @@ export async function handleTestVerdictSubmitted(
 
   // Load bug to evaluate independence of all good-to-merge verdicts
   const bug = await db.bug.findFirst({
-    where: { id: params.bugId, tenantId: params.tenantId, isDeleted: false },
+    where: { id: params.bugId, organisationId: params.organisationId, isDeleted: false },
     select: bugReviewSelect,
   });
   if (!bug) return { completed: false, count: 0 };
@@ -569,7 +569,7 @@ export async function handleTestVerdictSubmitted(
     // Check if review.completed has already been emitted for this bug to prevent duplicates
     const alreadyPublished = await db.agentEvent.findFirst({
       where: {
-        tenantId: params.tenantId,
+        organisationId: params.organisationId,
         bugId: params.bugId,
         type: "review.completed",
       },
@@ -578,7 +578,7 @@ export async function handleTestVerdictSubmitted(
 
     if (!alreadyPublished) {
       await publish(db, {
-        tenantId: params.tenantId,
+        organisationId: params.organisationId,
         type: "review.completed",
         actorAgentId: params.agentId,
         bugId: params.bugId,

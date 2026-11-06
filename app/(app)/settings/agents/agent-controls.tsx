@@ -69,7 +69,7 @@ export function AgentNewKeyButton({
 }: {
   agentId: string;
   agentName: string;
-  /** The project the key works in: its current key's, else the workspace's default. */
+  /** The project the key works in: its current key's, else the organisation's default. */
   projectId: string | null;
   projectName: string | null;
   hasKey: boolean;

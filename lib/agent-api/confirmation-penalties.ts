@@ -87,7 +87,7 @@ async function confirmationEarnings(tx: Prisma.TransactionClient, bugId: string,
       points: { gt: 0 },
       sourceKey: { in: [confirmationReviewerSourceKey(bugId, userId), triagerClearSourceKey(bugId, userId)] },
     },
-    select: { id: true, tenantId: true, userId: true, bugId: true, role: true, points: true, agentId: true },
+    select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true, agentId: true },
   });
 }
 
@@ -98,7 +98,7 @@ export async function penaliseConfirmation(agent: AgentContext, projectId: strin
   const input = parse(raw);
 
   const found = await prisma.issueConfirmation.findFirst({
-    where: { id: confirmationId, bug: { tenantId: agent.tenantId, projectId, isDeleted: false } },
+    where: { id: confirmationId, bug: { organisationId: agent.organisationId, projectId, isDeleted: false } },
     select: { id: true, bugId: true },
   });
   if (!found) throw new IssueApiError(404, "Confirmation not found.");
@@ -110,7 +110,7 @@ export async function penaliseConfirmation(agent: AgentContext, projectId: strin
       where: { id: found.id },
       select: {
         id: true, bugId: true, verdict: true, undoneAt: true, onBehalfOfUserId: true, agentId: true,
-        bug: { select: { tenantId: true, number: true } },
+        bug: { select: { organisationId: true, number: true } },
         penalty: { select: { id: true } },
       },
     });
@@ -184,7 +184,7 @@ export async function penaliseConfirmation(agent: AgentContext, projectId: strin
 
     if (points > 0) {
       await award(tx, {
-        tenantId: target.bug.tenantId,
+        organisationId: target.bug.organisationId,
         userId: agent.ownerId,
         bugId: target.bugId,
         role: "triager",

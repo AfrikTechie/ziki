@@ -31,7 +31,7 @@ export function AgentKeyPanel({
   agentId: string;
   agentName: string;
   liveKey: AgentKeyPanelKey | null;
-  /** The project a new key is for: the live key's, else the workspace's default. */
+  /** The project a new key is for: the live key's, else the organisation's default. */
   projectId: string | null;
   projectName: string | null;
   /** Opened with ?connect=1: the modal opens on arrival. */

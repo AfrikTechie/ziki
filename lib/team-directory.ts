@@ -36,7 +36,7 @@ export function isTeamAgentOnline(lastSeen: Date | null, now = new Date()): bool
 
 export async function teamAgentsForMembers(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   ownerUserIds: string[],
   now = new Date(),
 ): Promise<Map<string, TeamAgent[]>> {
@@ -44,7 +44,7 @@ export async function teamAgentsForMembers(
   if (ownerUserIds.length === 0) return result;
 
   const agents = await db.agent.findMany({
-    where: { tenantId, ownerUserId: { in: ownerUserIds }, revokedAt: null },
+    where: { organisationId, ownerUserId: { in: ownerUserIds }, revokedAt: null },
     orderBy: { createdAt: "asc" },
     select: {
       id: true,
@@ -59,7 +59,7 @@ export async function teamAgentsForMembers(
         where: {
           status: "active",
           releasedAt: null,
-          bug: { tenantId, isDeleted: false, status: "in_progress" },
+          bug: { organisationId, isDeleted: false, status: "in_progress" },
         },
         select: {
           claimedAt: true,
@@ -68,7 +68,7 @@ export async function teamAgentsForMembers(
             select: {
               id: true,
               number: true,
-              project: { select: { slug: true, tenant: { select: { slug: true } } } },
+              project: { select: { slug: true, organisation: { select: { slug: true } } } },
               title: true,
               areaId: true,
               area: { select: { name: true } },
@@ -87,10 +87,10 @@ export async function teamAgentsForMembers(
       releasedAt: { not: null },
       releaseReason: "resolved",
       bug: {
-        tenantId,
+        organisationId,
         pointEntries: {
           some: {
-            tenantId,
+            organisationId,
             role: "solver",
             points: { gt: 0 },
             correctedAt: null,
@@ -140,11 +140,11 @@ export async function teamAgentsForMembers(
 
 export async function teamAgentsForMember(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   ownerUserId: string,
   now = new Date(),
 ): Promise<TeamAgent[]> {
-  const agents = await teamAgentsForMembers(db, tenantId, [ownerUserId], now);
+  const agents = await teamAgentsForMembers(db, organisationId, [ownerUserId], now);
   return agents.get(ownerUserId) ?? [];
 }
 
@@ -154,13 +154,13 @@ export async function teamAgentsForMember(
  * this is shown once at member level and never put on an agent's card: with
  * several agents there is no truthful way to say which one is doing it.
  *
- * Counted: open or in_progress, not deleted, in this tenant. An issue already
+ * Counted: open or in_progress, not deleted, in this organisation. An issue already
  * on one of the person's agent cards (an active claim) is left out here, so a
  * claimed and assigned issue counts once.
  */
 export async function teamAssignedWorkForMembers(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   agentsByOwner: Map<string, TeamAgent[]>,
 ): Promise<Map<string, TeamAgentWork[]>> {
   const ownerUserIds = [...agentsByOwner.keys()];
@@ -168,12 +168,12 @@ export async function teamAssignedWorkForMembers(
   if (ownerUserIds.length === 0) return result;
 
   const bugs = await db.bug.findMany({
-    where: { tenantId, isDeleted: false, status: { in: ["open", "in_progress"] }, assigneeId: { in: ownerUserIds } },
+    where: { organisationId, isDeleted: false, status: { in: ["open", "in_progress"] }, assigneeId: { in: ownerUserIds } },
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,
       number: true,
-      project: { select: { slug: true, tenant: { select: { slug: true } } } },
+      project: { select: { slug: true, organisation: { select: { slug: true } } } },
       title: true,
       assigneeId: true,
       areaId: true,
@@ -199,10 +199,10 @@ export async function teamAssignedWorkForMembers(
 
 export async function teamAssignedWorkForMember(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   ownerUserId: string,
   agents: TeamAgent[],
 ): Promise<TeamAgentWork[]> {
-  const work = await teamAssignedWorkForMembers(db, tenantId, new Map([[ownerUserId, agents]]));
+  const work = await teamAssignedWorkForMembers(db, organisationId, new Map([[ownerUserId, agents]]));
   return work.get(ownerUserId) ?? [];
 }

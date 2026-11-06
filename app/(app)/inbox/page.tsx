@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor, notificationInTenant } from "@/lib/tenant-context";
+import { currentOrganisationIdFor, notificationInOrganisation } from "@/lib/organisation-context";
 import { countPendingEscalations } from "@/lib/agent-questions";
 import { parseInboxTrack } from "@/lib/my-work-filter";
 import { NotificationsView } from "./notifications-view";
@@ -26,10 +26,10 @@ export default async function InboxPage({ searchParams }: { searchParams?: Promi
   const user = await requireUser();
   const params = (await searchParams) ?? {};
   const tab = params.tab === "escalations" ? "escalations" : params.tab === "messages" ? "messages" : "notifications";
-  const tenantId = await currentTenantIdFor(user.id);
+  const organisationId = await currentOrganisationIdFor(user.id);
   const [unread, waiting] = await Promise.all([
-    prisma.notification.count({ where: { userId: user.id, readAt: null, ...notificationInTenant(tenantId, false) } }),
-    tenantId ? countPendingEscalations(user.id, tenantId).catch(() => 0) : Promise.resolve(0),
+    prisma.notification.count({ where: { userId: user.id, readAt: null, ...notificationInOrganisation(organisationId, false) } }),
+    organisationId ? countPendingEscalations(user.id, organisationId).catch(() => 0) : Promise.resolve(0),
   ]);
   const track = parseInboxTrack(params.track);
   const trackQuery = track === "all" ? "" : `track=${track}`;

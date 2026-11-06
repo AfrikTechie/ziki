@@ -58,8 +58,8 @@ function fakeEarnDb() {
       }),
     },
     user: { findUnique: vi.fn(async () => ({ createdAt: state.accountCreatedAt })) },
-    // The Earn workspace is made on first use; every earn credit goes there, whatever workspaces the person is in.
-    tenant: { upsert: vi.fn(async () => ({ id: "tenant-earn" })) },
+    // The Earn organisation is made on first use; every earn credit goes there, whatever organisations the person is in.
+    organisation: { upsert: vi.fn(async () => ({ id: "organisation-earn" })) },
     $transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
       const before = { tasks: state.tasks.map((row) => ({ ...row })), ledger: [...state.ledger] };
       try {
@@ -74,15 +74,15 @@ function fakeEarnDb() {
   return { state, db: db as never };
 }
 
-const confirm = (db: never, taskKey = "who") => confirmTask(db, { userId: "earner", taskKey, staffId: "staff", earnTenantSlug: "ziki-earn" });
+const confirm = (db: never, taskKey = "who") => confirmTask(db, { userId: "earner", taskKey, staffId: "staff", earnOrganisationSlug: "ziki-earn" });
 
 describe("earn tasks (#earn-tasks)", () => {
-  it("pays a confirmed task its amount once, in the Earn workspace only, however often staff confirm", async () => {
+  it("pays a confirmed task its amount once, in the Earn organisation only, however often staff confirm", async () => {
     const { state, db } = fakeEarnDb();
     expect(await submitTask(db, "earner", 1, "Bakeries in Lagos")).toEqual({ ok: true });
     expect(await confirm(db)).toEqual({ ok: true });
     expect((await confirm(db)).ok).toBe(false);
-    expect(state.ledger).toEqual([expect.objectContaining({ tenantId: "tenant-earn", userId: "earner", role: "submission", points: 3, sourceKey: "earn:earner:who" })]);
+    expect(state.ledger).toEqual([expect.objectContaining({ organisationId: "organisation-earn", userId: "earner", role: "submission", points: 3, sourceKey: "earn:earner:who" })]);
     expect(state.tasks[0].status).toBe("confirmed");
   });
 
@@ -124,11 +124,11 @@ describe("earn tasks (#earn-tasks)", () => {
     expect(state.ledger).toEqual([]);
   });
 
-  it("pays the $5 welcome once to anyone who comes to earn, in the Earn workspace and no other", async () => {
+  it("pays the $5 welcome once to anyone who comes to earn, in the Earn organisation and no other", async () => {
     const { state, db } = fakeEarnDb();
     expect(await grantWelcome(db, "earner", "ziki-earn")).toBe(true);
     expect(await grantWelcome(db, "earner", "ziki-earn")).toBe(false);
-    expect(state.ledger).toEqual([expect.objectContaining({ tenantId: "tenant-earn", userId: "earner", role: "signup", points: 5, sourceKey: "earn:welcome:earner" })]);
+    expect(state.ledger).toEqual([expect.objectContaining({ organisationId: "organisation-earn", userId: "earner", role: "signup", points: 5, sourceKey: "earn:welcome:earner" })]);
   });
 
   it("pays the welcome to an account made long ago too, once", async () => {
@@ -172,13 +172,13 @@ describe("manager agent verdicts on earn tasks (#earn-agent-review)", () => {
     };
     return { db: db as never, pointEntry };
   }
-  const manager = { agentId: "agent-max", ownerId: "staff", tenantId: "tenant-earn" };
+  const manager = { agentId: "agent-max", ownerId: "staff", organisationId: "organisation-earn" };
   const sent = (id: string, userId: string, status = "submitted"): Row => ({ id, userId, taskKey: "who", status, proof: "Bakeries in Lagos", submittedAt: new Date() });
 
   it("records a verdict as advice only: the task stays waiting for a person and nothing is paid", async () => {
     const rows = [sent("t1", "earner")];
     const { db, pointEntry } = fakeReviewDb(rows);
-    expect(await giveEarnVerdict(db, manager, "tenant-earn", "t1", { verdict: "ready", reason: "One kind of business, with where and why.", confidence: 86 })).toMatchObject({ verdict: "ready", status: "submitted" });
+    expect(await giveEarnVerdict(db, manager, "organisation-earn", "t1", { verdict: "ready", reason: "One kind of business, with where and why.", confidence: 86 })).toMatchObject({ verdict: "ready", status: "submitted" });
     expect(rows[0]).toMatchObject({ status: "submitted", agentVerdict: "ready", agentConfidence: 86, agentVerdictById: "agent-max" });
     expect(pointEntry.createMany).not.toHaveBeenCalled();
     expect(pointEntry.create).not.toHaveBeenCalled();
@@ -188,16 +188,16 @@ describe("manager agent verdicts on earn tasks (#earn-agent-review)", () => {
     const rows = [sent("own", "staff"), sent("paid", "earner", "confirmed"), sent("t1", "earner")];
     const { db } = fakeReviewDb(rows);
     const ok = { verdict: "send_back" as const, reason: "Only 6 of 10.", confidence: 90 };
-    await expect(giveEarnVerdict(db, manager, "tenant-earn", "own", ok)).rejects.toMatchObject({ status: 403 });
-    await expect(giveEarnVerdict(db, { ...manager, tenantId: "tenant-other" }, "tenant-earn", "t1", ok)).rejects.toMatchObject({ status: 403 });
-    await expect(giveEarnVerdict(db, manager, "tenant-earn", "paid", ok)).rejects.toMatchObject({ status: 409 });
-    await expect(giveEarnVerdict(db, manager, "tenant-earn", "t1", { ...ok, confidence: 140 })).rejects.toThrow();
+    await expect(giveEarnVerdict(db, manager, "organisation-earn", "own", ok)).rejects.toMatchObject({ status: 403 });
+    await expect(giveEarnVerdict(db, { ...manager, organisationId: "organisation-other" }, "organisation-earn", "t1", ok)).rejects.toMatchObject({ status: 403 });
+    await expect(giveEarnVerdict(db, manager, "organisation-earn", "paid", ok)).rejects.toMatchObject({ status: 409 });
+    await expect(giveEarnVerdict(db, manager, "organisation-earn", "t1", { ...ok, confidence: 140 })).rejects.toThrow();
     expect(rows[2].agentVerdict).toBeUndefined();
   });
 
   it("lists the tasks waiting for checking with their checklist, leaving out its own owner's", async () => {
     const { db } = fakeReviewDb([sent("own", "staff"), sent("t1", "earner"), sent("paid", "earner", "confirmed")]);
-    const tasks = await listEarnTasksToCheck(db, manager, "tenant-earn");
+    const tasks = await listEarnTasksToCheck(db, manager, "organisation-earn");
     expect(tasks.map((task) => task.id)).toEqual(["t1"]);
     expect(tasks[0].task.checklist.length).toBeGreaterThan(0);
   });
@@ -262,50 +262,50 @@ describe("earn sign-ups through a link (#earn-outreach)", () => {
     return { db: db as never, contact };
   }
 
-  it("ticks Signed up for an account made after the link was opened, and Started once it owns a workspace", async () => {
+  it("ticks Signed up for an account made after the link was opened, and Started once it owns an organisation", async () => {
     const { db, contact } = fakeReferralDb({ userCreatedAt: new Date("2026-11-02T09:00:00Z"), owned: 1 });
-    await syncReferral(db, "new-business", "abc1234", "tenant-earn");
+    await syncReferral(db, "new-business", "abc1234", "organisation-earn");
     expect(contact).toMatchObject({ signedUpUserId: "new-business", signedUpAt: expect.any(Date), startedAt: expect.any(Date) });
   });
 
   it("doesn't count an account that existed before the link was opened, or the earner themselves", async () => {
     const old = fakeReferralDb({ userCreatedAt: new Date("2026-01-01T00:00:00Z"), owned: 1 });
-    await syncReferral(old.db, "old-user", "abc1234", "tenant-earn");
+    await syncReferral(old.db, "old-user", "abc1234", "organisation-earn");
     expect(old.contact.signedUpUserId).toBeNull();
     const self = fakeReferralDb({ userCreatedAt: new Date("2026-11-02T09:00:00Z"), owned: 1 });
-    await syncReferral(self.db, "earner", "abc1234", "tenant-earn");
+    await syncReferral(self.db, "earner", "abc1234", "organisation-earn");
     expect(self.contact.signedUpUserId).toBeNull();
   });
 });
 
 /** An earner's own agent does tasks 1 and 2 for them (#earn-agent-tasks): it sends them in, a person still pays. */
 describe("an earner's agent sends in its owner's tasks (#earn-agent-tasks)", () => {
-  const olie = { agentId: "agent-olie", ownerId: "earner", tenantId: "tenant-earn" };
+  const olie = { agentId: "agent-olie", ownerId: "earner", organisationId: "organisation-earn" };
   const ten = Array.from({ length: 10 }, (_, i) => `Bakery ${i}, Lagos, bakery${i}.com`).join("\n");
 
   it("sends task 1 and a ten-line task 2 in for its owner, without paying", async () => {
     const { state, db } = fakeEarnDb();
-    expect(await agentSubmitEarnTask(db, olie, "tenant-earn", 1, { proof: "Bakeries in Lagos that take orders on Instagram." })).toMatchObject({ key: "who", state: "in-review" });
-    expect(await agentSubmitEarnTask(db, olie, "tenant-earn", 2, { proof: ten })).toMatchObject({ key: "research" });
+    expect(await agentSubmitEarnTask(db, olie, "organisation-earn", 1, { proof: "Bakeries in Lagos that take orders on Instagram." })).toMatchObject({ key: "who", state: "in-review" });
+    expect(await agentSubmitEarnTask(db, olie, "organisation-earn", 2, { proof: ten })).toMatchObject({ key: "research" });
     expect(state.tasks.map((row) => [row.userId, row.taskKey, row.status])).toEqual([["earner", "who", "submitted"], ["earner", "research", "submitted"]]);
     expect(state.ledger).toHaveLength(0);
   });
 
   it("refuses tasks 3 and 4, an agent outside Ziki Earn, a short research list, a task already waiting, and an unknown task", async () => {
     const { state, db } = fakeEarnDb();
-    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 3, { proof: "a@b.com" })).rejects.toMatchObject({ status: 403 });
-    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 4, { proof: "https://x.com/p/1" })).rejects.toMatchObject({ status: 403 });
-    await expect(agentSubmitEarnTask(db, { ...olie, tenantId: "tenant-other" }, "tenant-earn", 1, { proof: "Bakeries" })).rejects.toMatchObject({ status: 403 });
-    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 2, { proof: "One bakery, Lagos, one.com" })).rejects.toMatchObject({ status: 422 });
-    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 9, { proof: "x" })).rejects.toMatchObject({ status: 404 });
-    await agentSubmitEarnTask(db, olie, "tenant-earn", 1, { proof: "Bakeries" });
-    await expect(agentSubmitEarnTask(db, olie, "tenant-earn", 1, { proof: "Again" })).rejects.toMatchObject({ status: 409 });
+    await expect(agentSubmitEarnTask(db, olie, "organisation-earn", 3, { proof: "a@b.com" })).rejects.toMatchObject({ status: 403 });
+    await expect(agentSubmitEarnTask(db, olie, "organisation-earn", 4, { proof: "https://x.com/p/1" })).rejects.toMatchObject({ status: 403 });
+    await expect(agentSubmitEarnTask(db, { ...olie, organisationId: "organisation-other" }, "organisation-earn", 1, { proof: "Bakeries" })).rejects.toMatchObject({ status: 403 });
+    await expect(agentSubmitEarnTask(db, olie, "organisation-earn", 2, { proof: "One bakery, Lagos, one.com" })).rejects.toMatchObject({ status: 422 });
+    await expect(agentSubmitEarnTask(db, olie, "organisation-earn", 9, { proof: "x" })).rejects.toMatchObject({ status: 404 });
+    await agentSubmitEarnTask(db, olie, "organisation-earn", 1, { proof: "Bakeries" });
+    await expect(agentSubmitEarnTask(db, olie, "organisation-earn", 1, { proof: "Again" })).rejects.toMatchObject({ status: 409 });
     expect(state.tasks.map((row) => row.taskKey)).toEqual(["who"]);
   });
 
   it("lists its owner's four tasks, marking the two it can send", async () => {
     const { db } = fakeEarnDb();
-    const tasks = await listOwnEarnTasks(db, olie, "tenant-earn");
+    const tasks = await listOwnEarnTasks(db, olie, "organisation-earn");
     expect(tasks.map((task) => [task.n, task.agentCanSend])).toEqual([[1, true], [2, true], [3, false], [4, false]]);
     expect(tasks[0].state).toBe("open");
   });

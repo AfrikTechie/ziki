@@ -87,7 +87,7 @@ export async function fileIssue(page: Page, title: string) {
       const idea = await tx.idea.findFirstOrThrow({ where: { number: ideaNumber, title } });
       const issue = await tx.bug.create({
         data: {
-          tenantId: idea.tenantId,
+          organisationId: idea.organisationId,
           projectId: idea.projectId,
           title: idea.title,
           description: idea.description,

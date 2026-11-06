@@ -65,7 +65,7 @@ const agent = (level: AgentContext["level"], ownerId = "owner-bob"): AgentContex
   agentId: `agent-${ownerId}`,
   name: "bob",
   ownerId,
-  tenantId: "t1",
+  organisationId: "t1",
   level,
   burst: false,
   keyId: "k1",
@@ -90,7 +90,7 @@ const facts = (overrides: Partial<ProjectWork["facts"] extends Map<string, infer
 
 function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
   return {
-    tenantId: "t1",
+    organisationId: "t1",
     project: { id: "p1", slug: "ziki", name: "Ziki", orgSlug: "zedu" },
     importance: [],
     deployments: [],
@@ -432,7 +432,7 @@ describe("track parameter parsing and event/webhook payloads", () => {
     const event = {
       id: "ev1",
       type: "issue.created",
-      tenantId: "t1",
+      organisationId: "t1",
       projectId: "p1",
       actorAgentId: null,
       bugId: "b1",

@@ -19,15 +19,15 @@ export function canEditComment(actorId: string | undefined, comment: CommentLike
 
 /**
  * The author may delete their own comment. An owner or admin of the
- * organization, or the site super admin, may delete someone else's.
- * `tenantAdmin` is that organization check, already resolved by the caller.
+ * organisation, or the site super admin, may delete someone else's.
+ * `organisationAdmin` is that organisation check, already resolved by the caller.
  */
 export function canDeleteComment(
   actorId: string | undefined,
   actorRole: AppRole | null | undefined,
   comment: CommentLike,
-  tenantAdmin = false,
+  organisationAdmin = false,
 ): boolean {
   if (!actorId || comment.deletedAt) return false;
-  return comment.authorId === actorId || tenantAdmin || isSuperAdmin(actorRole);
+  return comment.authorId === actorId || organisationAdmin || isSuperAdmin(actorRole);
 }

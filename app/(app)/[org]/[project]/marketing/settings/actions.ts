@@ -28,13 +28,13 @@ async function requireSettingsAdmin(slug: ProjectRef) {
   const [org, project] = slug.split("/");
   const context = await requireProject(org, project);
   try {
-    await assertMarketingSettingsAccess(context.user, context.tenantId, "change");
+    await assertMarketingSettingsAccess(context.user, context.organisationId, "change");
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };
     throw error;
   }
   return {
-    tenantId: context.tenantId,
+    organisationId: context.organisationId,
     projectId: context.project.id,
     projectSlug: slug,
     userId: context.user.id,
@@ -64,7 +64,7 @@ export async function updateMarketingRevisionLimitAction(
   }
 
   try {
-    await updateMarketingSettings(admin.tenantId, admin.projectId, admin.userId, { revisionLimit: parsed.data });
+    await updateMarketingSettings(admin.organisationId, admin.projectId, admin.userId, { revisionLimit: parsed.data });
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };
     throw error;
@@ -83,7 +83,7 @@ export async function updateMarketingBriefAction(
   if ("error" in admin) return admin;
 
   try {
-    await saveProjectBrief(admin.tenantId, admin.projectId, admin.userId, brief);
+    await saveProjectBrief(admin.organisationId, admin.projectId, admin.userId, brief);
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };
     if (error instanceof z.ZodError) return { error: error.issues[0]?.message ?? "Check the form and try again." };
@@ -124,7 +124,7 @@ function typeFields(formData: FormData) {
 
 /**
  * Create a marketing task type (M-UI-7 for M-API-7). The name stays unique per
- * tenant across both tracks, matching the model's `(tenantId, name)` key, so a
+ * organisation across both tracks, matching the model's `(organisationId, name)` key, so a
  * marketing type can't shadow a product type.
  */
 export async function createMarketingIssueTypeAction(
@@ -133,7 +133,7 @@ export async function createMarketingIssueTypeAction(
 ): Promise<MarketingSettingsActionResult> {
   const admin = await requireSettingsAdmin(slug);
   if ("error" in admin) return admin;
-  return runTypeChange(slug, () => createMarketingTaskType(admin.tenantId, typeFields(formData)));
+  return runTypeChange(slug, () => createMarketingTaskType(admin.organisationId, typeFields(formData)));
 }
 
 /** Update a marketing task type. Renames leave a note on the tasks that carry the type. */
@@ -144,7 +144,7 @@ export async function updateMarketingIssueTypeAction(
 ): Promise<MarketingSettingsActionResult> {
   const admin = await requireSettingsAdmin(slug);
   if ("error" in admin) return admin;
-  return runTypeChange(slug, () => updateMarketingTaskType(admin.tenantId, admin.userId, id, typeFields(formData)));
+  return runTypeChange(slug, () => updateMarketingTaskType(admin.organisationId, admin.userId, id, typeFields(formData)));
 }
 
 /** Active types are offered when a marketing task is proposed; retired ones keep their history. */
@@ -154,7 +154,7 @@ export async function toggleMarketingIssueTypeActiveAction(
 ): Promise<MarketingSettingsActionResult> {
   const admin = await requireSettingsAdmin(slug);
   if ("error" in admin) return admin;
-  return runTypeChange(slug, () => toggleMarketingTaskTypeActive(admin.tenantId, admin.userId, id));
+  return runTypeChange(slug, () => toggleMarketingTaskTypeActive(admin.organisationId, admin.userId, id));
 }
 
 /**
@@ -167,5 +167,5 @@ export async function deleteMarketingIssueTypeAction(
 ): Promise<MarketingSettingsActionResult> {
   const admin = await requireSettingsAdmin(slug);
   if ("error" in admin) return admin;
-  return runTypeChange(slug, () => deleteMarketingTaskType(admin.tenantId, id));
+  return runTypeChange(slug, () => deleteMarketingTaskType(admin.organisationId, id));
 }

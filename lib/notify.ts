@@ -41,11 +41,11 @@ async function withWatchers(event: NotificationEvent): Promise<NotificationEvent
 }
 
 /** Writes the in-app feed rows (#216). Always, whatever the email settings. */
-async function recordInApp(event: NotificationEvent, planned: PlannedNotification[], tenantId: string | null) {
+async function recordInApp(event: NotificationEvent, planned: PlannedNotification[], organisationId: string | null) {
   await prisma.notification.createMany({
     data: planned.map((n) => ({
       userId: n.userId,
-      tenantId,
+      organisationId,
       bugId: event.bugId ?? null,
       kind: n.kind,
       title: n.title,
@@ -164,29 +164,29 @@ async function sendEmails(planned: PlannedNotification[]) {
 
 /** Deliver one event: in-app feed for everyone it concerns, plus email. */
 export async function deliverNotifications(event: NotificationEvent): Promise<void> {
-  let tenantId = "tenantId" in event ? event.tenantId ?? null : null;
+  let organisationId = "organisationId" in event ? event.organisationId ?? null : null;
   let issueAddress: string | null = null;
   // The issue may have been deleted between the action and delivery. Agent
   // and platform events (#443) need not be about an issue at all.
   if (event.bugId) {
     const bug = await prisma.bug.findUnique({
       where: { id: event.bugId },
-      select: { isDeleted: true, tenantId: true, number: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+      select: { isDeleted: true, organisationId: true, number: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
     });
     if (!bug || bug.isDeleted) return;
-    tenantId = bug.tenantId;
+    organisationId = bug.organisationId;
     issueAddress = issueHref(bug);
   }
 
   const planned = planNotifications(await withWatchers(event), getSiteUrl(), issueAddress);
   if (planned.length === 0) return;
 
-  // The invitee cannot switch into this workspace until they accept, so the
-  // row must stay personal or their current workspace hides it.
-  const storedTenantId = event.kind === "tenant_invite" ? null : tenantId;
+  // The invitee cannot switch into this organisation until they accept, so the
+  // row must stay personal or their current organisation hides it.
+  const storedOrganisationId = event.kind === "organisation_invite" ? null : organisationId;
 
   try {
-    await recordInApp(event, planned, storedTenantId);
+    await recordInApp(event, planned, storedOrganisationId);
   } catch (error) {
     // The feed failing must not stop the emails.
     logger.error("[notify] failed to record in-app notifications", error);

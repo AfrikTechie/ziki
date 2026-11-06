@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Marketing settings" };
 
 /**
  * `/<slug>/marketing/settings`: the project's marketing brief, task types and
- * revision limit (M-UI-7). Workspace owners and admins manage it; members read
+ * revision limit (M-UI-7). Organisation owners and admins manage it; members read
  * it. Reachable by address until M-LAUNCH-1 adds the section's navigation.
  */
 export default async function MarketingSettingsPage({ params }: { params: Promise<{ org: string; project: string }> }) {

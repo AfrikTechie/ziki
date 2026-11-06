@@ -37,8 +37,8 @@ export const deploymentSchema = z
 const NOT_FOUND = "No such issue in this project.";
 
 export async function reportDeployment(
-  agent: { agentId: string; ownerId: string; tenantId: string },
-  scope: { tenantId: string; projectId: string },
+  agent: { agentId: string; ownerId: string; organisationId: string },
+  scope: { organisationId: string; projectId: string },
   issueRef: string,
   rawBody: unknown,
 ): Promise<{ issueId: string; status: "resolved"; substatus: Substatus; previousSubstatus: Substatus; changed: boolean; liveReports: number; liveReportsNeeded: number; prodReports: number; payoutReleased: boolean }> {
@@ -52,7 +52,7 @@ export async function reportDeployment(
   return prisma.$transaction(async (tx) => {
     const bug = await tx.bug.findFirst({
       where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
-      select: { id: true, tenantId: true, status: true, substatus: true, assigneeId: true, track: true },
+      select: { id: true, organisationId: true, status: true, substatus: true, assigneeId: true, track: true },
     });
     if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
     if (!trackRules(bug.track).hasProductSteps) {
@@ -85,9 +85,9 @@ export async function reportDeployment(
       });
     }
     const payload = { issueId: bug.id, environment, note, from: bug.substatus, to };
-    await audit({ agentId: agent.agentId, tenantId: bug.tenantId }, "issue.deployed", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
+    await audit({ agentId: agent.agentId, organisationId: bug.organisationId }, "issue.deployed", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
     if (changed) {
-      await publish(tx, { tenantId: bug.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: moveTo(to) } });
+      await publish(tx, { organisationId: bug.organisationId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: moveTo(to) } });
     }
     const payoutReleased = await releasePayoutIfLive(tx, bug.id);
     const liveReports = (await liveReporters(tx, bug.id, bug.assigneeId)).length;

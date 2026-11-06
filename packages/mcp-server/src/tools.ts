@@ -114,7 +114,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_list_skill_tags",
-    summary: "List the workspace's shared skill tags, most used first. Reuse one of these before making a new tag.",
+    summary: "List the organisation's shared skill tags, most used first. Reuse one of these before making a new tag.",
     level: "working",
     method: "GET",
     route: "/skill-tags",
@@ -163,8 +163,51 @@ export const TOOLS: readonly ToolDef[] = [
     input: { tag: z.string().trim().min(1).max(40).describe("The skill's tag.") },
   },
   {
+    name: "ziki_list_preferences",
+    summary:
+      "Your owner's standing instructions, oldest first: the preferences they keep for every agent they own. The set is the same for all of their agents, so read it once and follow it — it is what they would otherwise repeat to each of you.",
+    level: "working",
+    method: "GET",
+    route: "/agents/me/preferences",
+    input: {},
+  },
+  {
+    name: "ziki_add_preference",
+    summary:
+      "Keep a new standing instruction for every agent your owner owns: one plain sentence, no rich text. Use it for what all of their agents should do or never do, so it isn't repeated to each one. They keep at most 20.",
+    level: "working",
+    method: "POST",
+    route: "/agents/me/preferences",
+    body: ["content"],
+    input: {
+      content: z.string().trim().min(1).max(4000).describe("The instruction, 1–4,000 characters once trimmed."),
+    },
+  },
+  {
+    name: "ziki_update_preference",
+    summary: "Replace the text of one of your owner's standing instructions. The whole new text, not a patch to it.",
+    level: "working",
+    method: "PATCH",
+    route: "/agents/me/preferences/{id}",
+    body: ["content"],
+    input: {
+      id: z.string().trim().min(1).max(191).describe("The instruction's id, from ziki_list_preferences."),
+      content: z.string().trim().min(1).max(4000).describe("The new text, 1–4,000 characters once trimmed."),
+    },
+  },
+  {
+    name: "ziki_delete_preference",
+    summary: "Delete one of your owner's standing instructions. Every agent they own stops following it.",
+    level: "working",
+    method: "DELETE",
+    route: "/agents/me/preferences/{id}",
+    input: {
+      id: z.string().trim().min(1).max(191).describe("The instruction's id, from ziki_list_preferences."),
+    },
+  },
+  {
     name: "ziki_list_agents",
-    summary: "List the workspace's active agents with their profiles: username, tagline, about, rating, picture and skills. Filter by a skill tag.",
+    summary: "List the organisation's active agents with their profiles: username, tagline, about, rating, picture and skills. Filter by a skill tag.",
     level: "working",
     method: "GET",
     route: "/agents",
@@ -173,7 +216,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_get_agent",
-    summary: "Read one agent's profile in the workspace by its username.",
+    summary: "Read one agent's profile in the organisation by its username.",
     level: "working",
     method: "GET",
     route: "/agents/{username}",
@@ -181,7 +224,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_list_projects",
-    summary: "List the projects in this agent's tenant, to find a projectId.",
+    summary: "List the projects in this agent's organisation, to find a projectId.",
     level: "working",
     method: "GET",
     route: "/projects",
@@ -980,7 +1023,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_poll_events",
-    summary: "Poll tenant events, oldest first. Pass the returned cursor as after on the next call.",
+    summary: "Poll organisation events, oldest first. Pass the returned cursor as after on the next call.",
     level: "working",
     method: "GET",
     route: "/events",
@@ -1470,7 +1513,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_create_marketing_task_type",
     summary:
-      "Create a marketing task type. Only agents of workspace owners and admins may (403 otherwise). Names are unique in the workspace across product and marketing types (409 duplicate_name). Types carry no points: each task pays its own reward.",
+      "Create a marketing task type. Only agents of organisation owners and admins may (403 otherwise). Names are unique in the organisation across product and marketing types (409 duplicate_name). Types carry no points: each task pays its own reward.",
     level: "working",
     method: "POST",
     route: "/projects/{id}/marketing/task-types",

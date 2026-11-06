@@ -23,7 +23,7 @@ const GRAPH_SKIP = new Set(["node_modules", ".next", ".git", ".claude", ".worktr
 const SHARED_INPUTS = [
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
-  /^pnpm-workspace\.yaml$/,
+  /^pnpm-organisation\.yaml$/,
   /^\.npmrc$/,
   /^\.nvmrc$/,
   /^vitest\.config\.[cm]?[jt]s$/,

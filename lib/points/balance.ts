@@ -5,7 +5,7 @@ import { pointsNumber } from "./rules";
 /**
  * Reading a person's balance straight off the ledger (#618).
  *
- * A balance is only ever the sum of their `PointEntry` rows inside one tenant:
+ * A balance is only ever the sum of their `PointEntry` rows inside one organisation:
  * corrections included, nothing derived from the issue tables. That keeps it
  * reproducible — the same rows always give the same number — which is what a
  * later token transfer would have to start from.
@@ -32,7 +32,7 @@ export type PointBalance = {
 };
 
 export type PointBalanceQuery = {
-  tenantId: string;
+  organisationId: string;
   userId: string;
   /** Inclusive lower bound on `PointEntry.createdAt`. */
   from?: Date | string | null;
@@ -81,16 +81,16 @@ async function totals(
   return { points: pointsNumber(sum._sum.points), entries: count };
 }
 
-/** `userId`'s balance in `tenantId`, plus the same sum over `from`/`to`. */
+/** `userId`'s balance in `organisationId`, plus the same sum over `from`/`to`. */
 export async function pointBalance(db: Db, query: PointBalanceQuery): Promise<PointBalance> {
-  const { tenantId, userId } = query;
+  const { organisationId, userId } = query;
   const from = bound(query.from, "from");
   const to = bound(query.to, "to");
   if (from && to && from.getTime() > to.getTime()) {
     throw new Error("from must not be after to.");
   }
 
-  const base = { tenantId, userId } satisfies Prisma.PointEntryWhereInput;
+  const base = { organisationId, userId } satisfies Prisma.PointEntryWhereInput;
   const isBounded = from !== null || to !== null;
   const periodWhere: Prisma.PointEntryWhereInput = isBounded
     ? {

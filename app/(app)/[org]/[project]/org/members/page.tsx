@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { settableLevels } from "@/lib/agents/levels";
 import { prisma } from "@/lib/prisma";
-import { MEMBERSHIP_ROLE_LABELS, tenantMembersFrom } from "@/lib/tenants";
+import { MEMBERSHIP_ROLE_LABELS, organisationMembersFrom } from "@/lib/organisations";
 import { loadOrg } from "../org-context";
 import { OrgPageHeader, ReadOnlyNote } from "../org-ui";
 import { MemberList, type OrgMember } from "./member-list";
+import { ProjectCollaboratorsSection, type ProjectCollaboratorItem } from "./project-collaborators";
 
 export const metadata: Metadata = { title: "Members" };
 
@@ -12,12 +13,12 @@ const MEMBER_LIMIT = 1000;
 
 /**
  * Memberships and users are loaded apart so a membership whose user row is
- * gone is skipped rather than failing the page (see tenantMembersFrom).
+ * gone is skipped rather than failing the page (see organisationMembersFrom).
  */
-async function loadMembers(tenantId: string): Promise<OrgMember[]> {
+async function loadMembers(organisationId: string): Promise<OrgMember[]> {
   try {
     const rows = await prisma.membership.findMany({
-      where: { tenantId },
+      where: { organisationId },
       orderBy: [{ role: "asc" }, { createdAt: "asc" }],
       take: MEMBER_LIMIT,
       select: { role: true, createdAt: true, userId: true },
@@ -30,7 +31,7 @@ async function loadMembers(tenantId: string): Promise<OrgMember[]> {
         select: { id: true, name: true, email: true, image: true, role: true },
       }),
       prisma.agent.findMany({
-        where: { tenantId, ownerUserId: { in: userIds }, revokedAt: null },
+        where: { organisationId, ownerUserId: { in: userIds }, revokedAt: null },
         orderBy: [{ name: "asc" }, { id: "asc" }],
         select: { id: true, name: true, level: true, ownerUserId: true },
       }),
@@ -41,7 +42,7 @@ async function loadMembers(tenantId: string): Promise<OrgMember[]> {
       list.push({ id: agent.id, name: agent.name, level: agent.level });
       agentsByOwner.set(agent.ownerUserId, list);
     }
-    return tenantMembersFrom(rows, people).map((member) => ({
+    return organisationMembersFrom(rows, people).map((member) => ({
       id: member.user.id,
       name: member.user.name,
       email: member.user.email,
@@ -58,12 +59,48 @@ async function loadMembers(tenantId: string): Promise<OrgMember[]> {
   }
 }
 
-/** Who is in the organization, their roles and agents, and leaving it. */
+async function loadProjectCollaborators(organisationId: string): Promise<ProjectCollaboratorItem[]> {
+  try {
+    const rows = await prisma.projectMembership.findMany({
+      where: { project: { organisationId } },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            organisation: { select: { slug: true } },
+          },
+        },
+        user: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((r) => ({
+      projectId: r.projectId,
+      projectName: r.project.name,
+      projectSlug: r.project.slug,
+      orgSlug: r.project.organisation.slug,
+      userId: r.userId,
+      userName: r.user.name,
+      userEmail: r.user.email,
+      createdAt: r.createdAt,
+    }));
+  } catch (error) {
+    console.error("[org] loadProjectCollaborators failed", error);
+    return [];
+  }
+}
+
+/** Who is in the organisation, their roles and agents, and leaving it. */
 export default async function OrgMembersPage() {
   const { user, org } = await loadOrg();
   if (!org) return null;
 
-  const members = await loadMembers(org.id);
+  const [members, collaborators] = await Promise.all([
+    loadMembers(org.id),
+    loadProjectCollaborators(org.id),
+  ]);
   const ownerCount = members.filter((member) => member.role === "owner").length;
 
   return (
@@ -75,19 +112,23 @@ export default async function OrgMembersPage() {
       </OrgPageHeader>
       {org.admin ? null : (
         <ReadOnlyNote>
-          You can see who is here and leave the organization. Only owners and admins can change
+          You can see who is here and leave the organisation. Only owners and admins can change
           roles or remove people.
         </ReadOnlyNote>
       )}
       <MemberList
-        tenantId={org.id}
-        tenantName={org.name}
+        organisationId={org.id}
+        organisationName={org.name}
         viewerId={user.id}
         members={members}
         ownerCount={ownerCount}
         canChangeRoles={org.owner}
         canRemove={org.admin}
-        agentLevels={org.admin ? settableLevels({ isOwner: false, isTenantAdmin: true }) : []}
+        agentLevels={org.admin ? settableLevels({ isOwner: false, isAdminOfOrganisation: true }) : []}
+      />
+      <ProjectCollaboratorsSection
+        collaborators={collaborators}
+        canRemove={org.admin}
       />
     </div>
   );

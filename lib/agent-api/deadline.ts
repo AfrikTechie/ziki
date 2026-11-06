@@ -24,10 +24,10 @@ export async function extendClaim(agent: AgentContext, projectId: string, issueR
   return prisma.$transaction(async (tx) => {
     // #604: the path may be the readable number (`123`, `ZE-123`) or the id, as on reads.
     const ref = parseIssueRef(issueRef);
-    const bugId = ref.kind === "id" ? ref.id : (await resolveIssueRef(tx, ref, { tenantId: agent.tenantId }))?.id;
+    const bugId = ref.kind === "id" ? ref.id : (await resolveIssueRef(tx, ref, { organisationId: agent.organisationId }))?.id;
     if (!bugId) throw new IssueApiError(404, "Issue not found in this project.");
     const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "tenantId" = ${agent.tenantId}
+      SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "organisationId" = ${agent.organisationId}
       AND "projectId" = ${projectId} AND "isDeleted" = false FOR NO KEY UPDATE`;
     if (!locked.length) throw new IssueApiError(404, "Issue not found in this project.");
 
@@ -60,7 +60,7 @@ export async function extendClaim(agent: AgentContext, projectId: string, issueR
       data: { deliverBy, extendedAt: now, extensionReason: reason },
     });
     await publish(tx, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       type: "claim.extended",
       actorAgentId: agent.agentId,
       bugId,

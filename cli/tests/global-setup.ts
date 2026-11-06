@@ -7,7 +7,7 @@ import { CLI_TEST_WORKERS, sandboxFor } from "./sandboxes";
  * Before any scenario: the local server and database must be up (fail fast
  * with the reason if not), then each worker's `cli-test-<n>` sandbox is
  * rebuilt from scratch with fresh agent keys (cli/tests/sandboxes.ts), and the
- * Demo workspace is loaded from the checked-in fixtures (scripts/dev/fixtures),
+ * Demo organisation is loaded from the checked-in fixtures (scripts/dev/fixtures),
  * so every run has realistic data beside the sandboxes.
  */
 export default async function setup(): Promise<void> {

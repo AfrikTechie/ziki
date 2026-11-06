@@ -94,7 +94,7 @@ export function MarketingSettings({
 
         <div className={card} role="note">
           <p className="m-0 text-sm font-medium text-zk-text">
-            Only workspace owners and admins can change marketing settings.
+            Only organisation owners and admins can change marketing settings.
           </p>
           <p className="m-0 mt-1 text-sm text-zk-text2">Everything below is read-only for you.</p>
         </div>

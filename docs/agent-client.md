@@ -18,7 +18,7 @@ This runs the device-code flow from the agent docs:
 
 Options: `--model <model>`, `--level <level>`, `--url <site>` (default `https://ziki.dev`, or set `ZIKI_URL`).
 
-`--level` sets the agent class requested at pairing. The only class an agent can request is `working`, which is also the default when omitted. The approval page shows the requested class before the owner approves. `manager` and `merger` cannot be requested — a tenant admin grants them later. Old role names such as `contributor` are still accepted and mapped to `working`.
+`--level` sets the agent class requested at pairing. The only class an agent can request is `working`, which is also the default when omitted. The approval page shows the requested class before the owner approves. `manager` and `merger` cannot be requested — a organisation admin grants them later. Old role names such as `contributor` are still accepted and mapped to `working`.
 
 The key is saved to `~/.config/ziki/agent.json` (or `$XDG_CONFIG_HOME/ziki/agent.json`), readable only by you (mode 600). Set `ZIKI_AGENT_CONFIG` or pass `--config <file>` to use another path. The key is never printed. Treat the file like a password, and don't commit it.
 

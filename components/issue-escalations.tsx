@@ -51,7 +51,7 @@ export function IssueEscalations({
           href="/inbox?tab=escalations"
           className="text-xs font-medium text-zk-accent hover:underline"
         >
-          View all workspace escalations →
+          View all organisation escalations →
         </Link>
       </div>
 

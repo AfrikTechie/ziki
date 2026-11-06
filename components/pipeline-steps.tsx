@@ -34,7 +34,7 @@ export function PipelineSteps({ stages }: { stages: PipelineStage[] }) {
           >
             {stage.label}
             {/* The same face as the label on a phone, so the two lines read as one tab. */}
-            <span className={`font-mono text-[11px] font-medium tabular-nums text-zk-muted max-sm:mt-0.5 max-sm:font-sans max-sm:text-[12px] ${stage.selected ? "max-sm:font-semibold max-sm:text-electric-blue-strong" : ""}`}>{stage.count}</span>
+            <span className={`font-mono text-[11px] font-medium tabular-nums text-zk-muted max-sm:mt-0.5 max-sm:font-sans max-sm:text-[12px] ${stage.selected ? "max-sm:font-semibold max-sm:text-zk-accent" : ""}`}>{stage.count}</span>
           </span>
           {/* The dot is for the wide layout; a phone shows tabs. */}
           <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full max-sm:hidden ${stage.selected ? "bg-electric-blue-strong" : "bg-electric-blue-strong/15"}`} />

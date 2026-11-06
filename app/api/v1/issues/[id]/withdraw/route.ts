@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const { projectId, ...input } = withdrawIssueSchema.parse(hasBody ? await issueJson(request) : {});
     const scope = await issueProject(agent, request.nextUrl.searchParams, projectId);
     return NextResponse.json(
-      await withdrawIssue({ tenantId: agent.tenantId, userId: agent.ownerId, agentId: agent.agentId, agentName: agent.name }, scope.projectId, id, input),
+      await withdrawIssue({ organisationId: agent.organisationId, userId: agent.ownerId, agentId: agent.agentId, agentName: agent.name }, scope.projectId, id, input),
     );
   });
 }

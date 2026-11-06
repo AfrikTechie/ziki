@@ -1,9 +1,9 @@
 import type { MembershipRole } from "@prisma/client";
-import { isOrganizationAdmin } from "@/lib/organization-role";
+import { isOrganisationAdmin } from "@/lib/organisation-role";
 import type { AppRole } from "@/lib/roles";
 
 export const TICKET_EDIT_ERRORS = {
-  unauthorized: "Only the reporter, or an owner or admin of this organization, can edit this issue",
+  unauthorized: "Only the reporter, or an owner or admin of this organisation, can edit this issue",
   notFound: "Issue not found",
   invalidTitle: "Title must be between 3 and 200 characters",
   invalidDescription: "Description must be between 10 and 5000 characters",
@@ -19,7 +19,7 @@ export type CanEditTicketParams = {
 
 /**
  * Checks whether a user can edit an issue's title and description.
- * Allowed: the reporter, or an owner / admin of the organization. A site-wide
+ * Allowed: the reporter, or an owner / admin of the organisation. A site-wide
  * admin who is only a member cannot edit someone else's issue.
  */
 export function canEditTicket({
@@ -29,7 +29,7 @@ export function canEditTicket({
   reporterId,
 }: CanEditTicketParams): boolean {
   if (!actorId) return false;
-  if (isOrganizationAdmin(membershipRole, actorRole)) return true;
+  if (isOrganisationAdmin(membershipRole, actorRole)) return true;
   return Boolean(reporterId && actorId === reporterId);
 }
 

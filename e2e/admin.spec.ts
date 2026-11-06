@@ -1,6 +1,6 @@
 import { test, expect, expectNoHorizontalScroll, PROJECT } from "./fixtures";
 
-test.describe("organization admin screens", () => {
+test.describe("organisation admin screens", () => {
   test.use({ as: "admin" });
 
   test("adds an issue type", async ({ page, uniq }) => {
@@ -22,7 +22,7 @@ test.describe("organization admin screens", () => {
     await context.close();
   });
 
-  test("an organization admin can't open the site admin pages", async ({ page }) => {
+  test("an organisation admin can't open the site admin pages", async ({ page }) => {
     await page.goto("/superadmin/users");
     await expect(page).not.toHaveURL(/\/superadmin\/users/);
   });

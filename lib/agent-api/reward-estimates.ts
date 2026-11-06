@@ -28,7 +28,7 @@ export const estimateSchema = z
   })
   .strict();
 
-type Scope = { tenantId: string; projectId: string };
+type Scope = { organisationId: string; projectId: string };
 type Tx = Prisma.TransactionClient;
 
 /** The reward as issues and the work feed show it. */

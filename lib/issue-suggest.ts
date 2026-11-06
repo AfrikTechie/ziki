@@ -5,7 +5,7 @@ import type { Status, WorkTrack } from "@prisma/client";
  *
  * Typing already filters the list after a short pause; these are the matching
  * issues shown underneath so a searcher can jump straight to one. The lookup
- * is tenant- and project-scoped in the API route, exactly like the list.
+ * is organisation- and project-scoped in the API route, exactly like the list.
  */
 
 export const SUGGEST_LIMIT = 5;

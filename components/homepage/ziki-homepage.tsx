@@ -39,7 +39,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                 <p className="mt-6 text-lg text-slate-600 leading-relaxed sm:text-xl">
                   Ziki unites engineering teams with specialized AI agents to triage error reports,
                   reproduce bugs, execute verified test gates, and draft redesign proposals—all bounded
-                  by enterprise tenants and an append-only $ ledger.
+                  by enterprise organisations and an append-only $ ledger.
                 </p>
                 <div className="mt-8 flex flex-wrap items-center gap-4">
                   {isSignedIn ? (
@@ -47,7 +47,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                       href="/home"
                       className="inline-flex items-center justify-center rounded-xl bg-teal-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
                     >
-                      Enter Workspace
+                      Enter Organisation
                       <svg className="ml-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                       </svg>
@@ -145,7 +145,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                   </div>
 
                   <div className="mt-4 flex items-center justify-between pt-2 text-xs text-slate-400">
-                    <span>Organization: Zedu Platform</span>
+                    <span>Organisation: Zedu Platform</span>
                     <span>Project: bug-tracker</span>
                   </div>
                 </div>
@@ -281,7 +281,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                   Tier 4
                 </span>
                 <h3 className="mt-3 text-xl font-bold text-slate-900">Merger</h3>
-                <p className="mt-2 text-xs font-medium text-slate-500">Organization Admin Only</p>
+                <p className="mt-2 text-xs font-medium text-slate-500">Organisation Admin Only</p>
                 <p className="mt-3 text-sm text-slate-600">
                   Authorized to automate PR merges once test verdict gates pass, and propose structural redesigns.
                 </p>
@@ -297,7 +297,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                   </h4>
                   <p className="mt-1.5 max-w-2xl text-sm text-teal-800">
                     Ziki enforces atomic claim leasing with 30-minute heartbeats. If an agent remains silent,
-                    its claim is automatically released back to the tenant pool. Agents can never review work
+                    its claim is automatically released back to the organisation pool. Agents can never review work
                     submitted by their own owners.
                   </p>
                 </div>
@@ -549,7 +549,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
           </div>
         </section>
 
-        {/* 7. Team & Organization Workflows */}
+        {/* 7. Team & Organisation Workflows */}
         <section id="workflows" className="scroll-mt-20 border-b border-slate-200 bg-card py-16 sm:py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
@@ -557,11 +557,11 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                 Enterprise Readiness
               </span>
               <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-                Built for Teams &amp; Organizations
+                Built for Teams &amp; Organisations
               </h2>
               <p className="mt-4 text-base text-slate-600 leading-relaxed">
                 Whether you&apos;re a solo builder or an enterprise engineering team, Ziki adapts to your workflow
-                with strict tenant isolation and role-based access control.
+                with strict organisation isolation and role-based access control.
               </p>
             </div>
 
@@ -608,11 +608,11 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
               <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-8 shadow-2xs">
                 <h3 className="text-xl font-bold text-slate-900">Enterprises &amp; Orgs</h3>
                 <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-                  Full multi-tenant boundary isolation ensures issues, agent actions, and comments never leak across organizations. Backed by tamper-evident audit logs and signed webhooks.
+                  Full multi-organisation boundary isolation ensures issues, agent actions, and comments never leak across organisations. Backed by tamper-evident audit logs and signed webhooks.
                 </p>
                 <ul className="mt-6 space-y-2.5 text-xs text-slate-600">
                   <li className="flex items-center gap-2">
-                    <span className="text-teal-600 font-bold">✓</span> Tenant isolation &amp; invite links
+                    <span className="text-teal-600 font-bold">✓</span> Organisation isolation &amp; invite links
                   </li>
                   <li className="flex items-center gap-2">
                     <span className="text-teal-600 font-bold">✓</span> Google OAuth domain allowlists
@@ -642,7 +642,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                   href="/home"
                   className="rounded-xl bg-teal-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-md transition hover:bg-teal-400"
                 >
-                  Go to Workspace
+                  Go to Organisation
                 </Link>
               ) : (
                 <Link

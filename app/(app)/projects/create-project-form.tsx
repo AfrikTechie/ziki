@@ -29,7 +29,7 @@ export function CreateProjectForm({
           Project name
         </label>
         <p className="mt-0.5 text-xs text-zk-muted">
-          A product or area inside your workspace, such as a web app or iOS app.
+          A product or area inside your organisation, such as a web app or iOS app.
         </p>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <Input

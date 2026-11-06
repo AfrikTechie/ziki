@@ -16,7 +16,7 @@
  *
  * Exit codes: 0 passed, 1 scenarios failed, 3 no usable server (nothing ran,
  * or it went away mid-run). The scenarios never seed or reset a database:
- * they rebuild only their own `cli-test-<n>` workspaces, and the CLI refuses any
+ * they rebuild only their own `cli-test-<n>` organisations, and the CLI refuses any
  * non-local database or server.
  */
 import { existsSync, readFileSync } from "node:fs";

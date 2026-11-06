@@ -85,7 +85,7 @@ export type TestVerdictBody = z.infer<typeof testVerdictBodySchema>;
 const reviewedBugSelect = {
   id: true,
   title: true,
-  tenantId: true,
+  organisationId: true,
   status: true,
   substatus: true,
   track: true,
@@ -182,13 +182,13 @@ export async function submitTestVerdict(
   const body = parsed.data;
 
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-  const bugId = await issueIdFor(prisma, issueRef, agent.tenantId);
-  if (!bugId) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
+  const bugId = await issueIdFor(prisma, issueRef, agent.organisationId);
+  if (!bugId) return { status: 404, error: "not_found", message: "No such issue in this agent's organisation." };
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, tenantId: agent.tenantId, isDeleted: false },
+    where: { id: bugId, organisationId: agent.organisationId, isDeleted: false },
     select: reviewedBugSelect,
   });
-  if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
+  if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's organisation." };
 
   // #delivered-step: delivered work is judged at Done · Requires review, and a
   // judgement can still change at Done · Accepted (#529); before delivery, and
@@ -247,14 +247,14 @@ export async function submitTestVerdict(
   const onBehalfOfUserId = body.onBehalfOfUserId ?? agent.ownerId;
   if (onBehalfOfUserId !== agent.ownerId) {
     const member = await prisma.membership.findUnique({
-      where: { tenantId_userId: { tenantId: agent.tenantId, userId: onBehalfOfUserId } },
+      where: { organisationId_userId: { organisationId: agent.organisationId, userId: onBehalfOfUserId } },
       select: { id: true },
     });
     if (!member) {
       return {
         status: 400,
         error: "invalid_request",
-        message: "onBehalfOfUserId must be a member of the agent's tenant.",
+        message: "onBehalfOfUserId must be a member of the agent's organisation.",
         field: "onBehalfOfUserId",
       };
     }
@@ -342,7 +342,7 @@ export async function submitTestVerdict(
           { bugId: bug.id, db: tx },
         );
         await publish(tx, {
-          tenantId: bug.tenantId,
+          organisationId: bug.organisationId,
           type: "issue.test_verdict",
           payload: {
             issueId: bug.id,
@@ -358,7 +358,7 @@ export async function submitTestVerdict(
           actorAgentId: agent.agentId,
           bugId: bug.id,
         });
-        await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, tenantId: bug.tenantId, pullRequestUrl }).catch(() => null);
+        await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, organisationId: bug.organisationId, pullRequestUrl }).catch(() => null);
         return { status: 200 as const, verdict, changed: true as const };
       }
 
@@ -385,14 +385,14 @@ export async function submitTestVerdict(
         { bugId: bug.id, db: tx },
       );
       await publish(tx, {
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         type: "issue.test_verdict",
         payload: { issueId: bug.id, verdictId: verdict.id, goodToMerge: body.goodToMerge, summary: body.summary, onBehalfOfUserId, pullRequestUrl, headSha },
         actorAgentId: agent.agentId,
         bugId: bug.id,
       });
 
-      await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, tenantId: bug.tenantId, pullRequestUrl }).catch(() => null);
+      await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, organisationId: bug.organisationId, pullRequestUrl }).catch(() => null);
       return { status: 201 as const, verdict };
     });
     // #delivered-step: enough independent judgements move it to Done, or back to Open.
@@ -478,7 +478,7 @@ export type TestVerdictEntry = {
 /**
  * Who is reading, for the files rule (#confirmation-files): another tester's
  * files show once the viewer has judged the issue too; their own and
- * workspace admins always see them. Without a viewer they are hidden.
+ * organisation admins always see them. Without a viewer they are hidden.
  */
 export type VerdictViewer = { userId: string; admin?: boolean };
 
@@ -524,7 +524,7 @@ export async function testVerdictEntries(
 }
 
 /** GET /issues/{id}/test-results: the issue's test verdicts, each with its replies. */
-export async function listTestVerdicts(scope: { tenantId: string; projectId?: string }, issueRef: string, viewer: VerdictViewer | null) {
+export async function listTestVerdicts(scope: { organisationId: string; projectId?: string }, issueRef: string, viewer: VerdictViewer | null) {
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },

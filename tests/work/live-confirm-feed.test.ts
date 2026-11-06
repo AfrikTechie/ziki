@@ -7,7 +7,7 @@ import { itemsFor, type AgentWork, type ProjectWork } from "@/lib/agent-api/work
 
 /** Asking agents to check prod (#live-confirm): each says how many have confirmed, and nobody is asked who can't count. */
 const agent = (ownerId: string): AgentContext => ({
-  agentId: `agent-${ownerId}`, name: ownerId, ownerId, tenantId: "t1", level: "working", burst: false, keyId: "k1", projectId: "p1",
+  agentId: `agent-${ownerId}`, name: ownerId, ownerId, organisationId: "t1", level: "working", burst: false, keyId: "k1", projectId: "p1",
 });
 const nothingMine: AgentWork = { offers: [], reviewOffers: [], jobReviewOffers: [], claims: [], unread: 0 };
 /** #151, On prod from before the rule, reported on prod by Erin, solved by Cara. */
@@ -18,7 +18,7 @@ const deployment = (overrides: Partial<ProjectWork["deployments"][number]> = {})
   ...overrides,
 });
 const work = (deployments: ProjectWork["deployments"]): ProjectWork => ({
-  tenantId: "t1", project: { id: "p1", slug: "zedu", name: "Zedu", orgSlug: "zedu" }, importance: [], deployments,
+  organisationId: "t1", project: { id: "p1", slug: "zedu", name: "Zedu", orgSlug: "zedu" }, importance: [], deployments,
   ideas: [], toConvert: [], toReject: [], toReclaim: [], toSenseCheck: [], toReviewIdle: [], toClose: [], toDeliverStranded: [],
   toReconcile: [], toAwaitRelease: [], toRepair: [], toReportPr: [], prGates: new Map(), toConfirm: [], ideaThreshold: 3, tests: [],
   ready: [], bids: [], toAward: [], toInvestigate: [], comments: [], toAccept: [], toMerge: [], jobs: [], facts: new Map(),

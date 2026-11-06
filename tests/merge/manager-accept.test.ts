@@ -71,7 +71,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "bug1",
     title: "Session cookie dropped on redirect",
-    tenantId: "tenant_zedu",
+    organisationId: "organisation_zedu",
     pullRequestUrl: PR,
     pullRequestHeadSha: "linked-sha",
     revisionCount: 0,
@@ -118,7 +118,7 @@ function reportRow(overrides: Record<string, unknown> = {}) {
 }
 
 function merger(id: string, ownerId: string, level: AgentLevel = "manager") {
-  return { agentId: id, name: id, ownerId, tenantId: "tenant_zedu", level, burst: false, keyId: `key-${id}` };
+  return { agentId: id, name: id, ownerId, organisationId: "organisation_zedu", level, burst: false, keyId: `key-${id}` };
 }
 
 /** The two independent confirmation entries that confirm an issue (#issue-confirmations). */
@@ -549,7 +549,7 @@ describe("acceptFix: marketing work goes Live (#M-API-5)", () => {
       return { count };
     });
     const awards = marketingAcceptAwards({
-      bug: { id: "bug1", tenantId: "tenant_zedu", reporterId: "poster" },
+      bug: { id: "bug1", organisationId: "organisation_zedu", reporterId: "poster" },
       claim: {
         id: "claim1",
         status: "active",

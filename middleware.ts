@@ -47,11 +47,13 @@ export function isPublicPath(
     isIssuePreview ||
     pathWithoutBase === "/" ||
     pathWithoutBase.startsWith("/session-expired") ||
-    // Shareable invite links (#444). Guests must see the organization and
+    // Shareable invite links (#444). Guests must see the organisation and
     // sign in with Google before the link is used; the page itself never
     // spends a use.
     pathWithoutBase === "/join" ||
     pathWithoutBase.startsWith("/join/") ||
+    pathWithoutBase === "/discover" ||
+    pathWithoutBase.startsWith("/discover?") ||
     pathWithoutBase.startsWith("/api/auth") ||
     pathWithoutBase.startsWith("/api/health") ||
     // The scheduler calls the platform sweeps with Bearer CRON_SECRET and no

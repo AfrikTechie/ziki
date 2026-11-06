@@ -35,7 +35,7 @@ function heartbeatCutoff(now: Date, heartbeatMinutes: number): Date {
 function claimSweepWhere(
   now: Date,
   cutoff: Date,
-  scope: { projectId?: string; projectIds?: string[]; tenantId?: string } = {},
+  scope: { projectId?: string; projectIds?: string[]; organisationId?: string } = {},
 ): Prisma.IssueClaimWhereInput {
   return {
     status: "active",
@@ -47,7 +47,7 @@ function claimSweepWhere(
       status: "in_progress",
       ...(scope.projectId ? { projectId: scope.projectId } : {}),
       ...(scope.projectIds ? { projectId: { in: scope.projectIds } } : {}),
-      ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
+      ...(scope.organisationId ? { organisationId: scope.organisationId } : {}),
     },
     OR: [
       // #551: a claim whose fix is linked is waiting on review, not silent.
@@ -61,11 +61,11 @@ function claimSweepWhere(
 export async function heartbeatClaim(agent: AgentContext, projectId: string, issueRef: string) {
   return prisma.$transaction(async (tx) => {
     // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-    const bugId = await issueIdFor(tx, issueRef, agent.tenantId);
+    const bugId = await issueIdFor(tx, issueRef, agent.organisationId);
     if (!bugId) throw new IssueApiError(404, "Issue not found in this project.");
     // All claim transitions lock the issue first, including the stale-claim sweep.
     const issues = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "tenantId" = ${agent.tenantId}
+      SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "organisationId" = ${agent.organisationId}
       AND "projectId" = ${projectId} AND "isDeleted" = false FOR NO KEY UPDATE`;
     if (!issues.length) throw new IssueApiError(404, "Issue not found in this project.");
     const agents = await tx.$queryRaw<{ pausedAt: Date | null }[]>`SELECT "pausedAt" FROM "Agent" WHERE "id" = ${agent.agentId} FOR UPDATE`;
@@ -82,8 +82,8 @@ export async function heartbeatClaim(agent: AgentContext, projectId: string, iss
 // Stale-claim sweep (#524)
 // ---------------------------------------------------------------------------
 
-/** Where a released claim lives: the claim plus its bug's tenant and project. */
-type StaleClaimRef = { id: string; bugId: string; bug: { tenantId: string; projectId: string } };
+/** Where a released claim lives: the claim plus its bug's organisation and project. */
+type StaleClaimRef = { id: string; bugId: string; bug: { organisationId: string; projectId: string } };
 
 type ReleaseOutcome = {
   released: boolean;
@@ -104,7 +104,7 @@ async function releaseClaimIfStale(
   cutoff: Date,
   options: { actorUserId?: string | null } = {},
 ): Promise<ReleaseOutcome> {
-  const tenantId = claim.bug.tenantId;
+  const organisationId = claim.bug.organisationId;
   const projectId = claim.bug.projectId;
   const outcome = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${claim.bugId} FOR NO KEY UPDATE`;
@@ -113,7 +113,7 @@ async function releaseClaimIfStale(
     await tx.$queryRaw`SELECT a."id" FROM "Agent" a JOIN "IssueClaim" c ON c."agentId" = a."id" WHERE c."id" = ${claim.id} FOR UPDATE OF a`;
     // Re-read after locking: a heartbeat or another sweep may have won the race.
     const fresh = await tx.issueClaim.findFirst({ where: { id: claim.id, status: "active", releasedAt: null,
-      agent: { pausedAt: null }, bug: { projectId, tenantId, isDeleted: false, status: "in_progress" } },
+      agent: { pausedAt: null }, bug: { projectId, organisationId, isDeleted: false, status: "in_progress" } },
       include: { bug: { select: { pullRequestUrl: true, project: { select: { ownerWaitCapMinutes: true } } } } } });
     const now = new Date();
     if (!fresh) return { released: false, opened: false };
@@ -135,16 +135,16 @@ async function releaseClaimIfStale(
       reason = overdue ? "deadline" : "silence";
     }
     await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: reason } });
-    await publish(tx, { tenantId, type: "claim.released", actorAgentId: fresh.agentId, bugId: fresh.bugId,
+    await publish(tx, { organisationId, type: "claim.released", actorAgentId: fresh.agentId, bugId: fresh.bugId,
       payload: { claimId: fresh.id, issueId: fresh.bugId, projectId, beneficiaryUserId: fresh.beneficiaryUserId, reason } });
-    await audit({ agentId: fresh.agentId, tenantId } satisfies AuditAgent, "claim.released", fresh.bugId,
+    await audit({ agentId: fresh.agentId, organisationId } satisfies AuditAgent, "claim.released", fresh.bugId,
       { claimId: fresh.id, reason, projectId }, { db: tx, bugId: fresh.bugId, actorUserId: options.actorUserId ?? null });
     const otherClaim = await tx.issueClaim.count({ where: { bugId: fresh.bugId, releasedAt: null, id: { not: fresh.id } } });
     let reopened = false;
     // Preserve a human's later reassignment or resolution and any newer claim.
     // A delivered fix stays where it got to (#one-status).
     if (!otherClaim) {
-      const reopenedRow = await tx.bug.updateMany({ where: { id: fresh.bugId, projectId, tenantId,
+      const reopenedRow = await tx.bug.updateMany({ where: { id: fresh.bugId, projectId, organisationId,
         isDeleted: false, assigneeId: fresh.beneficiaryUserId, status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, ...moveTo("open") } });
       reopened = reopenedRow.count > 0;
     }
@@ -179,7 +179,7 @@ async function releaseClaimIfStale(
 async function sweepOwnerWaits(
   now: Date,
   cutoff: Date,
-  scope: { projectId?: string; tenantId?: string } = {},
+  scope: { projectId?: string; organisationId?: string } = {},
   options: { actorUserId?: string | null; limit?: number } = {},
 ) {
   const waiting = await prisma.issueClaim.findMany({
@@ -192,11 +192,11 @@ async function sweepOwnerWaits(
         isDeleted: false,
         status: "in_progress",
         ...(scope.projectId ? { projectId: scope.projectId } : {}),
-        ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
+        ...(scope.organisationId ? { organisationId: scope.organisationId } : {}),
       },
     },
     select: { id: true, bugId: true, agentId: true, waitingOnOwnerSince: true,
-      bug: { select: { tenantId: true, projectId: true, project: { select: { ownerWaitCapMinutes: true } } } } },
+      bug: { select: { organisationId: true, projectId: true, project: { select: { ownerWaitCapMinutes: true } } } } },
     orderBy: { waitingOnOwnerSince: "asc" },
     ...(options.limit ? { take: options.limit } : {}),
   });
@@ -219,7 +219,7 @@ async function remindOwnerIfDue(agentId: string, bugId: string, now: Date) {
   const question = await prisma.agentQuestion.findFirst({
     where: { agentId, bugId, answeredAt: null, remindedAt: null, createdAt: { lte: due } },
     orderBy: { createdAt: "asc" },
-    select: { id: true, body: true, ownerUserId: true, agent: { select: { name: true, tenantId: true } },
+    select: { id: true, body: true, ownerUserId: true, agent: { select: { name: true, organisationId: true } },
       bug: { select: { title: true } } },
   });
   if (!question) return;
@@ -229,7 +229,7 @@ async function remindOwnerIfDue(agentId: string, bugId: string, now: Date) {
   notifyAgentQuestion({
     id: question.id,
     body: question.body,
-    tenantId: question.agent.tenantId,
+    organisationId: question.agent.organisationId,
     ownerUserId: question.ownerUserId,
     agent: { name: question.agent.name },
     bugId,
@@ -248,10 +248,10 @@ async function remindOwnerIfDue(agentId: string, bugId: string, now: Date) {
  */
 export async function reclaimStaleIssue(agent: AgentContext, projectId: string, issueRef: string) {
   const ref = parseIssueRef(issueRef);
-  const bug = await resolveIssueRef(prisma, ref, { tenantId: agent.tenantId });
+  const bug = await resolveIssueRef(prisma, ref, { organisationId: agent.organisationId });
   const row = bug && await prisma.bug.findFirst({
-    where: { id: bug.id, tenantId: agent.tenantId, projectId, isDeleted: false },
-    select: { id: true, number: true, tenantId: true, projectId: true },
+    where: { id: bug.id, organisationId: agent.organisationId, projectId, isDeleted: false },
+    select: { id: true, number: true, organisationId: true, projectId: true },
   });
   if (!row) throw new IssueApiError(404, "Issue not found in this project.");
   const stale = await staleHold(row.id);
@@ -267,7 +267,7 @@ export async function reclaimStaleIssue(agent: AgentContext, projectId: string, 
   } else {
     const { heartbeatMinutes } = await workflowFor(row.projectId);
     await releaseClaimIfStale(
-      { id: stale.claimId, bugId: row.id, bug: { tenantId: row.tenantId, projectId: row.projectId } },
+      { id: stale.claimId, bugId: row.id, bug: { organisationId: row.organisationId, projectId: row.projectId } },
       heartbeatCutoff(new Date(), heartbeatMinutes),
       { actorUserId: agent.ownerId },
     );
@@ -286,7 +286,7 @@ export async function reclaimStaleIssue(agent: AgentContext, projectId: string, 
  */
 async function reclaimIdleIssue(
   agent: AgentContext,
-  row: { id: string; number: number; tenantId: string; projectId: string },
+  row: { id: string; number: number; organisationId: string; projectId: string },
 ) {
   requireLevel(agent, "manager");
   const reviewed = await prisma.bug.findUnique({
@@ -319,7 +319,7 @@ async function reclaimIdleIssue(
     }
     const bug = await tx.bug.findUnique({ where: { id: row.id }, select: { assigneeId: true } });
     const reopened = await tx.bug.updateMany({
-      where: { id: row.id, tenantId: row.tenantId, projectId: row.projectId, isDeleted: false, status: "in_progress" },
+      where: { id: row.id, organisationId: row.organisationId, projectId: row.projectId, isDeleted: false, status: "in_progress" },
       data: { ...moveTo("open"), assigneeId: null },
     });
     if (reopened.count !== 1) {
@@ -336,7 +336,7 @@ async function reclaimIdleIssue(
       },
     });
     await publish(tx, {
-      tenantId: row.tenantId,
+      organisationId: row.organisationId,
       type: "issue.updated",
       actorAgentId: agent.agentId,
       bugId: row.id,
@@ -369,23 +369,23 @@ async function reclaimIdleIssue(
 export async function releaseStaleClaims(projectId: string) {
   "use server";
   const admin = await requireSuperAdmin();
-  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, tenantId: true } });
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, organisationId: true } });
   if (!project) throw new IssueApiError(404, "Project not found.");
   const now = new Date();
   const { heartbeatMinutes } = await workflowFor(projectId);
   const cutoff = heartbeatCutoff(now, heartbeatMinutes);
   const candidates = await prisma.issueClaim.findMany({
-    where: claimSweepWhere(now, cutoff, { projectId, tenantId: project.tenantId }),
+    where: claimSweepWhere(now, cutoff, { projectId, organisationId: project.organisationId }),
     select: { id: true, bugId: true },
   });
   let released = 0;
   for (const candidate of candidates) {
     const outcome = await releaseClaimIfStale(
-      { ...candidate, bug: { tenantId: project.tenantId, projectId: project.id } },
+      { ...candidate, bug: { organisationId: project.organisationId, projectId: project.id } },
       cutoff, { actorUserId: admin.id });
     if (outcome.released) released++;
   }
-  const waits = await sweepOwnerWaits(now, cutoff, { projectId, tenantId: project.tenantId }, { actorUserId: admin.id });
+  const waits = await sweepOwnerWaits(now, cutoff, { projectId, organisationId: project.organisationId }, { actorUserId: admin.id });
   return { released: released + waits.released };
 }
 
@@ -429,12 +429,12 @@ export async function sweepStaleClaims(limit = 50): Promise<ClaimSweepResult> {
     groups.set(DEFAULT_PROJECT_WORKFLOW.heartbeatMinutes, null);
   }
 
-  const candidates = new Map<string, { id: string; bugId: string; cutoff: Date; bug: { tenantId: string; projectId: string } }>();
+  const candidates = new Map<string, { id: string; bugId: string; cutoff: Date; bug: { organisationId: string; projectId: string } }>();
   for (const [heartbeatMinutes, projectIds] of groups) {
     const cutoff = heartbeatCutoff(now, heartbeatMinutes);
     const rows = await prisma.issueClaim.findMany({
       where: claimSweepWhere(now, cutoff, projectIds ? { projectIds } : {}),
-      select: { id: true, bugId: true, bug: { select: { tenantId: true, projectId: true } } },
+      select: { id: true, bugId: true, bug: { select: { organisationId: true, projectId: true } } },
       orderBy: { createdAt: "asc" },
       take: limit,
     });

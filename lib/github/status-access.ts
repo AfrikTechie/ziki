@@ -8,11 +8,11 @@ import type { AgentLevel } from "@prisma/client";
  *
  * - `refresh`: any member who can see the issue. Reading GitHub changes nothing.
  * - `act` (update the branch, re-run failed checks, send the fix back): a
- *   workspace admin, the person the issue is for (its reporter or
+ *   organisation admin, the person the issue is for (its reporter or
  *   beneficiary), or someone whose manager or merger agent works in the
- *   workspace: the people who review and merge.
- * - `merge`: a workspace admin, or someone whose merger agent works in the
- *   workspace. Merging is the merger's step (lib/agents/levels.ts).
+ *   organisation: the people who review and merge.
+ * - `merge`: an organisation admin, or someone whose merger agent works in the
+ *   organisation. Merging is the merger's step (lib/agents/levels.ts).
  */
 
 export type GitHubStatusPowers = { refresh: boolean; act: boolean; merge: boolean };
@@ -22,7 +22,7 @@ export function githubStatusPowers(input: {
   admin: boolean;
   /** The user is the issue's reporter or beneficiary. */
   ownsIssue: boolean;
-  /** Levels of the user's live (not revoked) agents in the workspace. */
+  /** Levels of the user's live (not revoked) agents in the organisation. */
   agentLevels: readonly AgentLevel[];
 }): GitHubStatusPowers {
   if (!input.member && !input.admin) return { refresh: false, act: false, merge: false };

@@ -34,12 +34,12 @@ export class UserHasReportedBugsError extends Error {
   }
 }
 
-export class SoleTenantOwnerError extends Error {
-  constructor(public readonly tenantName: string) {
+export class SoleOrganisationOwnerError extends Error {
+  constructor(public readonly organisationName: string) {
     super(
-      `Cannot delete account while you are the sole owner of "${tenantName}". Transfer ownership or delete the organization first.`,
+      `Cannot delete account while you are the sole owner of "${organisationName}". Transfer ownership or delete the organisation first.`,
     );
-    this.name = "SoleTenantOwnerError";
+    this.name = "SoleOrganisationOwnerError";
   }
 }
 
@@ -183,9 +183,9 @@ async function runOffboard(
 /**
  * Self-service account deletion (#571).
  *
- * 1. Refuses while the user is a tenant's sole owner.
+ * 1. Refuses while the user is a organisation's sole owner.
  * 2. Revokes all agents and keys owned by the user.
- * 3. Removes organization memberships.
+ * 3. Removes organisation memberships.
  * 4. Reuses the safe offboarding path to anonymise authored content (issues, comments, activities),
  *    unassign assigned issues, and delete the user account.
  */
@@ -214,19 +214,19 @@ async function runDeleteUserAccount(
     throw new Error(`User with ID "${userId}" not found.`);
   }
 
-  // Refuse while you're a tenant's only owner (#571)
+  // Refuse while you're a organisation's only owner (#571)
   if (client.membership?.findMany && client.membership?.count) {
     const ownedMemberships = await client.membership.findMany({
       where: { userId, role: "owner" },
-      include: { tenant: { select: { id: true, name: true } } },
+      include: { organisation: { select: { id: true, name: true } } },
     });
 
     for (const membership of ownedMemberships) {
       const owners = await client.membership.count({
-        where: { tenantId: membership.tenantId, role: "owner" },
+        where: { organisationId: membership.organisationId, role: "owner" },
       });
       if (owners <= 1) {
-        throw new SoleTenantOwnerError(membership.tenant?.name ?? membership.tenantId);
+        throw new SoleOrganisationOwnerError(membership.organisation?.name ?? membership.organisationId);
       }
     }
   }
@@ -236,14 +236,14 @@ async function runDeleteUserAccount(
   if (client.agent?.findMany && client.agent?.update) {
     const agents = await client.agent.findMany({
       where: { ownerUserId: userId, revokedAt: null },
-      select: { id: true, tenantId: true },
+      select: { id: true, organisationId: true },
     });
 
     for (const agent of agents) {
       try {
         await releaseWorkOfRevokedAgent(client as Prisma.TransactionClient, {
           agentId: agent.id,
-          tenantId: agent.tenantId,
+          organisationId: agent.organisationId,
           actorUserId: userId,
           now,
         });

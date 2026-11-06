@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Project settings (#595, #vote-governance): only workspace admins change a project's workflow, values are range-checked, and a saved change takes effect at once. The marketing settings actions (M-UI-7) share the area, at the bottom. */
+/** Project settings (#595, #vote-governance): only organisation admins change a project's workflow, values are range-checked, and a saved change takes effect at once. The marketing settings actions (M-UI-7) share the area, at the bottom. */
 const requireUser = vi.hoisted(() => vi.fn());
 const requireProject = vi.hoisted(() => vi.fn());
-const isTenantAdmin = vi.hoisted(() => vi.fn());
+const isAdminOfOrganisation = vi.hoisted(() => vi.fn());
 const assertMarketingSettingsAccess = vi.hoisted(() => vi.fn());
 const updateMarketingSettings = vi.hoisted(() => vi.fn());
 const typeFindFirst = vi.hoisted(() => vi.fn());
@@ -13,7 +13,7 @@ const typeDelete = vi.hoisted(() => vi.fn());
 const bugCount = vi.hoisted(() => vi.fn());
 const ideaCount = vi.hoisted(() => vi.fn());
 const bugActivityCreateMany = vi.hoisted(() => vi.fn());
-const currentTenantIdFor = vi.hoisted(() => vi.fn());
+const currentOrganisationIdFor = vi.hoisted(() => vi.fn());
 const revalidatePath = vi.hoisted(() => vi.fn());
 const updateTag = vi.hoisted(() => vi.fn());
 const invalidateWorkflow = vi.hoisted(() => vi.fn());
@@ -27,12 +27,12 @@ vi.mock("@/lib/auth-helpers", () => ({ requireUser }));
 vi.mock("@/lib/project-route", () => ({ requireProject }));
 vi.mock("@/lib/marketing/settings", () => ({ assertMarketingSettingsAccess, updateMarketingSettings }));
 vi.mock("@/lib/agents/membership", () => ({
-  isTenantAdmin,
-  isTenantAdminRole: vi.fn(),
+  isAdminOfOrganisation,
+  isOrganisationAdminRole: vi.fn(),
 }));
-vi.mock("@/lib/tenant-context", () => ({
-  currentTenantIdFor,
-  NO_TENANT_MESSAGE: "You're not a member of a workspace yet.",
+vi.mock("@/lib/organisation-context", () => ({
+  currentOrganisationIdFor,
+  NO_ORGANISATION_MESSAGE: "You're not a member of a organisation yet.",
 }));
 vi.mock("@/lib/workflow", () => ({ invalidateWorkflow }));
 vi.mock("@/lib/prisma", () => ({
@@ -103,8 +103,8 @@ describe("updateProjectWorkflowAction (#595)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     requireUser.mockResolvedValue({ id: "admin" });
-    isTenantAdmin.mockResolvedValue(true);
-    currentTenantIdFor.mockResolvedValue("tenant-1");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    currentOrganisationIdFor.mockResolvedValue("organisation-1");
     findFirst.mockResolvedValue({ id: "project-1", slug: "web", workflow: null });
     transaction.mockImplementation(async (run: (tx: unknown) => unknown) =>
       run({
@@ -115,7 +115,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
   });
 
   it("refuses a member who is not an admin", async () => {
-    isTenantAdmin.mockResolvedValue(false);
+    isAdminOfOrganisation.mockResolvedValue(false);
     await expect(updateProjectWorkflowAction(undefined, form())).resolves.toMatchObject({ ok: false });
     expect(findFirst).not.toHaveBeenCalled();
     expect(transaction).not.toHaveBeenCalled();
@@ -139,7 +139,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
     });
     expect(auditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        tenantId: "tenant-1",
+        organisationId: "organisation-1",
         projectId: "project-1",
         actorUserId: "admin",
         action: "workflow.updated",
@@ -191,7 +191,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
     expect(saved.create).not.toHaveProperty("revisionLimit");
   });
 
-  it("does not touch a project outside the tenant", async () => {
+  it("does not touch a project outside the organisation", async () => {
     findFirst.mockResolvedValue(null);
     await expect(updateProjectWorkflowAction(undefined, form())).resolves.toMatchObject({
       ok: false,
@@ -263,8 +263,8 @@ describe("the marketing settings actions (M-UI-7)", () => {
     vi.clearAllMocks();
     requireProject.mockResolvedValue({
       user: { id: "admin", role: null },
-      tenantId: "tenant-1",
-      project: { id: "project-1", slug: "web", name: "Web", tenantId: "tenant-1" },
+      organisationId: "organisation-1",
+      project: { id: "project-1", slug: "web", name: "Web", organisationId: "organisation-1" },
     });
     assertMarketingSettingsAccess.mockResolvedValue(undefined);
     typeFindFirst.mockResolvedValue(null);
@@ -287,7 +287,7 @@ describe("the marketing settings actions (M-UI-7)", () => {
   it("saves the revision limit through the marketing lib and revalidates the section", async () => {
     updateMarketingSettings.mockResolvedValue({ projectId: "project-1", slug: "web", name: "Web", revisionLimit: 3 });
     await expect(updateMarketingRevisionLimitAction(WEB, revisionForm(3))).resolves.toEqual({ ok: true });
-    expect(updateMarketingSettings).toHaveBeenCalledWith("tenant-1", "project-1", "admin", { revisionLimit: 3 });
+    expect(updateMarketingSettings).toHaveBeenCalledWith("organisation-1", "project-1", "admin", { revisionLimit: 3 });
     expect(revalidatePath).toHaveBeenCalledWith("/acme/web/marketing/settings");
   });
 
@@ -300,7 +300,7 @@ describe("the marketing settings actions (M-UI-7)", () => {
 
   it("refuses a member before saving", async () => {
     assertMarketingSettingsAccess.mockRejectedValue(
-      new IssueApiError(403, "Only workspace owners and admins can change marketing settings."),
+      new IssueApiError(403, "Only organisation owners and admins can change marketing settings."),
     );
     await expect(updateMarketingRevisionLimitAction(WEB, revisionForm(3))).resolves.toMatchObject({
       error: expect.stringContaining("owners and admins"),
@@ -314,7 +314,7 @@ describe("the marketing settings actions (M-UI-7)", () => {
     });
     expect(typeCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ tenantId: "tenant-1", name: "Email newsletter", track: "marketing" }),
+        data: expect.objectContaining({ organisationId: "organisation-1", name: "Email newsletter", track: "marketing" }),
       }),
     );
   });

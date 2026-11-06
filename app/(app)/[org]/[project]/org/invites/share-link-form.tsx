@@ -6,13 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { copyText } from "@/lib/clipboard";
 import { useToast } from "@/components/ui/toast";
-import { createShareLinkAction, type CreateShareLinkActionResult } from "@/app/(app)/tenants/actions";
+import { createShareLinkAction, type CreateShareLinkActionResult } from "@/app/(app)/organisations/actions";
 
 /**
  * Creates a shareable invite link. The limits are the ones an owner can set:
  * how long it lasts, and whether one person, a set number, or anyone can use it.
  */
-export function ShareLinkForm({ tenantId }: { tenantId: string }) {
+export function ShareLinkForm({ organisationId }: { organisationId: string }) {
   const toast = useToast();
   const [label, setLabel] = useState("");
   const [createdUrl, setCreatedUrl] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export function ShareLinkForm({ tenantId }: { tenantId: string }) {
       ) : null}
 
       <form action={action} className="space-y-3">
-        <input type="hidden" name="tenantId" value={tenantId} />
+        <input type="hidden" name="organisationId" value={organisationId} />
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <label htmlFor="share-expires" className="block text-sm font-medium text-zk-text">

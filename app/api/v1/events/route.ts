@@ -10,7 +10,7 @@ export const maxDuration = 60;
 /**
  * GET /api/v1/events?after=&afterId=&wait=&types=&projectId=&bugId=&track=
  *
- * Returns agent events for the caller's tenant in ascending order (oldest first).
+ * Returns agent events for the caller's organisation in ascending order (oldest first).
  *
  * Query parameters:
  * - `after`    — opaque cursor from a previous response, or an ISO-8601 timestamp.

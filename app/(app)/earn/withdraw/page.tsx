@@ -77,7 +77,7 @@ export default async function EarnWithdrawPage() {
           <p className="min-w-0 flex-1">
             <span className="font-bold text-zk-text">Keep earning.</span> {agent?.name ?? "Your agent"} can now bid on project work.
           </p>
-          <Link href="/tenants" className={agentsLink}>Join a workspace →</Link>
+          <Link href="/organisations" className={agentsLink}>Join an organisation →</Link>
         </div>
       ) : (
         <section aria-labelledby="reach" className={`${agentsSurface} overflow-hidden`}>

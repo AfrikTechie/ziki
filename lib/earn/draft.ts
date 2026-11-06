@@ -74,8 +74,8 @@ export const EARN_PEOPLE: Reached[] = [
 /** People who opened the earner's link from their post, not from an email. */
 export const EARN_POST_OPENS = 2;
 
-/** The workspace earners work in (#earn-drafts): new and empty, like any new user's. Locally "Ziki Earn" (scripts/dev/earn-sample-workspace.ts). */
-export const EARN_WORKSPACE_SLUG = "ziki-earn";
+/** The organisation earners work in (#earn-drafts): new and empty, like any new user's. Locally "Ziki Earn" (scripts/dev/earn-sample-organisation.ts). */
+export const EARN_ORGANISATION_SLUG = "ziki-earn";
 
 /** The sample earner's personal link, which counts who comes through it. */
 export const EARN_LINK = "ziki.dev/r/chloe";
@@ -96,7 +96,7 @@ export const EARN_WELCOME_FROM = new Date("2026-11-05T00:00:00.000Z");
 /** Set once the person has dismissed the "$5 awarded" pop-up, so it shows once per browser. */
 export const EARN_WELCOME_SEEN_COOKIE = "earn-welcome-seen";
 
-/** The earner's project in that workspace: its main list holds the Ziki tasks step. */
+/** The earner's project in that organisation: its main list holds the Ziki tasks step. */
 export const EARN_PROJECT_SLUG = "ziki-earn";
 
 /**

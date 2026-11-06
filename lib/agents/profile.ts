@@ -25,7 +25,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
 export const AGENT_PICTURE_MAX_BYTES = 1_000_000;
 
 /** Who changed it, for the audit row: the agent itself, or a person on its page. */
-export type ProfileActor = { agentId: string; tenantId: string; actorUserId?: string | null };
+export type ProfileActor = { agentId: string; organisationId: string; actorUserId?: string | null };
 
 export type ProfileResult<T = object> = ({ ok: true } & T) | { ok: false; status: number; error: string };
 
@@ -91,7 +91,7 @@ export async function readAgentProfile(agentId: string, audience: "api" | "web" 
 }
 
 /** A username free on the platform, from the agent's name: "dara-solver", then "dara-solver-2", … */
-export async function freeUsername(db: Db, _tenantId: string, name: string, exceptAgentId?: string): Promise<string> {
+export async function freeUsername(db: Db, _organisationId: string, name: string, exceptAgentId?: string): Promise<string> {
   const base = usernameFromName(name);
   for (let n = 1; n < 1000; n++) {
     const candidate = n === 1 ? base : `${base}-${n}`;
@@ -132,7 +132,7 @@ export async function updateAgentProfile(actor: ProfileActor, input: unknown): P
       const changed = (Object.keys(update) as Array<keyof typeof update>).filter((key) => before[key] !== update[key]);
       if (changed.length) {
         await audit(
-          { agentId: actor.agentId, tenantId: actor.tenantId },
+          { agentId: actor.agentId, organisationId: actor.organisationId },
           "agent.profile_updated",
           `agent:${actor.agentId}`,
           { fields: changed, ...(update.username !== undefined ? { username: { from: before.username, to: update.username } } : {}) },
@@ -150,20 +150,20 @@ export async function updateAgentProfile(actor: ProfileActor, input: unknown): P
   return { ok: true, profile: profile! };
 }
 
-/** The workspace's tag for this name, made if new. The first spelling stays the tag's name. */
-async function tagFor(tx: Prisma.TransactionClient, tenantId: string, name: string) {
+/** The organisation's tag for this name, made if new. The first spelling stays the tag's name. */
+async function tagFor(tx: Prisma.TransactionClient, organisationId: string, name: string) {
   const slug = tagSlug(name);
   return tx.skillTag.upsert({
-    where: { tenantId_slug: { tenantId, slug } },
+    where: { organisationId_slug: { organisationId, slug } },
     update: {},
-    create: { tenantId, slug, name: name.trim() },
+    create: { organisationId, slug, name: name.trim() },
     select: { id: true },
   });
 }
 
 async function auditSkills(tx: Prisma.TransactionClient, actor: ProfileActor, change: Prisma.InputJsonObject) {
   await audit(
-    { agentId: actor.agentId, tenantId: actor.tenantId },
+    { agentId: actor.agentId, organisationId: actor.organisationId },
     "agent.skills_changed",
     `agent:${actor.agentId}`,
     change,
@@ -178,7 +178,7 @@ export async function replaceAgentSkills(actor: ProfileActor, input: unknown): P
   await prisma.$transaction(async (tx) => {
     await tx.agentSkill.deleteMany({ where: { agentId: actor.agentId } });
     for (const [position, skill] of parsed.data.skills.entries()) {
-      const tag = await tagFor(tx, actor.tenantId, skill.tag);
+      const tag = await tagFor(tx, actor.organisationId, skill.tag);
       await tx.agentSkill.create({
         data: { agentId: actor.agentId, tagId: tag.id, summary: skill.summary, description: skill.description, position },
       });
@@ -199,7 +199,7 @@ export async function setAgentSkill(actor: ProfileActor, tagName: string, input:
 
   const result = await prisma.$transaction(async (tx) => {
     const existingTag = await tx.skillTag.findUnique({
-      where: { tenantId_slug: { tenantId: actor.tenantId, slug: tagSlug(skill.tag) } },
+      where: { organisationId_slug: { organisationId: actor.organisationId, slug: tagSlug(skill.tag) } },
       select: { id: true },
     });
     const current = existingTag
@@ -209,7 +209,7 @@ export async function setAgentSkill(actor: ProfileActor, tagName: string, input:
       const count = await tx.agentSkill.count({ where: { agentId: actor.agentId } });
       if (count >= 20) return { full: true as const };
     }
-    const tagRow = existingTag ?? (await tagFor(tx, actor.tenantId, skill.tag));
+    const tagRow = existingTag ?? (await tagFor(tx, actor.organisationId, skill.tag));
     const last = await tx.agentSkill.aggregate({ where: { agentId: actor.agentId }, _max: { position: true } });
     const saved = await tx.agentSkill.upsert({
       where: { agentId_tagId: { agentId: actor.agentId, tagId: tagRow.id } },
@@ -230,11 +230,11 @@ export async function setAgentSkill(actor: ProfileActor, tagName: string, input:
   return { ok: true, skill: result.skill, created: result.created };
 }
 
-/** Remove one skill by its tag. The tag stays for the workspace's other agents. */
+/** Remove one skill by its tag. The tag stays for the organisation's other agents. */
 export async function removeAgentSkill(actor: ProfileActor, tagName: string): Promise<ProfileResult> {
   const slug = tagSlug(tagName);
   const tag = slug
-    ? await prisma.skillTag.findUnique({ where: { tenantId_slug: { tenantId: actor.tenantId, slug } }, select: { id: true } })
+    ? await prisma.skillTag.findUnique({ where: { organisationId_slug: { organisationId: actor.organisationId, slug } }, select: { id: true } })
     : null;
   if (!tag) return { ok: false, status: 404, error: "This agent has no skill with that tag." };
   return prisma.$transaction(async (tx): Promise<ProfileResult> => {
@@ -245,10 +245,10 @@ export async function removeAgentSkill(actor: ProfileActor, tagName: string): Pr
   });
 }
 
-/** The workspace's skill tags, most used first, so agents reuse them instead of making near-duplicates. */
-export async function listSkillTags(tenantId: string): Promise<Array<{ name: string; slug: string; agents: number }>> {
+/** The organisation's skill tags, most used first, so agents reuse them instead of making near-duplicates. */
+export async function listSkillTags(organisationId: string): Promise<Array<{ name: string; slug: string; agents: number }>> {
   const tags = await prisma.skillTag.findMany({
-    where: { tenantId },
+    where: { organisationId },
     select: { name: true, slug: true, _count: { select: { skills: true } } },
   });
   return tags
@@ -270,7 +270,7 @@ export async function setAgentPicture(actor: ProfileActor, bytes: Uint8Array): P
       select: { updatedAt: true, agent: { select: { id: true, username: true } } },
     });
     await audit(
-      { agentId: actor.agentId, tenantId: actor.tenantId },
+      { agentId: actor.agentId, organisationId: actor.organisationId },
       "agent.picture_changed",
       `agent:${actor.agentId}`,
       { contentType: type.contentType, size: bytes.byteLength },
@@ -287,7 +287,7 @@ export async function removeAgentPicture(actor: ProfileActor): Promise<ProfileRe
     const removed = await tx.agentPicture.deleteMany({ where: { agentId: actor.agentId } });
     if (!removed.count) return { ok: false, status: 404, error: "This agent has no picture." };
     await audit(
-      { agentId: actor.agentId, tenantId: actor.tenantId },
+      { agentId: actor.agentId, organisationId: actor.organisationId },
       "agent.picture_removed",
       `agent:${actor.agentId}`,
       {},

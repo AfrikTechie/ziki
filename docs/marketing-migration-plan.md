@@ -9,7 +9,7 @@ This file is the shared backlog. **Phase 0 (foundations) lands first, done by on
 | Decision | Answer |
 | --- | --- |
 | Data model | **Reuse Ziki's model.** A marketing task is a Ziki idea → issue, using Ziki's verdicts, bids, claims, deliveries, judgements and `PointEntry`. We add only what marketing needs; we do not port Amp's `Task`, `TaskVote`, `TaskComment`, `PointsLedger` or `PointRule` tables. |
-| Tenancy | **The same Ziki project holds both.** Every project gets a Marketing section next to its product issues. Same members, agents and workspace. |
+| Tenancy | **The same Ziki project holds both.** Every project gets a Marketing section next to its product issues. Same members, agents and organisation. |
 | Existing Amp data | **Start fresh.** No import. Amp keeps running untouched, and Ziki no longer links to it. |
 | Features | **Only Amp's live features** (listed below). Not the removed Overview, Content, Directories, SEO checker or Press & Media modules, and not a metrics/KPI dashboard. |
 | Design | **Ziki's design system**, not Amp's. Follow `docs/brand-guide.md`: no Amp purple, no Amp wordmark, no five-up stat cards. Rebuild the screens with Ziki components; do not copy Amp's shadcn components across. |
@@ -50,7 +50,7 @@ This table is the core of the migration. "Exists" means Ziki already does it and
 | Reviewers can't share an owner with the worker; one review per agent | `task-acceptance.ts` | Ziki allows owner agents; only the claim holder can't review | Exists. Ziki's rule applies (D3) |
 | Review points (6, first 4 reviews paid) | `point-settings.ts` | `PointRole.reviewer`, `Project.rewardConfig` | Exists. Ziki's amounts apply (D7) |
 | Poster gets 20% of the worker's points | `creatorSharePct` | `PointRole.reporter`, `Project.rewardConfig` | Exists. Ziki's reporter amount applies, paid at conversion (D2, D7) |
-| Task types with default and max points | `TaskTypeDef`, `/api/task-types` | `IssueType` (per tenant, no points) | **Extend:** `track` only. Pay comes from the issue's reward (D5, D7) |
+| Task types with default and max points | `TaskTypeDef`, `/api/task-types` | `IssueType` (per organisation, no points) | **Extend:** `track` only. Pay comes from the issue's reward (D5, D7) |
 | Points settings card (vote points, votes to decide, review points, cap, share, limit, weekly target) | `/api/projects/{id}/points` | `ProjectWorkflow`, `Project.rewardConfig` | Exists, plus the new revision limit (D4, D7) |
 | Weekly target (500) | `weeklyTarget` | Ziki's general goal | Exists. No marketing target (D7) |
 | Scoreboard (periods, bidders tab) | `/scoreboard`, `scoreboard-server.ts` | `/leaderboard`, points pages | Exists. Marketing rewards count in the existing totals, with no separate leaderboard (D7) |
@@ -65,7 +65,7 @@ This table is the core of the migration. "Exists" means Ziki already does it and
 | Search | `/api/search` | Issue search / filters | **Extend:** marketing filter |
 | Profile → agents ranked by points | `/p/<slug>/profile` | Agents pages | Exists |
 | Admin export (xlsx) | `/api/admin/export` | Points balance export | Optional, low priority |
-| Members, roles, invite link / join code | `/api/projects/*` | Tenant membership, invites | Exists, nothing to build |
+| Members, roles, invite link / join code | `/api/projects/*` | Organisation membership, invites | Exists, nothing to build |
 | Agent API: `GET /api/agent/me`, `/api/agent/tasks`, agent guide `public/agent-guide.md` | `src/app/api/agent/**` | `/api/v1`, work feed, MCP, CLI, `docs/ziki-for-agents.md` | **Extend:** `track` everywhere, brief on `agents/me`, docs |
 
 ---
@@ -80,8 +80,8 @@ Signed off by the maintainer and Phase 0 owner on 2026-11-04. These change Ziki'
 | D2 | Do marketing issues need the confirmation step? | No. An idea that passes the vote converts straight to **Open · Open**. The reporter is paid at conversion, because product work pays them at confirmation and that step doesn't exist here. |
 | D3 | Same-owner rules. Amp forbids reviewing, or bidding on, your owner's work; Ziki allows everything except the claim holder reviewing itself. | Keep **Ziki's rule** (one rule for the whole product), and rely on weighted, independent verdicts. Revisit if points farming shows up. |
 | D4 | Revision rounds. Amp sends rejected work back to the same worker up to 2 times, then reopens it for bids. Ziki sends "not good" straight back to Open · Open. | Add a per-project **revision limit** (default 2) for the marketing track: "request changes" → back to In progress for the same claim; once the limit is hit → Open · Open. |
-| D5 | Task types. Amp: per project, each with default and max points. Ziki `IssueType`: per tenant, no points. | Extend `IssueType` with `track` only. Marketing types show only in the Marketing section. **No `points`, `maxPoints` or proposed points**, because D7 uses Ziki's rewards. |
-| D6 | Numbering. Do marketing issues share numbers with product issues? | **Shared numbering** (`/<project>/<number>` keeps working everywhere), rendered with the marketing variant. A marketing issue can stand alone, or agents can link it to a related product issue. Each issue keeps its own number, because numbers are unique per tenant. |
+| D5 | Task types. Amp: per project, each with default and max points. Ziki `IssueType`: per organisation, no points. | Extend `IssueType` with `track` only. Marketing types show only in the Marketing section. **No `points`, `maxPoints` or proposed points**, because D7 uses Ziki's rewards. |
+| D6 | Numbering. Do marketing issues share numbers with product issues? | **Shared numbering** (`/<project>/<number>` keeps working everywhere), rendered with the marketing variant. A marketing issue can stand alone, or agents can link it to a related product issue. Each issue keeps its own number, because numbers are unique per organisation. |
 | D7 | Point amounts. Amp's defaults (vote 5, review 6 × 4, poster 20%, weekly target 500) vs Ziki's current amounts. | **Ziki's point system, with none of Amp's amounts.** Solving pays the issue's own reward (agents' estimates, $1–$10). Reporter and reviewer amounts use the existing per-project `Project.rewardConfig`. The goal is Ziki's general goal, with no marketing target. Marketing rewards add to each person's existing points, and there is no separate marketing leaderboard: Ranking is the one scoreboard. New `PointRole`s only where none fits. |
 | D8 | Visibility. Who sees the Marketing section? | Everyone in the project. There is no feature flag. Agents opt in with the work feed's `track` filter: with no filter, the feed returns product work only. |
 
@@ -172,7 +172,7 @@ The column came with F2, so F6 needs no migration. `workflowFor(projectId).revis
 Add marketing ideas and issues in every marketing state to `scripts/dev/fixtures/generate.ts` (deterministic), run `pnpm db:fixtures:generate`, and commit the JSON. After `pnpm db:fixtures`, contributors have real data for the pages they build under `/demo/marketing`.
 **Blocks:** comfortable UI work (UI items can start with placeholders).
 
-The generator holds 14 marketing issues, 21 marketing ideas in all and 4 marketing task types. It writes them by hand with no random numbers, so the product rows don't change. The Demo workspace now has 234 issues and 271 ideas, of which 220 and 250 are product work.
+The generator holds 14 marketing issues, 21 marketing ideas in all and 4 marketing task types. It writes them by hand with no random numbers, so the product rows don't change. The Demo organisation now has 234 issues and 271 ideas, of which 220 and 250 are product work.
 
 ### F8. Agent API contract (docs first)
 Write the marketing part of `docs/ziki-for-agents.md` before the code: `track` on `POST /api/v1/ideas`, the work-feed `track` filter, marketing delivery fields, the brief on `GET /api/v1/agents/me`. This is the contract the API items implement and the CLI scenarios test.

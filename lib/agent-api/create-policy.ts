@@ -72,7 +72,7 @@ const CANDIDATES = 10;
  */
 export async function findSimilarIssues(
   db: Db,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   title: string,
   /** Only work on this track counts: a marketing task never duplicates a product report. */
   track: WorkTrack = "product",
@@ -87,7 +87,7 @@ export async function findSimilarIssues(
       FROM "Bug"
       WHERE "isDeleted" = false
         AND "track"::text = ${track}
-        AND "tenantId" = ${scope.tenantId}
+        AND "organisationId" = ${scope.organisationId}
         AND "projectId" = ${scope.projectId}
         AND "status"::text = ANY(${SIMILAR_STATUSES as string[]})
         AND ("title" % ${query} OR ${query} <% "title")
@@ -97,7 +97,7 @@ export async function findSimilarIssues(
       FROM "Idea"
       WHERE "isDeleted" = false
         AND "track"::text = ${track}
-        AND "tenantId" = ${scope.tenantId}
+        AND "organisationId" = ${scope.organisationId}
         AND "projectId" = ${scope.projectId}
         AND "status" = 'open'
         AND ("title" % ${query} OR ${query} <% "title")
@@ -112,13 +112,13 @@ export async function findSimilarIssues(
   const titleMatch = terms.map((t) => ({ title: { contains: t, mode: "insensitive" as const } }));
   const [issues, ideas] = await Promise.all([
     db.bug.findMany({
-      where: { tenantId: scope.tenantId, projectId: scope.projectId, track, isDeleted: false, status: { in: [...SIMILAR_STATUSES] }, AND: titleMatch },
+      where: { organisationId: scope.organisationId, projectId: scope.projectId, track, isDeleted: false, status: { in: [...SIMILAR_STATUSES] }, AND: titleMatch },
       select: { id: true, number: true, title: true, status: true, voteCount: true },
       orderBy: [{ voteCount: "desc" }, { updatedAt: "desc" }],
       take: SIMILAR_LIMIT,
     }),
     db.idea.findMany({
-      where: { tenantId: scope.tenantId, projectId: scope.projectId, track, isDeleted: false, status: "open", AND: titleMatch },
+      where: { organisationId: scope.organisationId, projectId: scope.projectId, track, isDeleted: false, status: "open", AND: titleMatch },
       select: { id: true, number: true, title: true, score: true },
       orderBy: [{ score: "desc" }, { updatedAt: "desc" }],
       take: SIMILAR_LIMIT,
@@ -138,7 +138,7 @@ export async function findSimilarIssues(
 export type PolicyFields = { typeId: string | null };
 
 export type CreatePolicyInput = {
-  agent: { agentId: string; tenantId: string };
+  agent: { agentId: string; organisationId: string };
   projectId: string;
   /** The raw `Idempotency-Key` header. */
   idempotencyKey: string | null | undefined;
@@ -170,13 +170,13 @@ type TypeCheck = { ok: true; typeId: string | null } | { ok: false; error: "inva
 async function resolveTypeId(
   db: Db,
   typeId: unknown,
-  tenantId: string,
+  organisationId: string,
   track: WorkTrack,
 ): Promise<TypeCheck> {
   if (typeId === undefined || typeId === null || typeId === "") return { ok: true, typeId: null };
   if (typeof typeId !== "string" || typeId.length > 191) return { ok: false, error: "invalid_type" };
   const type = await db.issueType.findUnique({
-    where: { id_tenantId: { id: typeId, tenantId } },
+    where: { id_organisationId: { id: typeId, organisationId } },
     select: { isActive: true, track: true },
   });
   if (!type?.isActive) return { ok: false, error: "invalid_type" };
@@ -243,7 +243,7 @@ export async function createIdeaWithPolicy(input: CreatePolicyInput): Promise<Cr
   if (earlier) return replayOrConflict(earlier, input.requestHash);
 
   const track = input.track ?? "product";
-  const type = await resolveTypeId(prisma, input.typeId, agent.tenantId, track);
+  const type = await resolveTypeId(prisma, input.typeId, agent.organisationId, track);
   if (!type.ok) {
     return type.error === "wrong_track"
       ? { status: 422, error: "wrong_track", message: wrongTrackMessage(track) }
@@ -252,7 +252,7 @@ export async function createIdeaWithPolicy(input: CreatePolicyInput): Promise<Cr
   const typeId = type.typeId;
 
   if (!isAcknowledged(input.acknowledgeSimilar)) {
-    const matches = await findSimilarIssues(prisma, { tenantId: agent.tenantId, projectId }, input.title, track);
+    const matches = await findSimilarIssues(prisma, { organisationId: agent.organisationId, projectId }, input.title, track);
     if (matches.length > 0) {
       // A concurrent retry may have just created the idea, whose issue-free title
       // match is still this request's: replay it instead.

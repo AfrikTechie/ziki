@@ -44,14 +44,14 @@ import { openAgentRequests } from "@/lib/agent-requests";
 import { issuePath } from "@/lib/issue-ref";
 import { ideaPath, projectPath, projectRef } from "@/lib/project-paths";
 import { contestsIn, liveStakesOf, STAKE_REFRESH_MS, sweepStakes } from "@/lib/agent-api/stakes";
-import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
+import { eventStreamBus, ORGANISATION_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
 
 /**
  * One list of everything an agent can do in a project (#work-feed).
  *
  * Agents watch `GET /<org>/<project>/work` instead of polling each role queue.
  * The project part is built once and shared by every agent for
- * `SNAPSHOT_TTL_MS`, and dropped as soon as an event commits in the tenant, so
+ * `SNAPSHOT_TTL_MS`, and dropped as soon as an event commits in the organisation, so
  * new work shows up at once while a crowd of polling agents costs one build.
  * Each agent then sees it filtered by the same independence rule the write
  * routes enforce, plus its own offers and claims.
@@ -227,7 +227,7 @@ type IdeaFacts = ReviewedBug & {
 };
 
 export type ProjectWork = {
-  tenantId: string;
+  organisationId: string;
   project: FeedProject;
   /** Open ideas still short of the threshold, with their verdict score (#727). */
   ideas: (IssueRef & { score: number })[];
@@ -320,11 +320,11 @@ export type ProjectWork = {
 /** An issue In progress or later with its linked pull request and the latest report on it (#pr-reports). */
 type PrIssue = IssueRef & { pullRequestUrl: string; status: string; gate: PrGate; report: StoredPullRequestReport | null };
 
-const snapshots = new Map<string, { tenantId: string; expiresAt: number; value: Promise<ProjectWork> }>();
+const snapshots = new Map<string, { organisationId: string; expiresAt: number; value: Promise<ProjectWork> }>();
 
-/** Drops a tenant's cached project work. Called once an event commits (`broadcastWhenCommitted`). */
-export function invalidateWork(tenantId: string): void {
-  for (const [key, entry] of snapshots) if (entry.tenantId === tenantId) snapshots.delete(key);
+/** Drops a organisation's cached project work. Called once an event commits (`broadcastWhenCommitted`). */
+export function invalidateWork(organisationId: string): void {
+  for (const [key, entry] of snapshots) if (entry.organisationId === organisationId) snapshots.delete(key);
 }
 
 /** For tests. */
@@ -332,21 +332,21 @@ export function clearWorkCache(): void {
   snapshots.clear();
 }
 
-// New work shows up at once: any event that commits in a tenant drops its cached projects.
-eventStreamBus.on("event", (event: StreamEvent) => invalidateWork(event.tenantId));
-eventStreamBus.on(TENANT_WRITE, (tenantId: string) => invalidateWork(tenantId));
+// New work shows up at once: any event that commits in a organisation drops its cached projects.
+eventStreamBus.on("event", (event: StreamEvent) => invalidateWork(event.organisationId));
+eventStreamBus.on(ORGANISATION_WRITE, (organisationId: string) => invalidateWork(organisationId));
 
 /** The project part of the feed, shared by every agent until it expires or an event commits. */
-export function projectWork(tenantId: string, project: FeedProject, track: WorkTrack = "product", now = Date.now()): Promise<ProjectWork> {
+export function projectWork(organisationId: string, project: FeedProject, track: WorkTrack = "product", now = Date.now()): Promise<ProjectWork> {
   const cacheKey = `${project.id}:${track}`;
   const cached = snapshots.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.value;
   // Concurrent callers share one build instead of each running the queries.
-  const value = buildProjectWork(tenantId, project, track).catch((error) => {
+  const value = buildProjectWork(organisationId, project, track).catch((error) => {
     snapshots.delete(cacheKey);
     throw error;
   });
-  snapshots.set(cacheKey, { tenantId, expiresAt: now + SNAPSHOT_TTL_MS, value });
+  snapshots.set(cacheKey, { organisationId, expiresAt: now + SNAPSHOT_TTL_MS, value });
   return value;
 }
 
@@ -355,20 +355,20 @@ export function projectWork(tenantId: string, project: FeedProject, track: WorkT
  * project-wide lists under exactly their own rules. The per-agent filter
  * below applies independence afterwards.
  */
-function neutralCaller(tenantId: string, projectId: string): AgentContext {
-  return { agentId: "work-feed", name: "work-feed", ownerId: "work-feed", tenantId, level: "merger", burst: false, keyId: "work-feed", projectId };
+function neutralCaller(organisationId: string, projectId: string): AgentContext {
+  return { agentId: "work-feed", name: "work-feed", ownerId: "work-feed", organisationId, level: "merger", burst: false, keyId: "work-feed", projectId };
 }
 
-async function buildProjectWork(tenantId: string, project: FeedProject, track: WorkTrack = "product"): Promise<ProjectWork> {
+async function buildProjectWork(organisationId: string, project: FeedProject, track: WorkTrack = "product"): Promise<ProjectWork> {
   // #stakes: settle wins, drops and decided contests first, so the feed shows where they stand.
-  await sweepStakes({ tenantId, projectId: project.id }).catch(() => null);
-  const caller = neutralCaller(tenantId, project.id);
+  await sweepStakes({ organisationId, projectId: project.id }).catch(() => null);
+  const caller = neutralCaller(organisationId, project.id);
   // One read decides every converted issue's stage: which still require
   // confirmation, and for what, and which are ready (#714).
   const isMarketing = track === "marketing";
   const confirmations = isMarketing
     ? new Map<string, ConfirmationState>()
-    : await openIssueConfirmations(prisma, { tenantId, projectId: project.id, ...PRODUCT_TRACK });
+    : await openIssueConfirmations(prisma, { organisationId, projectId: project.id, ...PRODUCT_TRACK });
   const workflow = await workflowFor(project.id);
   const thresholdOnly = isThresholdOnly(workflow);
   const [tests, ready, toAccept, toMerge, ideas, jobs] = await Promise.all([
@@ -376,8 +376,8 @@ async function buildProjectWork(tenantId: string, project: FeedProject, track: W
     findClaimableIssues(caller, project.id, confirmations, track),
     findReadyToMergeIssues(caller, project.id, "accepted", track),
     isMarketing ? Promise.resolve([]) : findReadyToMergeIssues(caller, project.id, "merge", "product"),
-    openIdeas(tenantId, project.id, workflow.ideaThreshold, track),
-    isMarketing ? Promise.resolve([]) : openJobs(tenantId, project.id),
+    openIdeas(organisationId, project.id, workflow.ideaThreshold, track),
+    isMarketing ? Promise.resolve([]) : openJobs(organisationId, project.id),
   ]);
 
   // Issues that require confirmation: the reviews they still lack, oldest first.
@@ -394,22 +394,22 @@ async function buildProjectWork(tenantId: string, project: FeedProject, track: W
     return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed, confirmed: confirmation.confirmed };
   });
 
-  const strandedDeliveries = isMarketing ? Promise.resolve([]) : findStrandedDeliveries(tenantId, project.id);
+  const strandedDeliveries = isMarketing ? Promise.resolve([]) : findStrandedDeliveries(organisationId, project.id);
   const [toConvert, toReject, toReclaim, { toSenseCheck, toReviewIdle }, toClose, toDeliverStranded, bids] = await Promise.all([
-    convertibleIdeas(tenantId, project.id, workflow.ideaThreshold, track),
-    rejectableIdeas(tenantId, project.id, track),
-    staleIssues(tenantId, project.id, track),
+    convertibleIdeas(organisationId, project.id, workflow.ideaThreshold, track),
+    rejectableIdeas(organisationId, project.id, track),
+    staleIssues(organisationId, project.id, track),
     // A stranded delivery is asked once, as deliver_stranded, not also as idle work.
-    strandedDeliveries.then((stranded) => idleWork(tenantId, project.id, new Set(stranded.map((issue) => issue.id)), Date.now(), track)),
-    closableIssues(tenantId, project.id, workflow.closeThreshold, thresholdOnly, track),
+    strandedDeliveries.then((stranded) => idleWork(organisationId, project.id, new Set(stranded.map((issue) => issue.id)), Date.now(), track)),
+    closableIssues(organisationId, project.id, workflow.closeThreshold, thresholdOnly, track),
     strandedDeliveries,
-    openBids(tenantId, project.id, workflow.managerVoteWeight, workflow.offerWindowSeconds, track),
+    openBids(organisationId, project.id, workflow.managerVoteWeight, workflow.offerWindowSeconds, track),
   ]);
   const toAward = await awardableIssues(bids, workflow.offerWindowSeconds);
   const { toReconcile, toAwaitRelease, toRepair, toReportPr, prGates } = isMarketing
     ? { toReconcile: [], toAwaitRelease: [], toRepair: [], toReportPr: [], prGates: new Map<string, PrGate>() }
-    : await pullRequestWork(tenantId, project.id);
-  const { toInvestigate, comments } = await openIssueComments(tenantId, project.id, ready, track);
+    : await pullRequestWork(organisationId, project.id);
+  const { toInvestigate, comments } = await openIssueComments(organisationId, project.id, ready, track);
   const ids = new Set([
     ...toConfirm.map((i) => i.id),
     ...tests.map((t) => t.id),
@@ -436,7 +436,7 @@ async function buildProjectWork(tenantId: string, project: FeedProject, track: W
       })()
     : [];
   return {
-    tenantId,
+    organisationId,
     project,
     ideas,
     toConvert,
@@ -474,10 +474,10 @@ async function buildProjectWork(tenantId: string, project: FeedProject, track: W
     ideaFacts: await loadIdeaFacts([...new Set([...ideas, ...toConvert, ...toReject].map((idea) => idea.id))]),
     offerWindowSeconds: workflow.offerWindowSeconds,
     capacity: workflow.maxActiveClaims,
-    importance: await importanceWork(tenantId, project.id, track),
-    deployments: isMarketing ? [] : await deploymentWork(tenantId, project.id),
+    importance: await importanceWork(organisationId, project.id, track),
+    deployments: isMarketing ? [] : await deploymentWork(organisationId, project.id),
     contests: filteredContests,
-    rewards: await rewardWork(tenantId, project.id, track),
+    rewards: await rewardWork(organisationId, project.id, track),
     governance: {
       thresholdOnly,
       managerVoteWeight: workflow.managerVoteWeight,
@@ -498,7 +498,7 @@ const UNCONFIRMED_PROD_PER_FEED = 20;
  * PROD_CONFIRMATIONS_NEEDED people's confirmations, however old (#live-confirm):
  * the ones marked On prod before the rule need checking too.
  */
-async function deploymentWork(tenantId: string, projectId: string, now = Date.now()): Promise<ProjectWork["deployments"]> {
+async function deploymentWork(organisationId: string, projectId: string, now = Date.now()): Promise<ProjectWork["deployments"]> {
   const select = {
     id: true, number: true, title: true, substatus: true, assigneeId: true,
     deploymentReports: { where: { environment: "prod" }, select: { onBehalfOfUserId: true } },
@@ -506,14 +506,14 @@ async function deploymentWork(tenantId: string, projectId: string, now = Date.no
   const [moving, onProd] = await Promise.all([
     prisma.bug.findMany({
       where: {
-        tenantId, projectId, ...PRODUCT_TRACK, isDeleted: false, status: "resolved", substatus: { in: ["on_dev", "on_staging"] },
+        organisationId, projectId, ...PRODUCT_TRACK, isDeleted: false, status: "resolved", substatus: { in: ["on_dev", "on_staging"] },
         updatedAt: { gte: new Date(now - DEPLOYMENT_REPORT_WINDOW_MS) },
       },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       select,
     }),
     prisma.bug.findMany({
-      where: { tenantId, projectId, ...PRODUCT_TRACK, isDeleted: false, status: "resolved", substatus: "on_prod" },
+      where: { organisationId, projectId, ...PRODUCT_TRACK, isDeleted: false, status: "resolved", substatus: "on_prod" },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       select,
     }),
@@ -530,9 +530,9 @@ async function deploymentWork(tenantId: string, projectId: string, now = Date.no
 
 /** Issues not yet finished, with who marked each important: every agent is asked to weigh in. */
 /** #rewards: issues not closed whose reward is still being estimated, newest first. */
-async function rewardWork(tenantId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["rewards"]> {
+async function rewardWork(organisationId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["rewards"]> {
   const rows = await prisma.bug.findMany({
-    where: { tenantId, projectId, ...trackFilter(track), isDeleted: false, rewardFixedAt: null, status: { notIn: ["closed", "resolved"] } },
+    where: { organisationId, projectId, ...trackFilter(track), isDeleted: false, rewardFixedAt: null, status: { notIn: ["closed", "resolved"] } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: 100,
     select: { id: true, number: true, title: true, reward: true, rewardEstimateCount: true, rewardEstimates: { select: { onBehalfOfUserId: true } } },
@@ -545,9 +545,9 @@ async function rewardWork(tenantId: string, projectId: string, track: WorkTrack 
   }));
 }
 
-async function importanceWork(tenantId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["importance"]> {
+async function importanceWork(organisationId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["importance"]> {
   const rows = await prisma.bug.findMany({
-    where: { tenantId, projectId, ...trackFilter(track), isDeleted: false, status: { in: ["open", "in_progress"] } },
+    where: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: { in: ["open", "in_progress"] } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: { id: true, number: true, title: true, votes: { select: { userId: true } } },
   });
@@ -559,18 +559,18 @@ async function importanceWork(tenantId: string, projectId: string, track: WorkTr
  * nearest conversion lead. An idea at the threshold has its verdicts (#727):
  * it waits in `toConvert` for any agent to convert it instead.
  */
-async function openIdeas(tenantId: string, projectId: string, threshold: number, track: WorkTrack = "product"): Promise<ProjectWork["ideas"]> {
+async function openIdeas(organisationId: string, projectId: string, threshold: number, track: WorkTrack = "product"): Promise<ProjectWork["ideas"]> {
   return prisma.idea.findMany({
-    where: { tenantId, projectId, ...trackFilter(track), isDeleted: false, status: "open", score: { lt: threshold } },
+    where: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: "open", score: { lt: threshold } },
     orderBy: [{ score: "desc" }, { createdAt: "asc" }],
     select: { id: true, number: true, title: true, score: true },
   });
 }
 
 /** Open ideas whose score reached the threshold, highest first. */
-async function convertibleIdeas(tenantId: string, projectId: string, threshold: number, track: WorkTrack = "product"): Promise<ProjectWork["toConvert"]> {
+async function convertibleIdeas(organisationId: string, projectId: string, threshold: number, track: WorkTrack = "product"): Promise<ProjectWork["toConvert"]> {
   return prisma.idea.findMany({
-    where: { tenantId, projectId, ...trackFilter(track), isDeleted: false, status: "open", score: { gte: threshold } },
+    where: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: "open", score: { gte: threshold } },
     orderBy: [{ score: "desc" }, { createdAt: "asc" }],
     select: { id: true, number: true, title: true, score: true },
   });
@@ -578,9 +578,9 @@ async function convertibleIdeas(tenantId: string, projectId: string, threshold: 
 
 /** Open ideas a manager agent may reject, the most voted first. */
 /** Issues held by an expired offer or by undelivered work past its deadline or silent (#reclaim). */
-async function staleIssues(tenantId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["toReclaim"]> {
+async function staleIssues(organisationId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["toReclaim"]> {
   const holds = await prisma.issueClaim.findMany({
-    where: { releasedAt: null, status: { in: ["offered", "active"] }, bug: { tenantId, projectId, ...trackFilter(track), isDeleted: false, status: { in: ["open", "in_progress"] } } },
+    where: { releasedAt: null, status: { in: ["offered", "active"] }, bug: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: { in: ["open", "in_progress"] } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { bug: { select: { id: true, number: true, title: true } } },
   });
@@ -602,13 +602,13 @@ async function staleIssues(tenantId: string, projectId: string, track: WorkTrack
  * deliver_stranded) are left out of both. Exported for tests.
  */
 export async function idleWork(
-  tenantId: string,
+  organisationId: string,
   projectId: string,
   stranded: ReadonlySet<string> = new Set(),
   now = Date.now(),
   track: WorkTrack = "product",
 ): Promise<Pick<ProjectWork, "toSenseCheck" | "toReviewIdle">> {
-  const idle = (await findIdleInProgress(tenantId, projectId, prisma, now, track)).filter((issue) => !stranded.has(issue.bug.id));
+  const idle = (await findIdleInProgress(organisationId, projectId, prisma, now, track)).filter((issue) => !stranded.has(issue.bug.id));
   const { abandonThreshold } = idle.length ? await workflowFor(projectId) : { abandonThreshold: 0 };
   const toSenseCheck: ProjectWork["toSenseCheck"] = [];
   const toReviewIdle: ProjectWork["toReviewIdle"] = [];
@@ -641,7 +641,7 @@ export async function idleWork(
  * nothing; it reads the latest reports.
  */
 async function pullRequestWork(
-  tenantId: string,
+  organisationId: string,
   projectId: string,
   now = Date.now(),
 ): Promise<Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates">> {
@@ -649,7 +649,7 @@ async function pullRequestWork(
   const repo = parseGitHubRepoUrl(project?.repoUrl);
   const rows = await prisma.bug.findMany({
     where: {
-      tenantId,
+      organisationId,
       projectId,
       ...PRODUCT_TRACK,
       isDeleted: false,
@@ -688,9 +688,9 @@ async function pullRequestWork(
  * or in a threshold-only project (where reaching it closes the issue) those
  * still short of it, for other agents to second.
  */
-async function closableIssues(tenantId: string, projectId: string, threshold: number, thresholdOnly: boolean, track: WorkTrack = "product"): Promise<ProjectWork["toClose"]> {
+async function closableIssues(organisationId: string, projectId: string, threshold: number, thresholdOnly: boolean, track: WorkTrack = "product"): Promise<ProjectWork["toClose"]> {
   const rows = await prisma.closeSuggestion.findMany({
-    where: { bug: { tenantId, projectId, ...trackFilter(track), isDeleted: false, status: { notIn: ["closed", "resolved"] } } },
+    where: { bug: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: { notIn: ["closed", "resolved"] } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       reason: true, votes: true, summary: true, onBehalfOfUserId: true,
@@ -722,9 +722,9 @@ async function closableIssues(tenantId: string, projectId: string, threshold: nu
 }
 
 /** Open bids (not awarded, not withdrawn, from agents not revoked) on Open issues, oldest first (#bid-votes). */
-async function openBids(tenantId: string, projectId: string, managerVoteWeight: number, offerWindowSeconds: number, track: WorkTrack = "product"): Promise<OpenBid[]> {
+async function openBids(organisationId: string, projectId: string, managerVoteWeight: number, offerWindowSeconds: number, track: WorkTrack = "product"): Promise<OpenBid[]> {
   const rows = await prisma.issueBid.findMany({
-    where: { ...OPEN_BID_WHERE, bug: { tenantId, projectId, ...trackFilter(track), isDeleted: false, substatus: { in: ["open", "requires_confirmation"] } } },
+    where: { ...OPEN_BID_WHERE, bug: { organisationId, projectId, ...trackFilter(track), isDeleted: false, substatus: { in: ["open", "requires_confirmation"] } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
@@ -738,7 +738,7 @@ async function openBids(tenantId: string, projectId: string, managerVoteWeight: 
     },
   });
   // Each bidder's load, for the award items (#bidder-capacity).
-  const loads = await holdLoads(prisma, { tenantId, projectId }, rows.map((row) => row.beneficiaryUserId), offerWindowSeconds);
+  const loads = await holdLoads(prisma, { organisationId, projectId }, rows.map((row) => row.beneficiaryUserId), offerWindowSeconds);
   return rows.map((row) => ({
     id: row.id,
     issue: row.bug,
@@ -761,7 +761,7 @@ async function openBids(tenantId: string, projectId: string, managerVoteWeight: 
  * part of this; they belong to the entry.
  */
 async function openIssueComments(
-  tenantId: string,
+  organisationId: string,
   projectId: string,
   ready: IssueRef[],
   track: WorkTrack = "product",
@@ -775,7 +775,7 @@ async function openIssueComments(
         deliveryId: null,
         testVerdictId: null,
         mergeReviewId: null,
-        bug: { tenantId, projectId, ...trackFilter(track), isDeleted: false, substatus: "open" },
+        bug: { organisationId, projectId, ...trackFilter(track), isDeleted: false, substatus: "open" },
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
@@ -854,11 +854,11 @@ async function awardableIssues(bids: OpenBid[], offerWindowSeconds: number): Pro
 }
 
 /** Open ideas that are bad (lib/idea-rejection.ts). */
-async function rejectableIdeas(tenantId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["toReject"]> {
+async function rejectableIdeas(organisationId: string, projectId: string, track: WorkTrack = "product"): Promise<ProjectWork["toReject"]> {
   const { ideaThreshold } = await workflowFor(projectId);
   const sums = await prisma.ideaVerdict.groupBy({
     by: ["ideaId", "opinion"],
-    where: { idea: { tenantId, projectId, ...trackFilter(track), isDeleted: false, status: "open" } },
+    where: { idea: { organisationId, projectId, ...trackFilter(track), isDeleted: false, status: "open" } },
     _sum: { votes: true },
   });
   const votesByIdea = new Map<string, { opinion: string; votes: number }[]>();
@@ -912,8 +912,8 @@ async function loadIdeaFacts(ids: string[]): Promise<Map<string, IdeaFacts>> {
 }
 
 /** Jobs that still take submissions. */
-async function openJobs(tenantId: string, projectId: string): Promise<ProjectWork["jobs"]> {
-  const jobs = await listJobs(tenantId, projectId, null);
+async function openJobs(organisationId: string, projectId: string): Promise<ProjectWork["jobs"]> {
+  const jobs = await listJobs(organisationId, projectId, null);
   if (!jobs.length) return [];
   const counts = await prisma.jobSubmission.groupBy({ by: ["jobId"], where: { jobId: { in: jobs.map((job) => job.id) } }, _count: { _all: true } });
   const used = new Map(counts.map((row) => [row.jobId, row._count._all]));
@@ -1794,7 +1794,7 @@ export function waitingForOthers(level: AgentLevel, items: readonly WorkItem[]):
 
 /** The whole feed for one agent. */
 export async function workFeed(agent: AgentContext, project: FeedProject, track: WorkTrack = "product", now = Date.now()): Promise<WorkFeed> {
-  const work = await projectWork(agent.tenantId, project, track, now);
+  const work = await projectWork(agent.organisationId, project, track, now);
   const mine = await agentWork(agent, project.id, work.offerWindowSeconds, track, now);
   // What the owner asked this agent to do (#agent-requests) comes first.
   const requests = await openAgentRequests(agent.agentId).catch(() => []);

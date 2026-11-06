@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma";
 /**
  * Marketing task types (M-API-7): the `IssueType`s with `track: "marketing"`.
  * They have no points (D5), because each task is paid its own reward. Types
- * belong to the tenant, so the name is unique across both tracks, and these
+ * belong to the organisation, so the name is unique across both tracks, and these
  * functions never read or change a product type. The agent routes and the
  * Marketing settings page both call these functions.
  */
@@ -89,10 +89,10 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
 const prismaCode = (err: unknown): string | undefined =>
   typeof err === "object" && err !== null && "code" in err && typeof err.code === "string" ? err.code : undefined;
 
-/** The project, looked up by id or slug, must belong to the tenant. */
-export async function marketingTaskTypeProject(tenantId: string, projectIdOrSlug: string) {
+/** The project, looked up by id or slug, must belong to the organisation. */
+export async function marketingTaskTypeProject(organisationId: string, projectIdOrSlug: string) {
   const project = await prisma.project.findFirst({
-    where: { tenantId, OR: [{ id: projectIdOrSlug }, { slug: projectIdOrSlug }] },
+    where: { organisationId, OR: [{ id: projectIdOrSlug }, { slug: projectIdOrSlug }] },
     select: { id: true, slug: true },
   });
   if (!project) throw new IssueApiError(404, "Project not found.", { error: "not_found", message: "Project not found." });
@@ -100,10 +100,10 @@ export async function marketingTaskTypeProject(tenantId: string, projectIdOrSlug
 }
 
 /** A case-insensitive name match on either track, other than `exceptId`. */
-async function assertNameFree(tenantId: string, name: string, exceptId?: string): Promise<void> {
+async function assertNameFree(organisationId: string, name: string, exceptId?: string): Promise<void> {
   const existing = await prisma.issueType.findFirst({
     where: {
-      tenantId,
+      organisationId,
       name: { equals: name, mode: "insensitive" },
       ...(exceptId ? { NOT: { id: exceptId } } : {}),
     },
@@ -112,10 +112,10 @@ async function assertNameFree(tenantId: string, name: string, exceptId?: string)
   if (existing) throw duplicate(existing.name);
 }
 
-async function findMarketingType(tenantId: string, id: string) {
+async function findMarketingType(organisationId: string, id: string) {
   if (!id || typeof id !== "string" || id.length > 191) throw notFound();
   const row = await prisma.issueType.findFirst({
-    where: { id, tenantId, ...MARKETING_TRACK },
+    where: { id, organisationId, ...MARKETING_TRACK },
     select: taskTypeSelect,
   });
   if (!row) throw notFound();
@@ -124,30 +124,30 @@ async function findMarketingType(tenantId: string, id: string) {
 
 /** Active types, A–Z. With `includeInactive`, retired ones are listed too. */
 export async function listMarketingTaskTypes(
-  tenantId: string,
+  organisationId: string,
   options: { includeInactive?: boolean } = {},
 ): Promise<MarketingTaskType[]> {
   const rows = await prisma.issueType.findMany({
-    where: { tenantId, ...MARKETING_TRACK, ...(options.includeInactive ? {} : { isActive: true }) },
+    where: { organisationId, ...MARKETING_TRACK, ...(options.includeInactive ? {} : { isActive: true }) },
     select: taskTypeSelect,
     orderBy: { name: "asc" },
   });
   return rows as MarketingTaskType[];
 }
 
-export async function getMarketingTaskType(tenantId: string, id: string): Promise<MarketingTaskType> {
-  return findMarketingType(tenantId, id);
+export async function getMarketingTaskType(organisationId: string, id: string): Promise<MarketingTaskType> {
+  return findMarketingType(organisationId, id);
 }
 
-export async function createMarketingTaskType(tenantId: string, body: unknown): Promise<MarketingTaskType> {
+export async function createMarketingTaskType(organisationId: string, body: unknown): Promise<MarketingTaskType> {
   const input = parse(createMarketingTaskTypeSchema, body);
   const name = input.name.trim();
-  await assertNameFree(tenantId, name);
+  await assertNameFree(organisationId, name);
 
   try {
     const row = await prisma.issueType.create({
       data: {
-        tenantId,
+        organisationId,
         name,
         description: input.description ? input.description : null,
         track: "marketing",
@@ -165,15 +165,15 @@ export async function createMarketingTaskType(tenantId: string, body: unknown): 
 
 /** A rename leaves a "type changed" note on every task that carries the type. */
 export async function updateMarketingTaskType(
-  tenantId: string,
+  organisationId: string,
   actorId: string,
   id: string,
   body: unknown,
 ): Promise<MarketingTaskType> {
   const input = parse(updateMarketingTaskTypeSchema, body);
-  const current = await findMarketingType(tenantId, id);
+  const current = await findMarketingType(organisationId, id);
   const name = input.name?.trim();
-  if (name !== undefined) await assertNameFree(tenantId, name, id);
+  if (name !== undefined) await assertNameFree(organisationId, name, id);
 
   try {
     const row = await prisma.$transaction(async (tx) => {
@@ -188,7 +188,7 @@ export async function updateMarketingTaskType(
       });
 
       if (name !== undefined && current.name !== name) {
-        const linked = await tx.bug.findMany({ where: { typeId: id, tenantId }, select: { id: true } });
+        const linked = await tx.bug.findMany({ where: { typeId: id, organisationId }, select: { id: true } });
         if (linked.length > 0) {
           await tx.bugActivity.createMany({
             data: linked.map((task) => ({
@@ -214,20 +214,20 @@ export async function updateMarketingTaskType(
 }
 
 /** Flip a type between active and retired. Retired types keep their history but can't be proposed with. */
-export async function toggleMarketingTaskTypeActive(tenantId: string, actorId: string, id: string): Promise<MarketingTaskType> {
-  const current = await findMarketingType(tenantId, id);
-  return updateMarketingTaskType(tenantId, actorId, id, { isActive: !current.isActive });
+export async function toggleMarketingTaskTypeActive(organisationId: string, actorId: string, id: string): Promise<MarketingTaskType> {
+  const current = await findMarketingType(organisationId, id);
+  return updateMarketingTaskType(organisationId, actorId, id, { isActive: !current.isActive });
 }
 
 /**
  * Delete a type that no task or proposal uses. A type in use is refused with
  * the thing to do instead: deactivate it.
  */
-export async function deleteMarketingTaskType(tenantId: string, id: string): Promise<{ id: string; deleted: true }> {
-  await findMarketingType(tenantId, id);
+export async function deleteMarketingTaskType(organisationId: string, id: string): Promise<{ id: string; deleted: true }> {
+  await findMarketingType(organisationId, id);
   const [issues, ideas] = await Promise.all([
-    prisma.bug.count({ where: { typeId: id, tenantId } }),
-    prisma.idea.count({ where: { typeId: id, tenantId } }),
+    prisma.bug.count({ where: { typeId: id, organisationId } }),
+    prisma.idea.count({ where: { typeId: id, organisationId } }),
   ]);
   const check = canDeleteIssueType(issues + ideas);
   if (!check.allowed) {

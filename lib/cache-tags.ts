@@ -4,7 +4,7 @@ import { revalidateTag, updateTag } from "next/cache";
  * The cache tags behind lib/lookups.ts and how to expire them. They live
  * apart from the cached reads so a module that only expires a tag (every
  * notification write, through lib/notify.ts) doesn't load Prisma queries,
- * tenant lookups and the default-data repair code with it.
+ * organisation lookups and the default-data repair code with it.
  */
 
 export const TAGS = {

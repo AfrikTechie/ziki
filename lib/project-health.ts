@@ -28,9 +28,9 @@ function check(key: string, label: string, count: number, warnAt: number, badAt:
 }
 
 /** Health for each of the given projects, by project id. */
-export async function projectHealthFor(tenantId: string, projectIds: string[]): Promise<Map<string, ProjectHealth>> {
+export async function projectHealthFor(organisationId: string, projectIds: string[]): Promise<Map<string, ProjectHealth>> {
   const now = Date.now();
-  const scope = { tenantId, projectId: { in: projectIds }, isDeleted: false, duplicateOfId: null };
+  const scope = { organisationId, projectId: { in: projectIds }, isDeleted: false, duplicateOfId: null };
   const count = (where: object) =>
     prisma.bug.groupBy({ by: ["projectId"], where: { ...scope, ...where }, _count: { _all: true } });
 

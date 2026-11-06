@@ -15,7 +15,7 @@ function share(points: number, total: number): string {
 /**
  * Where a person's points came from (#points-sources): by action, by agent, by
  * day, signals worth a second look, and the latest entries. For the person and
- * the workspace's admins, so farming shows up.
+ * the organisation's admins, so farming shows up.
  */
 export function PointsSources({ sources, name }: { sources: PointSources; name: string }) {
   const positive = sources.bySource.reduce((sum, row) => sum + Math.max(row.points, 0), 0);
@@ -27,7 +27,7 @@ export function PointsSources({ sources, name }: { sources: PointSources; name: 
         <h2 id="points-sources-heading" className={heading}>Where the $ came from</h2>
         <p className="mt-1 text-sm text-zk-text2">
           {formatZ(sources.total)} from {sources.entries.toLocaleString()} ledger entries for {name}, corrections included.
-          Shown to {name} and the workspace&apos;s admins.
+          Shown to {name} and the organisation&apos;s admins.
         </p>
       </div>
 

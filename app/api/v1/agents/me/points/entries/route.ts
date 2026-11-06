@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
       catch { return NextResponse.json({ error: "Invalid points cursor." }, { status: 400 }); }
     }
     const page = await pointEntries(prisma, {
-      tenantId: agent.tenantId, userId: agent.ownerId, visibleProjectId: agent.projectId,
+      organisationId: agent.organisationId, userId: agent.ownerId, visibleProjectId: agent.projectId,
     }, parsed.data);
-    return NextResponse.json({ user_id: agent.ownerId, tenant_id: agent.tenantId, ...page });
+    return NextResponse.json({ user_id: agent.ownerId, organisation_id: agent.organisationId, ...page });
   });
 }
 const apiMethodNotAllowed = createMethodNotAllowed(["GET", "HEAD", "OPTIONS"]);

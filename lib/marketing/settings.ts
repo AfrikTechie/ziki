@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { prisma } from "@/lib/prisma";
 import { refOf, type ProjectRef } from "@/lib/project-paths";
 import type { AppRole } from "@/lib/roles";
@@ -16,39 +16,39 @@ export type MarketingSettingsResult = {
 };
 
 /**
- * Check whether an actor (user or agent owner) is an admin/owner of the workspace.
+ * Check whether an actor (user or agent owner) is an admin/owner of the organisation.
  * Throws IssueApiError(403) if not allowed.
  */
 export async function assertMarketingSettingsAccess(
   actor: { id: string; role?: AppRole | null },
-  tenantId: string,
+  organisationId: string,
   mode: "view" | "change" = "change",
 ): Promise<void> {
-  const allowed = await isTenantAdmin({ id: actor.id, role: actor.role ?? null }, tenantId);
+  const allowed = await isAdminOfOrganisation({ id: actor.id, role: actor.role ?? null }, organisationId);
   if (!allowed) {
     throw new IssueApiError(
       403,
       mode === "view"
-        ? "Only workspace owners and admins can view marketing settings."
-        : "Only workspace owners and admins can change marketing settings.",
+        ? "Only organisation owners and admins can view marketing settings."
+        : "Only organisation owners and admins can change marketing settings.",
     );
   }
 }
 
 /**
  * Read the marketing settings dials for one project (M-API-6).
- * Resolves by project ID or slug within the tenant.
+ * Resolves by project ID or slug within the organisation.
  */
 export async function getMarketingSettings(
-  tenantId: string,
+  organisationId: string,
   projectIdOrSlug: string,
 ): Promise<MarketingSettingsResult> {
   const project = await prisma.project.findFirst({
     where: {
-      tenantId,
+      organisationId,
       OR: [{ id: projectIdOrSlug }, { slug: projectIdOrSlug }],
     },
-    select: { id: true, slug: true, name: true, tenant: { select: { slug: true } } },
+    select: { id: true, slug: true, name: true, organisation: { select: { slug: true } } },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
 
@@ -64,10 +64,10 @@ export async function getMarketingSettings(
 
 /**
  * Update the marketing settings dials for one project (M-API-6).
- * Tenant owners/admins only. Audits changes and invalidates workflow cache.
+ * Organisation owners/admins only. Audits changes and invalidates workflow cache.
  */
 export async function updateMarketingSettings(
-  tenantId: string,
+  organisationId: string,
   projectIdOrSlug: string,
   actorUserId: string,
   rawInput: unknown,
@@ -81,10 +81,10 @@ export async function updateMarketingSettings(
 
   const project = await prisma.project.findFirst({
     where: {
-      tenantId,
+      organisationId,
       OR: [{ id: projectIdOrSlug }, { slug: projectIdOrSlug }],
     },
-    select: { id: true, slug: true, name: true, workflow: true, tenant: { select: { slug: true } } },
+    select: { id: true, slug: true, name: true, workflow: true, organisation: { select: { slug: true } } },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
 
@@ -107,7 +107,7 @@ export async function updateMarketingSettings(
       });
       await tx.projectAuditEvent.create({
         data: {
-          tenantId,
+          organisationId,
           projectId: project.id,
           actorUserId,
           action: "marketing.settings.updated",

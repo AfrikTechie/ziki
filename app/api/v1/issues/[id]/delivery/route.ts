@@ -2,7 +2,7 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 import { NextResponse, type NextRequest } from "next/server";
 import { agentIssueRequest, issueJson, issueProject } from "@/lib/agent-api/issues";
 import { deliverWork, listDeliveries } from "@/lib/agent-api/delivery";
-import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
+import { eventStreamBus, ORGANISATION_WRITE } from "@/lib/events/stream-bus";
 
 export const runtime = "nodejs";
 
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   return agentIssueRequest(request, "issues.delivery", "working", id, async (agent) => {
     const result = await deliverWork(agent, id, await issueJson(request));
     if (result.status === 200 || result.status === 201) {
-      eventStreamBus.emit(TENANT_WRITE, agent.tenantId);
+      eventStreamBus.emit(ORGANISATION_WRITE, agent.organisationId);
       return NextResponse.json({ delivery: result.delivery, replaced: result.replaced }, { status: result.status });
     }
     const { status, ...error } = result;

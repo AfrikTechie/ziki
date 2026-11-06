@@ -49,7 +49,7 @@ const agent = (level: AgentContext["level"], ownerId = "dana"): AgentContext => 
   agentId: `agent-${ownerId}`,
   name: `${ownerId}'s agent`,
   ownerId,
-  tenantId: "t1",
+  organisationId: "t1",
   level,
   burst: false,
   keyId: "k1",

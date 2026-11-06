@@ -10,15 +10,15 @@ import type { RejectedIdea, RejectedIdeaOpinion, RejectedIdeaVerdict, RejectedId
 /**
  * Marketing ideas that left the Ideas tab: rejected or archived, as the product
  * Ideas > Rejected list reads them. The caller resolves access with
- * requireProject first; every read stays inside that tenant and project and only
+ * requireProject first; every read stays inside that organisation and project and only
  * reads the marketing track.
  */
 export async function readRejectedIdeas(
-  { project, tenantId }: ProjectContext,
+  { project, organisationId }: ProjectContext,
   page?: string | string[] | number,
 ): Promise<RejectedIdeasResult> {
   const where = {
-    tenantId,
+    organisationId,
     projectId: project.id,
     isDeleted: false,
     track: "marketing",
@@ -68,7 +68,7 @@ export async function readRejectedIdeas(
   // The agents named by a rejection or archive are stored by id.
   const deciderIds = [...new Set(rows.flatMap((row) => [row.rejectedByAgentId, row.archivedByAgentId]).filter((id): id is string => Boolean(id)))];
   const deciders = deciderIds.length
-    ? await prisma.agent.findMany({ where: { id: { in: deciderIds }, tenantId }, select: { id: true, name: true } })
+    ? await prisma.agent.findMany({ where: { id: { in: deciderIds }, organisationId }, select: { id: true, name: true } })
     : [];
   const deciderName = new Map(deciders.map((agent) => [agent.id, agent.name]));
 

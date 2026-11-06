@@ -41,11 +41,11 @@ function formatPayload(payload: unknown): string {
 /** One audit event: its summary, expandable payload, and the admin-only Undo action. */
 function AuditLogEntry({
   row,
-  isTenantAdmin,
+  isAdminOfOrganisation,
   onUndo,
 }: {
   row: AuditLogRow;
-  isTenantAdmin?: boolean;
+  isAdminOfOrganisation?: boolean;
   onUndo?: UndoAction;
 }) {
   const [open, setOpen] = useState(false);
@@ -80,7 +80,7 @@ function AuditLogEntry({
         {row.undoneAt && (
           <span className="rounded-full bg-zk-chip px-2 py-0.5 text-xs font-bold text-zk-muted">Undone</span>
         )}
-        {isTenantAdmin && !row.undoneAt ? (
+        {isAdminOfOrganisation && !row.undoneAt ? (
           <button
             type="button"
             disabled={pending}
@@ -139,11 +139,11 @@ function AuditLogEntry({
 /** Compact audit rows, each collapsed until its "Show more" button is pressed. */
 export function AuditLog({
   rows,
-  isTenantAdmin,
+  isAdminOfOrganisation,
   onUndo,
 }: {
   rows: ReadonlyArray<AuditLogRow>;
-  isTenantAdmin?: boolean;
+  isAdminOfOrganisation?: boolean;
   onUndo?: UndoAction;
 }) {
   if (rows.length === 0) {
@@ -152,7 +152,7 @@ export function AuditLog({
   return (
     <ul className="divide-y divide-zk-divider">
       {rows.map((row) => (
-        <AuditLogEntry key={row.id} row={row} isTenantAdmin={isTenantAdmin} onUndo={onUndo} />
+        <AuditLogEntry key={row.id} row={row} isAdminOfOrganisation={isAdminOfOrganisation} onUndo={onUndo} />
       ))}
     </ul>
   );

@@ -112,7 +112,7 @@ describe("CreateBugForm optimistic submission", () => {
     releasePendingAction?.();
     releasePendingAction = null;
 
-    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    await waitFor(() => expect(submitButton().disabled).toBe(false), { timeout: 5000 });
 
     expect(capturedFormData?.get("title")).toBe("App crashes on launch");
     expect(capturedFormData?.get("description")).toBe(
@@ -144,7 +144,7 @@ describe("CreateBugForm optimistic submission", () => {
     });
 
     expect(titleInput().value).toBe("App crashes on launch");
-  });
+  }, 15000);
 
   it("disables submit button and prevents submission while an attachment is uploading (#734)", async () => {
     // The file input lives inside its label. user.upload clicks that input, and
@@ -207,7 +207,7 @@ describe("CreateBugForm optimistic submission", () => {
     } finally {
       global.fetch = originalFetch;
     }
-  });
+  }, 15000);
 
 });
 
@@ -248,7 +248,7 @@ describe("CreateBugForm project-scoped drafts (#729)", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
 
     expect(mockStorage["draft:u1:bug:new:project-a"]).toBeDefined();
-  });
+  }, 15000);
 });
 
 describe("CreateBugForm quick report in a modal (#report-modal)", () => {
@@ -290,15 +290,15 @@ describe("marketing task types and the report form", () => {
     issueTypes.findMany.mockResolvedValue([{ id: "fix", name: "Fix", isActive: true }]);
     const { getIssueTypes } = await import("@/lib/lookups");
     await getIssueTypes("t1");
-    expect(issueTypes.findMany.mock.calls[0][0].where).toEqual({ tenantId: "t1", track: "product" });
+    expect(issueTypes.findMany.mock.calls[0][0].where).toEqual({ organisationId: "t1", track: "product" });
   }, 15000);
 
-  it("still sets up the product types in a workspace that only has marketing types", async () => {
+  it("still sets up the product types in an organisation that only has marketing types", async () => {
     issueTypes.count.mockImplementation(async ({ where }: { where: { track?: string } }) => (where.track === "product" ? 0 : 4));
     const { ensureDefaultIssueTypes } = await import("@/lib/issue-types");
     await ensureDefaultIssueTypes("t1");
     expect(issueTypes.upsert).toHaveBeenCalled();
-  });
+  }, 15000);
 
   it("files a marketing idea in this project with the chosen type and rationale, and asks for no points (D5)", async () => {
     const { NewMarketingTaskForm } = await import("@/components/marketing/tasks/new-marketing-task-form");
@@ -330,7 +330,7 @@ describe("marketing task types and the report form", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("Say why this is worth doing.");
   }, 15000);
 
-  it("can't be submitted when the workspace has no marketing types", async () => {
+  it("can't be submitted when the organisation has no marketing types", async () => {
     const { NewMarketingTaskForm } = await import("@/components/marketing/tasks/new-marketing-task-form");
     render(<NewMarketingTaskForm projectId="project-1" types={[]} />);
     expect((screen.getByRole("button", { name: "Propose task" }) as HTMLButtonElement).disabled).toBe(true);

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { giveConfirmation, parseConfirmation } from "@/lib/agent-api/confirmations";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -41,14 +41,29 @@ export async function giveConfirmationAction(
   const limit = await consumeRateLimit(`confirmation:${userId}`, ACTION_RATE_LIMITS.addComment);
   if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
 
-  const tenantId = await currentTenantIdFor(userId);
-  if (!tenantId || typeof bugId !== "string" || !bugId) return { error: "Issue not found" };
+  if (typeof bugId !== "string" || !bugId) return { error: "Issue not found" };
 
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, tenantId, isDeleted: false },
-    select: { id: true, projectId: true },
+    where: { id: bugId, isDeleted: false },
+    select: { id: true, projectId: true, organisationId: true },
   });
   if (!bug) return { error: "Issue not found" };
+
+  const canAccess =
+    user.role === "super_admin" ||
+    Boolean(
+      await prisma.projectMembership.findFirst({
+        where: { projectId: bug.projectId, userId },
+        select: { id: true },
+      }) ||
+      await prisma.membership.findFirst({
+        where: { organisationId: bug.organisationId, userId },
+        select: { id: true },
+      })
+    );
+  if (!canAccess) return { error: "Issue not found" };
+
+  const organisationId = bug.organisationId;
 
   const verdict = field(formData, "verdict");
   const files = parseEvidenceFileLines(field(formData, "files") ?? "");
@@ -62,7 +77,7 @@ export async function giveConfirmationAction(
 
   try {
     const input = parseConfirmation(body);
-    const given = await giveConfirmation({ tenantId, userId }, { tenantId, projectId: bug.projectId }, bug.id, input);
+    const given = await giveConfirmation({ organisationId, userId }, { organisationId, projectId: bug.projectId }, bug.id, input);
     revalidatePath("/[org]/[project]", "layout");
     revalidateIssue();
     return {

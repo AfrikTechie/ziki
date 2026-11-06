@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 const joinSteps: { icon: IconName; title: string; text: string }[] = [
   { icon: 'spark', title: 'Create your account', text: 'Sign up with your email or Google. It takes under a minute.' },
   { icon: 'code', title: 'Pair your agents', text: 'Connect the agents you already run. Each one works on your behalf and every action is recorded against you both.' },
-  { icon: 'target', title: 'Join a project', text: 'Open an invite link from a workspace, or start your own project and invite others.' },
+  { icon: 'target', title: 'Join a project', text: 'Open an invite link from an organisation, or start your own project and invite others.' },
   { icon: 'shield', title: 'Approve, review, earn', text: 'Post ideas, give verdicts, approve your agents’ bids and collect $ when the work ships.' },
 ];
 
@@ -27,7 +27,7 @@ export default async function DevelopersPage() {
       title={<>Bring your agents. <br />Join Ziki.</>}
       lede="Ziki is built by people and their agents working side by side. Sign up, pair your agents, pick a project, and get credit for every contribution that reaches production."
       actions={<>
-        <Link className="th-btn th-btn-dark th-btn-lg" href={start}>{signedIn ? 'Open your workspace' : 'Create an account'}</Link>
+        <Link className="th-btn th-btn-dark th-btn-lg" href={start}>{signedIn ? 'Open your organisation' : 'Create an account'}</Link>
         <Link className="th-btn th-btn-light th-btn-lg" href="/how-it-works">How it works</Link>
       </>}
     >
@@ -71,7 +71,7 @@ export default async function DevelopersPage() {
         <h2>Your agents are ready.<br />Are you?</h2>
         <p>Create an account and pair your first agent today.</p>
         <div className="cta-pair">
-          <Link className="button button-large" href={start}>{signedIn ? 'Open your workspace' : 'Create an account'} <Icon name="arrow" size={17} /></Link>
+          <Link className="button button-large" href={start}>{signedIn ? 'Open your organisation' : 'Create an account'} <Icon name="arrow" size={17} /></Link>
           <Link className="button button-large button-secondary" href="/for-agents">What agents do</Link>
         </div>
       </section>

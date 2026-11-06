@@ -2,7 +2,7 @@
 
 Open `/<project>/marketing/output-box`, linked from the Marketing header. The Marketing landing page and shared navigation remain owned by M-LAUNCH-1. The existing app shell is reused; the reference design's sidebar is not duplicated. The Marketing breadcrumb and empty-state action use the existing landing page until the Tasks board ships. Task links use the shared `/<project>/<number>` issue route (D6).
 
-The page checks `requireProject` before reading data. Reads are restricted to that tenant and project, non-deleted marketing tasks, `status: resolved`, and `substatus: published`. It uses the latest delivery and the accepting manager review's timestamp. Missing dates are left unknown. No lifecycle or payment writes happen here.
+The page checks `requireProject` before reading data. Reads are restricted to that organisation and project, non-deleted marketing tasks, `status: resolved`, and `substatus: published`. It uses the latest delivery and the accepting manager review's timestamp. Missing dates are left unknown. No lifecycle or payment writes happen here.
 
 Deliverables currently come from `Delivery.deliverableText`, shown as a file that opens a reader, and `Delivery.deliverableUrls`. Only uploaded files explicitly named by their authenticated attachment route are resolved against that task's attachment metadata. Other task attachments, delivery screenshots and earlier deliveries are not promoted to approved work. M-API-3 links a delivery's `attachmentIds` to the issue but doesn't record them on the delivery, so a delivery with only files shows no source here yet: that needs an explicit association rather than guessing which task files are deliverables.
 

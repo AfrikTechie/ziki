@@ -13,7 +13,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (!request.nextUrl.searchParams.get("projectId")) return NextResponse.json({ error: "projectId is required." }, { status: 400 });
     const body = planSchema.parse(await issueJson(request));
     const scope = await issueProject(agent, request.nextUrl.searchParams);
-    const bugId = await issueIdFor(prisma, id, agent.tenantId);
+    const bugId = await issueIdFor(prisma, id, agent.organisationId);
     if (!bugId) return NextResponse.json({ error: "Issue not found." }, { status: 404 });
     const bug = await prisma.bug.findFirst({ where: { id: bugId, projectId: scope.projectId, isDeleted: false }, select: { id: true } });
     if (!bug) return NextResponse.json({ error: "Issue not found in this project." }, { status: 404 });

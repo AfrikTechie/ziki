@@ -40,12 +40,12 @@ function entrySource(role: string, points: number, sourceKey: string): string {
 
 /** Owner-scoped, append-only ledger; inaccessible issue details are never serialized. */
 export async function pointEntries(db: PrismaClient | Prisma.TransactionClient, scope: {
-  tenantId: string; userId: string; visibleProjectId?: string | null;
+  organisationId: string; userId: string; visibleProjectId?: string | null;
 }, query: PointEntriesQuery) {
   const cursor = query.cursor ? decodePointCursor(query.cursor) : null;
   const to = query.to?.length === 10 ? `${query.to}T23:59:59.999Z` : query.to;
   const where: Prisma.PointEntryWhereInput = {
-    tenantId: scope.tenantId, userId: scope.userId,
+    organisationId: scope.organisationId, userId: scope.userId,
     ...(query.from || to ? { createdAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(to ? { lte: new Date(to) } : {}) } } : {}),
     ...(cursor ? { OR: [
       { createdAt: { lt: new Date(cursor.at) } },
@@ -55,11 +55,11 @@ export async function pointEntries(db: PrismaClient | Prisma.TransactionClient, 
   const rows = await db.pointEntry.findMany({
     where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: query.limit + 1,
     select: { id: true, role: true, points: true, createdAt: true, sourceKey: true,
-      bug: { select: { id: true, number: true, title: true, tenantId: true, projectId: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
-      idea: { select: { id: true, number: true, title: true, tenantId: true, projectId: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } } },
+      bug: { select: { id: true, number: true, title: true, organisationId: true, projectId: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
+      idea: { select: { id: true, number: true, title: true, organisationId: true, projectId: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } } },
   });
-  const visible = (row: { tenantId: string; projectId: string; isDeleted: boolean } | null) =>
-    !!row && !row.isDeleted && row.tenantId === scope.tenantId && (!scope.visibleProjectId || row.projectId === scope.visibleProjectId);
+  const visible = (row: { organisationId: string; projectId: string; isDeleted: boolean } | null) =>
+    !!row && !row.isDeleted && row.organisationId === scope.organisationId && (!scope.visibleProjectId || row.projectId === scope.visibleProjectId);
   const page = rows.slice(0, query.limit);
   const last = page.at(-1);
   return {

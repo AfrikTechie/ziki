@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { loadMilestoneSummaries, type MilestoneSummary } from "@/lib/milestone-stats";
 import { dueDateValue, milestoneIssuesHref } from "@/lib/milestones";
 import { firstProjectRefFor } from "@/lib/project-route";
@@ -41,8 +41,8 @@ function MilestoneCard({ m, slug }: { m: MilestoneSummary; slug: ProjectRef | nu
 /** Every milestone with its progress (#289): "what's left for this release?" */
 export default async function MilestonesPage() {
   const user = await requireUser();
-  const { tenantId, admin } = await currentTenantAccess(user.id, user.role);
-  const all = tenantId ? await loadMilestoneSummaries({ tenantId }) : [];
+  const { organisationId, admin } = await currentOrganisationAccess(user.id, user.role);
+  const all = organisationId ? await loadMilestoneSummaries({ organisationId }) : [];
   const slug = await firstProjectRefFor(user.id);
   const open = all.filter((m) => !m.isClosed);
   const closed = all.filter((m) => m.isClosed);

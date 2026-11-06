@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
+import { currentOrganisationIdFor, NO_ORGANISATION_MESSAGE } from "@/lib/organisation-context";
 import { assertMarketingSettingsAccess, updateMarketingSettings } from "@/lib/marketing/settings";
 import { revisionLimitSchema } from "@/lib/workflow-config";
 import { marketingPath, projectPath } from "@/lib/project-paths";
@@ -42,14 +42,14 @@ export async function updateMarketingSettingsAction(
     return { ok: false, error: "Authentication required." };
   }
 
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) {
-    return { ok: false, error: NO_TENANT_MESSAGE };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) {
+    return { ok: false, error: NO_ORGANISATION_MESSAGE };
   }
 
   try {
-    await assertMarketingSettingsAccess(user, tenantId, "change");
-    const updated = await updateMarketingSettings(tenantId, slugOrId, user.id, {
+    await assertMarketingSettingsAccess(user, organisationId, "change");
+    const updated = await updateMarketingSettings(organisationId, slugOrId, user.id, {
       revisionLimit: parsedLimit.data,
     });
 

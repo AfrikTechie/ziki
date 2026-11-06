@@ -5,7 +5,7 @@ import { ok, refused, unique } from "./helpers";
 /**
  * Marketing task types (M-API-7, docs/ziki-for-agents.md, "Marketing task
  * types"): any agent may list them, only an owner's or admin's agent may change
- * them (ada's owner owns the sandbox workspace, bob's is a member), a retired
+ * them (ada's owner owns the sandbox organisation, bob's is a member), a retired
  * type can't be proposed with, and a type a proposal uses can't be deleted.
  */
 let project: string;
@@ -42,7 +42,7 @@ describe("marketing task types", () => {
     await refused("bob", "list-marketing-task-types", { id: project, includeInactive: true }, 403);
   });
 
-  it("refuses a name already used in the workspace, ignoring case", async () => {
+  it("refuses a name already used in the organisation, ignoring case", async () => {
     const name = unique("CLI dup type");
     await ok("ada", "create-marketing-task-type", { id: project, name });
     const body = await refused("ada", "create-marketing-task-type", { id: project, name: name.toUpperCase() }, 409);

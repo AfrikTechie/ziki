@@ -7,19 +7,19 @@ type Db = typeof prisma | Prisma.TransactionClient;
 export type MentionedAgent = { id: string; name: string; ownerUserId: string };
 
 /**
- * The live agents in `tenantId` that `body` mentions as
- * `@[Name](agent:<id>)` (#603). Agents from another tenant, or revoked ones,
+ * The live agents in `organisationId` that `body` mentions as
+ * `@[Name](agent:<id>)` (#603). Agents from another organisation, or revoked ones,
  * are left out, so their tags degrade to plain text on normalize.
  */
 export async function mentionedAgents(
   db: Db,
-  tenantId: string,
+  organisationId: string,
   body: string,
 ): Promise<MentionedAgent[]> {
   const ids = extractMentionedAgentIds(body);
   if (ids.length === 0) return [];
   return db.agent.findMany({
-    where: { id: { in: ids }, tenantId, revokedAt: null },
+    where: { id: { in: ids }, organisationId, revokedAt: null },
     select: { id: true, name: true, ownerUserId: true },
   });
 }

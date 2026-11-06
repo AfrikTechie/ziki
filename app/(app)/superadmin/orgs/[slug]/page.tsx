@@ -22,26 +22,26 @@ export default async function SuperadminOrgPage({ params, searchParams }: { para
   const { slug } = await params;
   const query = searchParams ? await searchParams : {};
 
-  const tenant = await prisma.tenant.findUnique({
+  const organisation = await prisma.organisation.findUnique({
     where: { slug },
     select: { id: true, slug: true, name: true, archivedAt: true, createdAt: true },
   });
-  if (!tenant) notFound();
+  if (!organisation) notFound();
 
   const [memberCount, projectCount, agents, earnings, reversible] = await Promise.all([
-    prisma.membership.count({ where: { tenantId: tenant.id } }),
-    prisma.project.count({ where: { tenantId: tenant.id } }),
+    prisma.membership.count({ where: { organisationId: organisation.id } }),
+    prisma.project.count({ where: { organisationId: organisation.id } }),
     prisma.agent.findMany({
-      where: { tenantId: tenant.id },
+      where: { organisationId: organisation.id },
       select: { id: true, name: true, owner: { select: { name: true, email: true } } },
     }),
     prisma.pointEntry.groupBy({
       by: ["agentId"],
-      where: { tenantId: tenant.id, agentId: { not: null } },
+      where: { organisationId: organisation.id, agentId: { not: null } },
       _sum: { points: true },
     }),
     prisma.pointEntry.aggregate({
-      where: agentPointsToReverse(tenant.id),
+      where: agentPointsToReverse(organisation.id),
       _count: { _all: true },
       _sum: { points: true },
     }),
@@ -63,13 +63,13 @@ export default async function SuperadminOrgPage({ params, searchParams }: { para
     <div className="space-y-6">
       <div>
         <p className="text-sm text-zk-muted">
-          <Link href="/superadmin/orgs" className="hover:underline">Organisations</Link> / {tenant.name}
+          <Link href="/superadmin/orgs" className="hover:underline">Organisations</Link> / {organisation.name}
         </p>
         <h1 className="mt-1 text-xl font-semibold text-zk-text sm:text-2xl">
-          {tenant.name}
-          {tenant.archivedAt ? <span className="ml-2 align-middle text-sm font-normal text-zk-muted">(archived)</span> : null}
+          {organisation.name}
+          {organisation.archivedAt ? <span className="ml-2 align-middle text-sm font-normal text-zk-muted">(archived)</span> : null}
         </h1>
-        <p className="mt-1 text-sm text-zk-text2"><code>{tenant.slug}</code></p>
+        <p className="mt-1 text-sm text-zk-text2"><code>{organisation.slug}</code></p>
       </div>
 
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -94,7 +94,7 @@ export default async function SuperadminOrgPage({ params, searchParams }: { para
       <section className="rounded-xl border border-zk-border bg-zk-surface p-5">
         <h2 className="text-base font-semibold text-zk-text">Agent $</h2>
         <p className="mt-1 text-sm text-zk-text2">
-          $ earned by agents&apos; work in this organization, corrections included. Total: <b className="text-zk-text">{formatPoints(totalBalance)}</b>
+          $ earned by agents&apos; work in this organisation, corrections included. Total: <b className="text-zk-text">{formatPoints(totalBalance)}</b>
         </p>
         {rows.length === 0 ? (
           <p className="mt-4 text-sm text-zk-muted">No agent has earned $ here.</p>
@@ -123,11 +123,11 @@ export default async function SuperadminOrgPage({ params, searchParams }: { para
       <section className="rounded-xl border border-zk-bad-bd bg-zk-bad-bg p-5">
         <h2 className="text-base font-semibold text-zk-bad-fg">Reset all agent $</h2>
         <p className="mt-1 text-sm text-zk-text2">
-          Reverses all the $ an agent earned in {tenant.name}: {reversibleCount} {reversibleCount === 1 ? "entry" : "entries"},{" "}
+          Reverses all the $ an agent earned in {organisation.name}: {reversibleCount} {reversibleCount === 1 ? "entry" : "entries"},{" "}
           {formatPoints(Number(reversible._sum.points ?? 0))}. Nothing is deleted: each entry gets a correcting entry, so the
           history stays and running it again changes nothing. People&apos;s own $ is not touched.
         </p>
-        <ResetAgentPointsForm action={resetAgentPointsAction} slug={tenant.slug} name={tenant.name} disabled={reversibleCount === 0} />
+        <ResetAgentPointsForm action={resetAgentPointsAction} slug={organisation.slug} name={organisation.name} disabled={reversibleCount === 0} />
       </section>
     </div>
   );

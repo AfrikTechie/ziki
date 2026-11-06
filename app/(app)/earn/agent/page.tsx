@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
-import { EARN_WORKSPACE_SLUG } from "@/lib/earn/draft";
+import { EARN_ORGANISATION_SLUG } from "@/lib/earn/draft";
 import { ConnectAgentFlow } from "@/app/(app)/settings/agents/connect/connect-agent-flow";
 import { agentsMutedClass, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
 
@@ -12,8 +12,8 @@ export const metadata = { title: "Connect your agent" };
 /**
  * Connect your agent, the earn way (#earn-connect): the same page as Connect your agent on the rest of
  * Ziki (a card with one button that names the agent, hands over one piece of text and waits for it to
- * connect), inside the earn pages' header. The agent is made in the Earn workspace's project. If this
- * device isn't working in that workspace yet, /earn/start puts it there first. Once it connects, the
+ * connect), inside the earn pages' header. The agent is made in the Earn organisation's project. If this
+ * device isn't working in that organisation yet, /earn/start puts it there first. Once it connects, the
  * person goes on to /earn/home.
  */
 export default async function EarnConnectPage() {
@@ -22,9 +22,9 @@ export default async function EarnConnectPage() {
   // No redirect for someone who already has an agent: creating the agent here re-renders this page mid-flow,
   // and sending them away would cut off the copy step. /earn/start already sends connected people on.
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: EARN_WORKSPACE_SLUG }, select: { id: true } });
-  const project = tenant ? await prisma.project.findFirst({ where: { tenantId: tenant.id }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }) : null;
-  if (!tenant || !project || (await currentTenantIdFor(user.id)) !== tenant.id) redirect("/earn/start");
+  const organisation = await prisma.organisation.findUnique({ where: { slug: EARN_ORGANISATION_SLUG }, select: { id: true } });
+  const project = organisation ? await prisma.project.findFirst({ where: { organisationId: organisation.id }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }) : null;
+  if (!organisation || !project || (await currentOrganisationIdFor(user.id)) !== organisation.id) redirect("/earn/start");
 
   return (
     <div className="mx-auto max-w-xl space-y-6">

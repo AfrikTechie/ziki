@@ -10,8 +10,8 @@ import { NotesSidebarLink } from "./notes-sidebar-link";
  */
 export default async function NotesLayout({ children, params }: { children: React.ReactNode; params: Promise<{ org: string; project: string }> }) {
   const { org, project: slugParam } = await params;
-  const { user, tenantId, project } = await requireProject(org, slugParam);
-  const agents = await ownAgentsWithNotes(user.id, tenantId, project.id);
+  const { user, organisationId, project } = await requireProject(org, slugParam);
+  const agents = await ownAgentsWithNotes(user.id, organisationId, project.id);
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 lg:flex-row">
       <nav aria-label="Notes" className="shrink-0 lg:w-56">

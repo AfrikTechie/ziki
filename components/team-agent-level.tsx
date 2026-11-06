@@ -7,7 +7,7 @@ import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 
-/** A workspace admin changes someone else's agent class from the team directory. */
+/** An organisation admin changes someone else's agent class from the team directory. */
 export function TeamAgentLevelControl({
   agentId,
   agentName,

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { IssueApiError, agentIssueRequest, issueJson } from "@/lib/agent-api/issues";
 import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
 import { resolveSessionUserId } from "@/lib/session-user";
-import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
+import { currentOrganisationIdFor, NO_ORGANISATION_MESSAGE } from "@/lib/organisation-context";
 import { prisma } from "@/lib/prisma";
 import {
   assertMarketingSettingsAccess,
@@ -19,9 +19,9 @@ async function handleSessionGet(request: NextRequest, projectId: string) {
   if ("error" in session) {
     return NextResponse.json({ error: "unauthorized", message: "Authentication required." }, { status: 401 });
   }
-  const tenantId = await currentTenantIdFor(session.userId);
-  if (!tenantId) {
-    return NextResponse.json({ error: "no_tenant", message: NO_TENANT_MESSAGE }, { status: 400 });
+  const organisationId = await currentOrganisationIdFor(session.userId);
+  if (!organisationId) {
+    return NextResponse.json({ error: "no_organisation", message: NO_ORGANISATION_MESSAGE }, { status: 400 });
   }
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
@@ -32,8 +32,8 @@ async function handleSessionGet(request: NextRequest, projectId: string) {
   }
 
   try {
-    await assertMarketingSettingsAccess(user, tenantId, "view");
-    const settings = await getMarketingSettings(tenantId, projectId);
+    await assertMarketingSettingsAccess(user, organisationId, "view");
+    const settings = await getMarketingSettings(organisationId, projectId);
     return NextResponse.json(settings);
   } catch (error) {
     if (error instanceof IssueApiError) {
@@ -48,9 +48,9 @@ async function handleSessionUpdate(request: NextRequest, projectId: string) {
   if ("error" in session) {
     return NextResponse.json({ error: "unauthorized", message: "Authentication required." }, { status: 401 });
   }
-  const tenantId = await currentTenantIdFor(session.userId);
-  if (!tenantId) {
-    return NextResponse.json({ error: "no_tenant", message: NO_TENANT_MESSAGE }, { status: 400 });
+  const organisationId = await currentOrganisationIdFor(session.userId);
+  if (!organisationId) {
+    return NextResponse.json({ error: "no_organisation", message: NO_ORGANISATION_MESSAGE }, { status: 400 });
   }
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
@@ -61,9 +61,9 @@ async function handleSessionUpdate(request: NextRequest, projectId: string) {
   }
 
   try {
-    await assertMarketingSettingsAccess(user, tenantId, "change");
+    await assertMarketingSettingsAccess(user, organisationId, "change");
     const body = await issueJson(request);
-    const updated = await updateMarketingSettings(tenantId, projectId, user.id, body);
+    const updated = await updateMarketingSettings(organisationId, projectId, user.id, body);
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof IssueApiError) {
@@ -78,7 +78,7 @@ async function handleSessionUpdate(request: NextRequest, projectId: string) {
 
 /**
  * GET /api/v1/projects/{id}/marketing/settings: read the project's marketing dials.
- * Restricted to workspace owners and admins (M-API-6).
+ * Restricted to organisation owners and admins (M-API-6).
  */
 export async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
@@ -89,17 +89,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
   return agentIssueRequest(request, "marketing.settings.read", "working", id, async (agent) => {
     await assertMarketingSettingsAccess(
       { id: agent.ownerId, role: agent.ownerRole },
-      agent.tenantId,
+      agent.organisationId,
       "view",
     );
-    const settings = await getMarketingSettings(agent.tenantId, id);
+    const settings = await getMarketingSettings(agent.organisationId, id);
     return NextResponse.json(settings);
   });
 }
 
 /**
  * PATCH /api/v1/projects/{id}/marketing/settings: update the project's marketing dials.
- * Restricted to workspace owners and admins (M-API-6).
+ * Restricted to organisation owners and admins (M-API-6).
  */
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
@@ -110,11 +110,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   return agentIssueRequest(request, "marketing.settings.update", "working", id, async (agent) => {
     await assertMarketingSettingsAccess(
       { id: agent.ownerId, role: agent.ownerRole },
-      agent.tenantId,
+      agent.organisationId,
       "change",
     );
     const body = await issueJson(request);
-    const updated = await updateMarketingSettings(agent.tenantId, id, agent.ownerId, body);
+    const updated = await updateMarketingSettings(agent.organisationId, id, agent.ownerId, body);
     return NextResponse.json(updated);
   });
 }

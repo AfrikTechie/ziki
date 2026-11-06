@@ -41,7 +41,7 @@ const fail = (status: 403 | 404 | 409 | 422, error: string, message: string): Re
 
 export async function resolveMergedFix(
   agent: AgentContext,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   issueRef: string,
   /** The merged pull request: must be the linked one when given. */
   requestedUrl?: string,
@@ -51,7 +51,7 @@ export async function resolveMergedFix(
   }
 
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-  const bugId = await issueIdFor(prisma, issueRef, scope.tenantId);
+  const bugId = await issueIdFor(prisma, issueRef, scope.organisationId);
   if (!bugId) return fail(404, "not_found", "No such issue in this project.");
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, ...scope, isDeleted: false },
@@ -139,13 +139,13 @@ export async function resolveMergedFix(
     });
     for (const claim of bug.claims) {
       await publish(tx, {
-        tenantId: scope.tenantId, type: "claim.released", actorAgentId: claim.agentId, bugId: bug.id,
+        organisationId: scope.organisationId, type: "claim.released", actorAgentId: claim.agentId, bugId: bug.id,
         payload: { claimId: claim.id, issueId: bug.id, beneficiaryUserId: claim.beneficiaryUserId, reason: "resolved" },
       });
     }
     await audit(agent, "issue.resolved", `bug:${bug.id}`, { from: bug.substatus, pullRequestUrl, pullRequestReportId: report.id }, { bugId: bug.id, db: tx });
     await publish(tx, {
-      tenantId: scope.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id,
+      organisationId: scope.organisationId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id,
       payload: {
         issueId: bug.id, projectId: scope.projectId, changed: ["status", "substatus"], values: moveTo("on_dev"),
         source: "agent", agentId: agent.agentId, pullRequestUrl,

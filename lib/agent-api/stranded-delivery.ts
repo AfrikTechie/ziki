@@ -88,9 +88,9 @@ export type StrandedIssue = StrandedDelivery & {
 };
 
 /** Every stranded delivery in a project, oldest link first: the work feed's `deliver_stranded` items. */
-export async function findStrandedDeliveries(tenantId: string, projectId: string, db: Db = prisma, now: Date = new Date()): Promise<StrandedIssue[]> {
+export async function findStrandedDeliveries(organisationId: string, projectId: string, db: Db = prisma, now: Date = new Date()): Promise<StrandedIssue[]> {
   const candidates = await db.bug.findMany({
-    where: { tenantId, projectId, ...PRODUCT_TRACK, isDeleted: false, status: "in_progress", pullRequestUrl: { not: null }, deliveries: { none: {} } },
+    where: { organisationId, projectId, ...PRODUCT_TRACK, isDeleted: false, status: "in_progress", pullRequestUrl: { not: null }, deliveries: { none: {} } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true, number: true, title: true },
   });

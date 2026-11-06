@@ -29,9 +29,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   const { id } = await context.params;
   return agentIssueRequest(request, "issue.github_status", "read", id, async (agent) => {
     const scope = await issueProject(agent, request.nextUrl.searchParams);
-    const bugId = await issueIdFor(prisma, id, agent.tenantId);
+    const bugId = await issueIdFor(prisma, id, agent.organisationId);
     const bug = bugId
-      ? await prisma.bug.findFirst({ where: { id: bugId, tenantId: agent.tenantId, projectId: scope.projectId, isDeleted: false }, select: { id: true, pullRequestUrl: true } })
+      ? await prisma.bug.findFirst({ where: { id: bugId, organisationId: agent.organisationId, projectId: scope.projectId, isDeleted: false }, select: { id: true, pullRequestUrl: true } })
       : null;
     if (!bug) return NextResponse.json({ error: "not_found", message: "No such issue in this project." }, { status: 404 });
 

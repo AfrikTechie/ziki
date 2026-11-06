@@ -20,7 +20,7 @@ export type UserExportData = {
     status: string;
     createdAt: Date;
     updatedAt: Date;
-    tenantId: string;
+    organisationId: string;
     projectId: string;
   }>;
   comments: Array<{
@@ -39,7 +39,7 @@ export type UserExportData = {
   }>;
   points: Array<{
     id: string;
-    tenantId: string;
+    organisationId: string;
     bugId: string | null;
     role: string;
     points: number;
@@ -86,7 +86,7 @@ export async function exportUserData(
         status: true,
         createdAt: true,
         updatedAt: true,
-        tenantId: true,
+        organisationId: true,
         projectId: true,
       },
       orderBy: { createdAt: "desc" },
@@ -117,7 +117,7 @@ export async function exportUserData(
       where: { userId },
       select: {
         id: true,
-        tenantId: true,
+        organisationId: true,
         bugId: true,
         role: true,
         points: true,

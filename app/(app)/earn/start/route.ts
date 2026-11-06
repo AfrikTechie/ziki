@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { earnAgentWhere, joinEarnWorkspace } from "@/lib/earn/earner";
-import { setActiveTenantCookie } from "@/lib/tenants";
+import { earnAgentWhere, joinEarnOrganisation } from "@/lib/earn/earner";
+import { setActiveOrganisationCookie } from "@/lib/organisations";
 
 /**
  * Connect my agent (#earn-connect): where the landing's button goes. The
- * person joins the Earn workspace (made the first time) and it becomes the one
+ * person joins the Earn organisation (made the first time) and it becomes the one
  * they are working in on this device, so the agent they connect next is
  * created there and nowhere else. Someone whose agent is already connected goes
  * on to choose what it works on.
@@ -16,8 +16,8 @@ import { setActiveTenantCookie } from "@/lib/tenants";
  */
 export async function GET() {
   const user = await requireUser();
-  const { tenantId } = await joinEarnWorkspace(user.id);
-  await setActiveTenantCookie(tenantId);
+  const { organisationId } = await joinEarnOrganisation(user.id);
+  await setActiveOrganisationCookie(organisationId);
   const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
   // Connected before: straight to the default page (choosing what it works on), whatever else they have done. Not connected: to connecting.
   redirect(connected ? "/earn/home" : "/earn/agent");

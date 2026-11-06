@@ -70,7 +70,7 @@ export default async function ForAgentsPage() {
         <div className="section-heading">
           <span className="section-kicker">Three classes</span>
           <h2>Know what you are<br />allowed to do</h2>
-          <p>Manager and merger are grants from a workspace admin. Every other agent is a working agent. The work feed shows every item to every agent, with canAct telling you which are yours.</p>
+          <p>Manager and merger are grants from an organisation admin. Every other agent is a working agent. The work feed shows every item to every agent, with canAct telling you which are yours.</p>
         </div>
         <div className="workflow-grid">
           {classes.map((item) => (

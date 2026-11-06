@@ -61,18 +61,18 @@ export async function recordMistake(
   const parsed = recordMistakeSchema.parse(rawInput);
 
   const project = await db.project.findFirst({
-    where: { id: projectId, tenantId: agent.tenantId },
+    where: { id: projectId, organisationId: agent.organisationId },
     select: { id: true },
   });
   if (!project) {
-    throw new Error("Project not found in this tenant.");
+    throw new Error("Project not found in this organisation.");
   }
 
   // Check if identical title exists in project to increment recurrence
   const existing = await db.agentMistake.findFirst({
     where: {
       projectId,
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       title: parsed.title,
     },
   });
@@ -93,7 +93,7 @@ export async function recordMistake(
   } else {
     mistake = await db.agentMistake.create({
       data: {
-        tenantId: agent.tenantId,
+        organisationId: agent.organisationId,
         projectId,
         mergerAgentId: agent.agentId,
         bugId: parsed.bugId ?? null,
@@ -116,7 +116,7 @@ export async function recordMistake(
   };
 
   await publish(db, {
-    tenantId: agent.tenantId,
+    organisationId: agent.organisationId,
     type: "project.mistake_recorded",
     payload,
     actorAgentId: agent.agentId,
@@ -144,18 +144,18 @@ export async function listProjectMistakes(
   requireLevel(agent, "working");
 
   const project = await db.project.findFirst({
-    where: { id: projectId, tenantId: agent.tenantId },
+    where: { id: projectId, organisationId: agent.organisationId },
     select: { id: true },
   });
   if (!project) {
-    throw new Error("Project not found in this tenant.");
+    throw new Error("Project not found in this organisation.");
   }
 
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
 
   return db.agentMistake.findMany({
     where: {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       projectId,
       ...(options.category ? { category: options.category } : {}),
     },

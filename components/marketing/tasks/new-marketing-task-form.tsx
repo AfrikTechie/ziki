@@ -109,7 +109,7 @@ export function NewMarketingTaskForm({ projectId, types }: { projectId: string; 
               <option value="">No task types yet</option>
             </Select>
             <p className="mt-2 text-sm text-zk-text2">
-              A workspace owner or admin can add task types in the marketing settings.
+              An organisation owner or admin can add task types in the marketing settings.
             </p>
           </>
         )}

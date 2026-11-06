@@ -6,7 +6,7 @@ import { isAgentLevel } from "@/lib/agents/levels";
 import type { AgentLevel } from "@prisma/client";
 import { consumePairingLimit } from "@/lib/agents/rate-limit";
 import { approvePairing, findPendingPairing } from "@/lib/agents/pairing";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { createAgent, deleteAgent, regenerateKey, revokeAgent, setAgentAreaPreferences, setAgentLevel } from "@/lib/agents/registry";
 import { RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
@@ -66,7 +66,7 @@ export async function regenerateAgentKeyAction(
 ): Promise<RegenerateKeyActionResult> {
   if (!isAgentPlatformEnabled()) return { ok: false, error: PLATFORM_OFF };
   if (typeof agentId !== "string" || typeof projectId !== "string" || !projectId) {
-    return { ok: false, error: "Choose a project in this workspace." };
+    return { ok: false, error: "Choose a project in this organisation." };
   }
   const user = await requireUser();
   const result = await regenerateKey(user, agentId, projectId);
@@ -140,7 +140,7 @@ export async function pairAgentAction(
       code,
       new Date(),
       String(formData.get("projectId") ?? ""),
-      await currentTenantIdFor(user.id),
+      await currentOrganisationIdFor(user.id),
       formData.get("instructions") ?? undefined,
     );
     if (!result.ok) return result;

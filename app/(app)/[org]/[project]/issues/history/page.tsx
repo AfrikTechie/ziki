@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import "./history.css";
 import { prisma } from "@/lib/prisma";
-import { bugInTenant } from "@/lib/tenant-context";
+import { bugInOrganisation } from "@/lib/organisation-context";
 import { requireProject } from "@/lib/project-route";
 import { issuesPath, projectPath } from "@/lib/project-paths";
 import { calculatePagination } from "@/lib/pagination";
@@ -67,8 +67,8 @@ const movementTone = (m: MergeMovement | null, path: MergePath) =>
 /** `/<slug>/issues/history` (#project-urls): the slug picks the project and checks access. */
 export default async function MergeHistoryPage({ params: routeParams, searchParams }: { params: Promise<{ org: string; project: string }>; searchParams: SearchParams }) {
   const { org, project: slugParam } = await routeParams;
-  const { tenantId: projectTenantId, project } = await requireProject(org, slugParam);
-  const tenantId: string | null = projectTenantId;
+  const { organisationId: projectOrganisationId, project } = await requireProject(org, slugParam);
+  const organisationId: string | null = projectOrganisationId;
   const projectId: string | null = project.id;
 
   const params = await searchParams;
@@ -77,7 +77,7 @@ export default async function MergeHistoryPage({ params: routeParams, searchPara
 
   // Completed work: live issues (a merged fix is live).
   const completed: Prisma.BugWhereInput = {
-    ...bugInTenant(tenantId),
+    ...bugInOrganisation(organisationId),
     ...PRODUCT_TRACK,
     ...(projectId ? { projectId } : {}),
     isDeleted: false,
@@ -105,7 +105,7 @@ export default async function MergeHistoryPage({ params: routeParams, searchPara
       pullRequestUrl: true,
       status: true,
       beneficiary: { select: { name: true } },
-      project: { select: { slug: true, tenant: { select: { slug: true } } } },
+      project: { select: { slug: true, organisation: { select: { slug: true } } } },
     },
   });
   const rows = bugs.map((bug) => ({ ...bug, path: mergePathOf(bug) }));

@@ -164,7 +164,7 @@ export function AdminIssueTypesManager({
         <div>
           <h2 className="text-xl font-bold tracking-tight text-zk-text">Issue types</h2>
           <p className="mt-1 max-w-2xl text-sm text-zk-text2">
-            The kinds of issue people can file in this organization (Marketing, Design, Fix, Feat, etc.).
+            The kinds of issue people can file in this organisation (Marketing, Design, Fix, Feat, etc.).
           </p>
         </div>
         {!isCreating && !editingType && (

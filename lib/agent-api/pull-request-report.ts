@@ -210,7 +210,7 @@ export function mergeSubstatusFor(report: { state: string; mergeable?: boolean |
 
 export async function reportPullRequestStatus(
   agent: AgentContext,
-  scope: { tenantId: string; projectId: string },
+  scope: { organisationId: string; projectId: string },
   issueRef: string,
   rawBody: unknown,
 ): Promise<ReportResult> {
@@ -222,13 +222,13 @@ export async function reportPullRequestStatus(
   }
   const body = parsed.data;
 
-  const bugId = await issueIdFor(prisma, issueRef, scope.tenantId);
+  const bugId = await issueIdFor(prisma, issueRef, scope.organisationId);
   if (!bugId) return fail(404, "not_found", "No such issue in this project.");
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, ...scope, isDeleted: false },
     select: {
       id: true,
-      tenantId: true,
+      organisationId: true,
       projectId: true,
       status: true,
       substatus: true,
@@ -320,7 +320,7 @@ export async function reportPullRequestStatus(
       ...(headMoved ? { headMoved: { from: bug.pullRequestHeadSha, to: body.headSha ?? null } } : {}),
     };
     await audit(agent, "issue.pull_request_reported", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
-    await publish(tx, { tenantId: bug.tenantId, type: "issue.pull_request_reported", payload, actorAgentId: agent.agentId, bugId: bug.id });
+    await publish(tx, { organisationId: bug.organisationId, type: "issue.pull_request_reported", payload, actorAgentId: agent.agentId, bugId: bug.id });
     return report;
   });
 

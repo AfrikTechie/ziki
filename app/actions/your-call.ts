@@ -3,9 +3,9 @@
 import { addCommentAction } from "@/app/actions/issues";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantAccess } from "@/lib/tenant-access";
-import { currentTenantIdFor } from "@/lib/tenant-context";
-import { isOrganizationAdmin } from "@/lib/organization-role";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
+import { isOrganisationAdmin } from "@/lib/organisation-role";
 import { DECISION_MARKER, PLAIN, type YourCallAnswer } from "@/lib/your-call-shared";
 
 const NOTE_MAX_CHARS = 1000;
@@ -18,7 +18,7 @@ const NOTE_MAX_CHARS = 1000;
  * change any confirmation or judgement: those stay with the agents.
  *
  * Only the person who filed the issue (or it is for), or an admin of the
- * workspace, may answer for it, and only while the agents are still split on it.
+ * organisation, may answer for it, and only while the agents are still split on it.
  */
 export async function answerYourCallAction(
   bugId: string,
@@ -29,17 +29,17 @@ export async function answerYourCallAction(
   if (kind !== "confirm" && kind !== "merge") return { error: "Pick yes or no." };
   if (answer !== "yes" && answer !== "no") return { error: "Pick yes or no." };
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  const bug = typeof bugId === "string" && tenantId
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const bug = typeof bugId === "string" && organisationId
     ? await prisma.bug.findFirst({
-        where: { id: bugId, tenantId, isDeleted: false },
+        where: { id: bugId, organisationId, isDeleted: false },
         select: { reporterId: true, beneficiaryUserId: true, substatus: true },
       })
     : null;
   if (!bug) return { error: "Issue not found" };
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await currentOrganisationAccess(user.id, user.role);
   const mayAnswer = bug.reporterId === user.id || bug.beneficiaryUserId === user.id
-    || Boolean(access.membershipRole && isOrganizationAdmin(access.membershipRole, user.role));
+    || Boolean(access.membershipRole && isOrganisationAdmin(access.membershipRole, user.role));
   if (!mayAnswer) return { error: "Only the person this issue is for, or an admin, can answer for it." };
   if (bug.substatus !== (kind === "merge" ? "requires_review" : "requires_confirmation")) return { error: "The agents are no longer split on this one." };
   const words = PLAIN[kind];

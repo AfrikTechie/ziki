@@ -3,22 +3,22 @@ import type { AppRole } from "@/lib/roles";
 import { isSuperAdmin } from "@/lib/roles";
 
 /**
- * Changing who can administer an organization (#504, #515, #569).
+ * Changing who can administer an organisation (#504, #515, #569).
  *
  * Owners (and the site super admin) set roles. Owners and admins can remove
- * members. The last owner always stays, so an organization can't be left
+ * members. The last owner always stays, so an organisation can't be left
  * with nobody allowed to invite or promote.
  */
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
 export const MEMBERSHIP_ADMIN_ERRORS = {
-  "not-found": "That person isn't in this organization.",
-  "not-allowed": "Only an owner of this organization can change roles.",
-  "remove-not-allowed": "Only an owner or admin of this organization can remove someone.",
-  "last-owner": "This organization needs at least one owner.",
+  "not-found": "That person isn't in this organisation.",
+  "not-allowed": "Only an owner of this organisation can change roles.",
+  "remove-not-allowed": "Only an owner or admin of this organisation can remove someone.",
+  "last-owner": "This organisation needs at least one owner.",
   "same-role": "They already have that role.",
-  "cannot-remove-self": "You can't remove yourself. Leave the organization instead.",
+  "cannot-remove-self": "You can't remove yourself. Leave the organisation instead.",
   "admin-removes-member-only": "Admins can remove members. Ask an owner to change another admin.",
   failed: "Couldn't update that membership. Try again.",
 } as const;
@@ -32,7 +32,7 @@ export type MembershipRoleRefusal =
   | "same-role"
   | null;
 
-/** Whether `actor` may set `target` to `nextRole` inside this organization. */
+/** Whether `actor` may set `target` to `nextRole` inside this organisation. */
 export function refuseMembershipRoleChange(input: {
   actorIsOwner: boolean;
   actorIsSuperAdmin: boolean;
@@ -108,14 +108,14 @@ async function inTransaction<T>(db: Db, fn: (tx: Db) => Promise<T>): Promise<T> 
 
 type Actor = { id: string; role?: AppRole | null };
 
-async function ownerCount(db: Db, tenantId: string): Promise<number> {
-  return db.membership.count({ where: { tenantId, role: "owner" } });
+async function ownerCount(db: Db, organisationId: string): Promise<number> {
+  return db.membership.count({ where: { organisationId, role: "owner" } });
 }
 
 async function recordChange(
   db: Db,
   row: {
-    tenantId: string;
+    organisationId: string;
     actorUserId: string;
     targetUserId: string;
     action: "role_changed" | "removed" | "left";
@@ -127,25 +127,25 @@ async function recordChange(
 }
 
 /**
- * Set a member's role in one organization. Does not touch the site-wide
+ * Set a member's role in one organisation. Does not touch the site-wide
  * `User.role`, and never removes the last owner.
  */
 export async function changeMembershipRole(
   db: Db,
   actor: Actor,
-  input: { tenantId: string; targetUserId: string; nextRole: MembershipRole },
+  input: { organisationId: string; targetUserId: string; nextRole: MembershipRole },
 ): Promise<MembershipAdminResult> {
   return inTransaction(db, async (tx) => {
     const [target, actorMembership, owners] = await Promise.all([
       tx.membership.findUnique({
-        where: { tenantId_userId: { tenantId: input.tenantId, userId: input.targetUserId } },
+        where: { organisationId_userId: { organisationId: input.organisationId, userId: input.targetUserId } },
         select: { id: true, role: true },
       }),
       tx.membership.findUnique({
-        where: { tenantId_userId: { tenantId: input.tenantId, userId: actor.id } },
+        where: { organisationId_userId: { organisationId: input.organisationId, userId: actor.id } },
         select: { role: true },
       }),
-      ownerCount(tx, input.tenantId),
+      ownerCount(tx, input.organisationId),
     ]);
 
     const refusal = refuseMembershipRoleChange({
@@ -159,7 +159,7 @@ export async function changeMembershipRole(
 
     await tx.membership.update({ where: { id: target.id }, data: { role: input.nextRole } });
     await recordChange(tx, {
-      tenantId: input.tenantId,
+      organisationId: input.organisationId,
       actorUserId: actor.id,
       targetUserId: input.targetUserId,
       action: "role_changed",
@@ -180,19 +180,19 @@ export async function changeMembershipRole(
 export async function removeMembership(
   db: Db,
   actor: Actor,
-  input: { tenantId: string; targetUserId: string },
+  input: { organisationId: string; targetUserId: string },
 ): Promise<MembershipAdminResult> {
   return inTransaction(db, async (tx) => {
     const [target, actorMembership, owners] = await Promise.all([
       tx.membership.findUnique({
-        where: { tenantId_userId: { tenantId: input.tenantId, userId: input.targetUserId } },
+        where: { organisationId_userId: { organisationId: input.organisationId, userId: input.targetUserId } },
         select: { id: true, role: true, userId: true },
       }),
       tx.membership.findUnique({
-        where: { tenantId_userId: { tenantId: input.tenantId, userId: actor.id } },
+        where: { organisationId_userId: { organisationId: input.organisationId, userId: actor.id } },
         select: { role: true },
       }),
-      ownerCount(tx, input.tenantId),
+      ownerCount(tx, input.organisationId),
     ]);
 
     const refusal = refuseMemberRemoval({
@@ -210,7 +210,7 @@ export async function removeMembership(
 
     await tx.membership.delete({ where: { id: target.id } });
     await recordChange(tx, {
-      tenantId: input.tenantId,
+      organisationId: input.organisationId,
       actorUserId: actor.id,
       targetUserId: input.targetUserId,
       action: "removed",
@@ -227,26 +227,26 @@ export async function removeMembership(
   });
 }
 
-/** Leave an organization. The last owner has to choose another owner first. */
+/** Leave an organisation. The last owner has to choose another owner first. */
 export async function leaveMembership(
   db: Db,
   actor: Actor,
-  tenantId: string,
+  organisationId: string,
 ): Promise<MembershipAdminResult> {
   return inTransaction(db, async (tx) => {
     const [target, owners] = await Promise.all([
       tx.membership.findUnique({
-        where: { tenantId_userId: { tenantId, userId: actor.id } },
+        where: { organisationId_userId: { organisationId, userId: actor.id } },
         select: { id: true, role: true },
       }),
-      ownerCount(tx, tenantId),
+      ownerCount(tx, organisationId),
     ]);
     const refusal = refuseLeave({ target, ownerCount: owners });
     if (refusal || !target) return { ok: false, error: refusalMessage(refusal ?? "not-found") };
 
     await tx.membership.delete({ where: { id: target.id } });
     await recordChange(tx, {
-      tenantId,
+      organisationId,
       actorUserId: actor.id,
       targetUserId: actor.id,
       action: "left",

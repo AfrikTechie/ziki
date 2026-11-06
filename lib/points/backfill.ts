@@ -25,7 +25,7 @@ export const PLATFORM_CUTOFF_DATE = new Date("2026-10-21T00:00:00.000Z");
 
 export type HistoricalBug = {
   id: string;
-  tenantId: string;
+  organisationId: string;
   status: Status;
   assigneeId: string | null;
   reporterId: string;
@@ -74,7 +74,7 @@ export function backfillEntries(
   const payoutHeld = Array.isArray(bug.heldPayout) && bug.heldPayout.length > 0 && !bug.payoutReleasedAt;
   if (SOLVER_ELIGIBLE.has(bug.status) && bug.assigneeId && !bug.duplicateOfId && !payoutHeld) {
     entries.push({
-      tenantId: bug.tenantId,
+      organisationId: bug.organisationId,
       userId: bug.assigneeId,
       bugId: bug.id,
       role: "solver",
@@ -88,7 +88,7 @@ export function backfillEntries(
     if (!modern || bug.isConfirmed) {
       const recipientId = (modern ? bug.beneficiaryUserId : null) ?? bug.reporterId;
       entries.push({
-        tenantId: bug.tenantId,
+        organisationId: bug.organisationId,
         userId: recipientId,
         bugId: bug.id,
         role: "reporter",
@@ -145,7 +145,7 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       select: {
         id: true,
-        tenantId: true,
+        organisationId: true,
         status: true,
         assigneeId: true,
         reporterId: true,

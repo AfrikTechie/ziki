@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * Marketing task types (M-API-7): the lib the agent routes and the Marketing
  * settings page share. Only marketing-track types are read or changed, names
- * are unique in the workspace across tracks, there are no points (D5), and a
+ * are unique in the organisation across tracks, there are no points (D5), and a
  * type a task or proposal uses can't be deleted.
  */
 const typeFindFirst = vi.hoisted(() => vi.fn());
@@ -78,73 +78,73 @@ beforeEach(() => {
 describe("listing", () => {
   it("lists only active marketing types by default, A-Z", async () => {
     typeFindMany.mockResolvedValue([blog]);
-    await expect(listMarketingTaskTypes("tenant-1")).resolves.toEqual([blog]);
+    await expect(listMarketingTaskTypes("organisation-1")).resolves.toEqual([blog]);
     expect(typeFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { tenantId: "tenant-1", track: "marketing", isActive: true }, orderBy: { name: "asc" } }),
+      expect.objectContaining({ where: { organisationId: "organisation-1", track: "marketing", isActive: true }, orderBy: { name: "asc" } }),
     );
   });
 
   it("includes retired types when asked", async () => {
     typeFindMany.mockResolvedValue([]);
-    await listMarketingTaskTypes("tenant-1", { includeInactive: true });
-    expect(typeFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1", track: "marketing" } }));
+    await listMarketingTaskTypes("organisation-1", { includeInactive: true });
+    expect(typeFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organisationId: "organisation-1", track: "marketing" } }));
   });
 
-  it("finds the project by id or slug inside the tenant only", async () => {
+  it("finds the project by id or slug inside the organisation only", async () => {
     projectFindFirst.mockResolvedValueOnce({ id: "proj-1", slug: "web" });
-    await expect(marketingTaskTypeProject("tenant-1", "web")).resolves.toEqual({ id: "proj-1", slug: "web" });
+    await expect(marketingTaskTypeProject("organisation-1", "web")).resolves.toEqual({ id: "proj-1", slug: "web" });
     expect(projectFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { tenantId: "tenant-1", OR: [{ id: "web" }, { slug: "web" }] } }),
+      expect.objectContaining({ where: { organisationId: "organisation-1", OR: [{ id: "web" }, { slug: "web" }] } }),
     );
     projectFindFirst.mockResolvedValueOnce(null);
-    expect((await rejection(marketingTaskTypeProject("tenant-1", "other"))).status).toBe(404);
+    expect((await rejection(marketingTaskTypeProject("organisation-1", "other"))).status).toBe(404);
   });
 
   it("never returns a product type as a marketing one", async () => {
-    await getMarketingTaskType("tenant-1", "type-product").catch(() => undefined);
+    await getMarketingTaskType("organisation-1", "type-product").catch(() => undefined);
     expect(typeFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "type-product", tenantId: "tenant-1", track: "marketing" } }),
+      expect.objectContaining({ where: { id: "type-product", organisationId: "organisation-1", track: "marketing" } }),
     );
-    expect((await rejection(getMarketingTaskType("tenant-1", "type-product"))).status).toBe(404);
+    expect((await rejection(getMarketingTaskType("organisation-1", "type-product"))).status).toBe(404);
   });
 });
 
 describe("creating", () => {
   it("stores the type on the marketing track and expires the type cache", async () => {
-    const created = await createMarketingTaskType("tenant-1", { name: "  Newsletter ", description: "Monthly." });
+    const created = await createMarketingTaskType("organisation-1", { name: "  Newsletter ", description: "Monthly." });
     expect(created).toMatchObject({ name: "Newsletter", track: "marketing", isActive: true });
     expect(typeCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { tenantId: "tenant-1", name: "Newsletter", description: "Monthly.", track: "marketing", isActive: true },
+        data: { organisationId: "organisation-1", name: "Newsletter", description: "Monthly.", track: "marketing", isActive: true },
       }),
     );
     expect(updateTag).toHaveBeenCalled();
   });
 
-  it("refuses a name any type in the workspace uses, ignoring case and track", async () => {
+  it("refuses a name any type in the organisation uses, ignoring case and track", async () => {
     typeFindFirst.mockResolvedValueOnce({ name: "Fix" });
-    const error = await rejection(createMarketingTaskType("tenant-1", { name: "fix" }));
+    const error = await rejection(createMarketingTaskType("organisation-1", { name: "fix" }));
     expect(error.status).toBe(409);
     expect(error.body).toMatchObject({ error: "duplicate_name", field: "name" });
     expect(typeFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { tenantId: "tenant-1", name: { equals: "fix", mode: "insensitive" } } }),
+      expect.objectContaining({ where: { organisationId: "organisation-1", name: { equals: "fix", mode: "insensitive" } } }),
     );
     expect(typeCreate).not.toHaveBeenCalled();
   });
 
   it("maps a unique-key race to 409", async () => {
     typeCreate.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002" }));
-    expect((await rejection(createMarketingTaskType("tenant-1", { name: "Newsletter" }))).status).toBe(409);
+    expect((await rejection(createMarketingTaskType("organisation-1", { name: "Newsletter" }))).status).toBe(409);
   });
 
   it("refuses points and other unknown fields with 422 (D5)", async () => {
-    const error = await rejection(createMarketingTaskType("tenant-1", { name: "Newsletter", points: 5 }));
+    const error = await rejection(createMarketingTaskType("organisation-1", { name: "Newsletter", points: 5 }));
     expect(error.status).toBe(422);
     expect(error.body).toMatchObject({ error: "invalid_request", field: "points" });
   });
 
   it("refuses a name that is too short with 400 naming the field", async () => {
-    const error = await rejection(createMarketingTaskType("tenant-1", { name: "x" }));
+    const error = await rejection(createMarketingTaskType("organisation-1", { name: "x" }));
     expect(error.status).toBe(400);
     expect(error.body).toMatchObject({ error: "invalid_request", field: "name" });
   });
@@ -154,7 +154,7 @@ describe("updating", () => {
   it("renames a type and notes it on the tasks that carry it", async () => {
     typeFindFirst.mockResolvedValueOnce(blog).mockResolvedValueOnce(null);
     bugFindMany.mockResolvedValue([{ id: "bug-1" }, { id: "bug-2" }]);
-    const updated = await updateMarketingTaskType("tenant-1", "user-1", "type-1", { name: "Blog article" });
+    const updated = await updateMarketingTaskType("organisation-1", "user-1", "type-1", { name: "Blog article" });
     expect(updated.name).toBe("Blog article");
     expect(activityCreateMany).toHaveBeenCalledWith({
       data: [
@@ -166,23 +166,23 @@ describe("updating", () => {
 
   it("changes only the fields sent", async () => {
     typeFindFirst.mockResolvedValueOnce(blog);
-    await updateMarketingTaskType("tenant-1", "user-1", "type-1", { isActive: false });
+    await updateMarketingTaskType("organisation-1", "user-1", "type-1", { isActive: false });
     expect(typeUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "type-1" }, data: { isActive: false } }));
     expect(activityCreateMany).not.toHaveBeenCalled();
   });
 
   it("refuses an empty change", async () => {
-    expect((await rejection(updateMarketingTaskType("tenant-1", "user-1", "type-1", {}))).status).toBe(400);
+    expect((await rejection(updateMarketingTaskType("organisation-1", "user-1", "type-1", {}))).status).toBe(400);
   });
 
   it("refuses a product type or a missing one with 404", async () => {
-    expect((await rejection(updateMarketingTaskType("tenant-1", "user-1", "type-product", { isActive: false }))).status).toBe(404);
+    expect((await rejection(updateMarketingTaskType("organisation-1", "user-1", "type-product", { isActive: false }))).status).toBe(404);
     expect(typeUpdate).not.toHaveBeenCalled();
   });
 
   it("toggles a type between active and retired", async () => {
     typeFindFirst.mockResolvedValue(blog);
-    await toggleMarketingTaskTypeActive("tenant-1", "user-1", "type-1");
+    await toggleMarketingTaskTypeActive("organisation-1", "user-1", "type-1");
     expect(typeUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { isActive: false } }));
   });
 });
@@ -190,14 +190,14 @@ describe("updating", () => {
 describe("deleting", () => {
   it("deletes a type nothing uses", async () => {
     typeFindFirst.mockResolvedValueOnce(blog);
-    await expect(deleteMarketingTaskType("tenant-1", "type-1")).resolves.toEqual({ id: "type-1", deleted: true });
+    await expect(deleteMarketingTaskType("organisation-1", "type-1")).resolves.toEqual({ id: "type-1", deleted: true });
     expect(typeDelete).toHaveBeenCalledWith({ where: { id: "type-1" } });
   });
 
   it("refuses a type a proposal still uses, and says to deactivate it", async () => {
     typeFindFirst.mockResolvedValueOnce(blog);
     ideaCount.mockResolvedValueOnce(1);
-    const error = await rejection(deleteMarketingTaskType("tenant-1", "type-1"));
+    const error = await rejection(deleteMarketingTaskType("organisation-1", "type-1"));
     expect(error.status).toBe(409);
     expect(error.body).toMatchObject({ error: "type_in_use", issues: 0, ideas: 1 });
     expect(error.message).toContain("Deactivate it instead");

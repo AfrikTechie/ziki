@@ -67,7 +67,7 @@ export const ideaVerdictSchema = ideaVerdictFields;
 export type IdeaVerdictInput = z.infer<typeof ideaVerdictSchema>;
 
 /** Who gives the verdict: an agent on its owner's behalf, or a person in the web app. */
-export type VerdictGiver = { tenantId: string; userId: string; agent?: { id: string; level: AgentLevel } };
+export type VerdictGiver = { organisationId: string; userId: string; agent?: { id: string; level: AgentLevel } };
 
 /** How many votes this giver may put on one verdict: the project's managerVoteWeight for a manager or merger agent, else 1. */
 export function maxVotesFor(giver: VerdictGiver, managerVoteWeight: number): number {
@@ -80,12 +80,12 @@ export function verdictScore(verdicts: readonly { opinion: IdeaOpinion; votes: n
 }
 
 type Tx = Prisma.TransactionClient;
-type Scope = { tenantId: string; projectId: string };
+type Scope = { organisationId: string; projectId: string };
 
 type LockedIdea = {
   id: string;
   number: number;
-  tenantId: string;
+  organisationId: string;
   projectId: string;
   status: string;
   track: WorkTrack;
@@ -103,11 +103,11 @@ async function lockedIdea(tx: Tx, scope: Scope, ref: string): Promise<LockedIdea
   const byNumber = parsed.kind === "number" ? parsed.number : null;
   const byId = parsed.kind === "id" ? parsed.id : null;
   const rows = await tx.$queryRaw<LockedIdea[]>`
-    SELECT i."id", i."number", i."tenantId", i."projectId", i."status"::text AS "status", i."track"::text AS "track", i."score",
+    SELECT i."id", i."number", i."organisationId", i."projectId", i."status"::text AS "status", i."track"::text AS "track", i."score",
            i."reporterId", i."beneficiaryUserId", a."ownerUserId" AS "createdByOwnerId"
     FROM "Idea" i
     LEFT JOIN "Agent" a ON a."id" = i."createdByAgentId"
-    WHERE i."tenantId" = ${scope.tenantId}
+    WHERE i."organisationId" = ${scope.organisationId}
       AND i."projectId" = ${scope.projectId}
       AND i."isDeleted" = false
       AND (i."id" = ${byId} OR i."number" = ${byNumber})
@@ -184,7 +184,7 @@ export async function giveIdeaVerdict(
   }
 
   const given = await prisma.$transaction(async (tx) => {
-    const idea = await lockedIdea(tx, { tenantId: giver.tenantId, projectId }, ideaRef);
+    const idea = await lockedIdea(tx, { organisationId: giver.organisationId, projectId }, ideaRef);
     assertOpenIdea(idea);
     const ideaId = idea.id;
     const { opensAtThreshold } = trackRules(idea.track);
@@ -218,7 +218,7 @@ export async function giveIdeaVerdict(
 
     // The first verdict on each idea earns the person a point; the key makes a replacement free.
     const paid = await award(tx, {
-      tenantId: giver.tenantId,
+      organisationId: giver.organisationId,
       userId: giver.userId,
       bugId: null,
       ideaId,
@@ -230,7 +230,7 @@ export async function giveIdeaVerdict(
 
     const convertible = ideaScore >= ideaThreshold;
     await publish(tx, {
-      tenantId: giver.tenantId,
+      organisationId: giver.organisationId,
       type: "idea.verdict",
       actorAgentId: giver.agent?.id ?? null,
       projectId,
@@ -253,7 +253,7 @@ export async function giveIdeaVerdict(
     // advises rejecting it before converting it.
     let decided: GivenVerdict["decided"] = null;
     if (thresholdOnly) {
-      const scope = { tenantId: giver.tenantId, projectId };
+      const scope = { organisationId: giver.organisationId, projectId };
       const by = { userId: giver.userId, agentId: giver.agent?.id ?? null };
       const tally = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId }, select: { opinion: true, votes: true } }));
       if (isBadIdea(tally, ideaThreshold)) {
@@ -268,7 +268,7 @@ export async function giveIdeaVerdict(
       const by = { userId: giver.userId, agentId: giver.agent?.id ?? null };
       const tally = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId }, select: { opinion: true, votes: true } }));
       if (!isBadIdea(tally, ideaThreshold)) {
-        const scope = { tenantId: giver.tenantId, projectId };
+        const scope = { organisationId: giver.organisationId, projectId };
         const issue = await convertLocked(tx, scope, { ...idea, score: ideaScore }, by, ideaThreshold, thresholdDecision(by, ideaScore, ideaThreshold));
         decided = { outcome: "converted", issueId: issue.issueId, issueNumber: issue.issueNumber };
       }
@@ -289,7 +289,7 @@ export async function giveIdeaVerdict(
   // The agent audit log keeps what an agent's deciding verdict did; a person's is in the event.
   if (giver.agent && result.decided) {
     const target = `idea:${ideaId}`;
-    const auditAgent = { agentId: giver.agent.id, tenantId: giver.tenantId };
+    const auditAgent = { agentId: giver.agent.id, organisationId: giver.organisationId };
     if (result.decided.outcome === "converted") {
       await audit(auditAgent, "idea.converted", target, { issueId: result.decided.issueId, ideaScore: result.ideaScore, ideaThreshold, via: "threshold" }, { bugId: result.decided.issueId });
     } else {
@@ -351,7 +351,7 @@ export async function listIdeaVerdicts(scope: Scope, ideaRef: string) {
 export async function convertIdea(agent: AgentContext, projectId: string, ideaRef: string) {
   const { ideaThreshold } = await workflowFor(projectId);
   const converted = await prisma.$transaction(async (tx) => {
-    const scope = { tenantId: agent.tenantId, projectId };
+    const scope = { organisationId: agent.organisationId, projectId };
     const locked = await lockedIdea(tx, scope, ideaRef);
     assertOpenIdea(locked);
     if (locked.score < ideaThreshold) {
@@ -378,7 +378,7 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
  * is shown on the issue's activity and kept on the event and the audit log.
  */
 export async function convertVettedIdea(tx: Tx, agent: AgentContext, projectId: string, ideaId: string, vettedNote: string) {
-  const scope = { tenantId: agent.tenantId, projectId };
+  const scope = { organisationId: agent.organisationId, projectId };
   const { ideaThreshold } = await workflowFor(projectId, tx);
   const locked = await lockedIdea(tx, scope, ideaId);
   assertOpenIdea(locked);
@@ -413,7 +413,7 @@ async function convertLocked(
   const rules = trackRules(locked.track);
   const issue = await tx.bug.create({
     data: {
-      tenantId: scope.tenantId,
+      organisationId: scope.organisationId,
       projectId,
       title: idea.title,
       summary: idea.summary,
@@ -443,7 +443,7 @@ async function convertLocked(
     const reporterId = idea.beneficiaryUserId ?? idea.reporterId;
     const rewardConfig = await getProjectRewardConfig(tx, projectId);
     await award(tx, {
-      tenantId: scope.tenantId,
+      organisationId: scope.organisationId,
       userId: reporterId,
       bugId: issue.id,
       role: "reporter",
@@ -459,9 +459,9 @@ async function convertLocked(
     data: { status: "converted", convertedAt: at, convertedByAgentId: by.agentId, issueId: issue.id },
   });
   // #stakes: the idea's stakes move to the issue, and their 10-minute window (or contest) starts now.
-  await moveIdeaStakesToIssue(tx, locked.id, { id: issue.id, number: issue.number, tenantId: scope.tenantId, projectId }, at);
+  await moveIdeaStakesToIssue(tx, locked.id, { id: issue.id, number: issue.number, organisationId: scope.organisationId, projectId }, at);
   await publish(tx, {
-    tenantId: scope.tenantId,
+    organisationId: scope.organisationId,
     type: "issue.converted",
     actorAgentId: by.agentId,
     bugId: issue.id,
@@ -497,7 +497,7 @@ export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef
   requireLevel(agent, "manager");
   const { ideaThreshold } = await workflowFor(projectId);
   const rejected = await prisma.$transaction(async (tx) => {
-    const scope = { tenantId: agent.tenantId, projectId };
+    const scope = { organisationId: agent.organisationId, projectId };
     const locked = await lockedIdea(tx, scope, ideaRef);
     assertOpenIdea(locked);
     const votes = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId: locked.id }, select: { opinion: true, votes: true } }));
@@ -527,7 +527,7 @@ async function rejectLocked(
   const at = new Date();
   await tx.idea.update({ where: { id: locked.id }, data: { status: "rejected", rejectedAt: at, rejectedByAgentId: by.agentId } });
   await publish(tx, {
-    tenantId: scope.tenantId,
+    organisationId: scope.organisationId,
     type: "idea.rejected",
     actorAgentId: by.agentId,
     projectId: scope.projectId,
@@ -552,7 +552,7 @@ export async function archiveIdea(agent: AgentContext, projectId: string, ideaRe
   // Withdrawing is the owner's own step (withdrawIdea); a manager can't archive with it.
   if (input.reason === IDEA_WITHDRAWN_REASON) throw withdrawnNotArchivable();
   const archived = await prisma.$transaction(async (tx) => {
-    const locked = await lockedIdea(tx, { tenantId: agent.tenantId, projectId }, ideaRef);
+    const locked = await lockedIdea(tx, { organisationId: agent.organisationId, projectId }, ideaRef);
     assertOpenIdea(locked);
     if (ownsIdea(locked, agent.ownerId)) {
       const message = "Your owner filed this idea or it is for them, so this agent can't archive it.";
@@ -560,7 +560,7 @@ export async function archiveIdea(agent: AgentContext, projectId: string, ideaRe
     }
     if (input.duplicateOfIdea !== undefined) {
       const original = await tx.idea.findFirst({
-        where: { tenantId: agent.tenantId, number: input.duplicateOfIdea, isDeleted: false, NOT: { id: locked.id } },
+        where: { organisationId: agent.organisationId, number: input.duplicateOfIdea, isDeleted: false, NOT: { id: locked.id } },
         select: { id: true },
       });
       if (!original) {
@@ -570,7 +570,7 @@ export async function archiveIdea(agent: AgentContext, projectId: string, ideaRe
     }
     if (input.duplicateOfIssue !== undefined) {
       const original = await tx.bug.findFirst({
-        where: { tenantId: agent.tenantId, number: input.duplicateOfIssue, isDeleted: false },
+        where: { organisationId: agent.organisationId, number: input.duplicateOfIssue, isDeleted: false },
         select: { id: true },
       });
       if (!original) {
@@ -592,7 +592,7 @@ export async function archiveIdea(agent: AgentContext, projectId: string, ideaRe
       },
     });
     await publish(tx, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       type: "idea.archived",
       actorAgentId: agent.agentId,
       projectId,
@@ -622,7 +622,7 @@ function withdrawnNotArchivable(): IssueApiError {
 }
 
 /** Who withdraws an idea: its owner, through one of their agents (any level) or in the web app. */
-export type IdeaWithdrawer = { tenantId: string; userId: string; agentId: string | null };
+export type IdeaWithdrawer = { organisationId: string; userId: string; agentId: string | null };
 
 /**
  * The idea's owner withdraws their own open idea (#idea-withdraw): it is
@@ -637,7 +637,7 @@ export type IdeaWithdrawer = { tenantId: string; userId: string; agentId: string
 export async function withdrawIdea(withdrawer: IdeaWithdrawer, projectId: string, ideaRef: string, input: Omit<WithdrawIdeaInput, "projectId"> = {}) {
   const evidence = input.evidence?.trim() ? input.evidence.trim() : null;
   const withdrawn = await prisma.$transaction(async (tx) => {
-    const locked = await lockedIdea(tx, { tenantId: withdrawer.tenantId, projectId }, ideaRef);
+    const locked = await lockedIdea(tx, { organisationId: withdrawer.organisationId, projectId }, ideaRef);
     if (!ownsIdea(locked, withdrawer.userId)) {
       const message = "Only the idea's owner can withdraw it.";
       throw new IssueApiError(403, message, { error: "not_idea_owner", message });
@@ -659,7 +659,7 @@ export async function withdrawIdea(withdrawer: IdeaWithdrawer, projectId: string
       },
     });
     await publish(tx, {
-      tenantId: withdrawer.tenantId,
+      organisationId: withdrawer.organisationId,
       type: "idea.archived",
       actorAgentId: withdrawer.agentId,
       projectId,
@@ -679,7 +679,7 @@ export async function withdrawIdea(withdrawer: IdeaWithdrawer, projectId: string
   });
   // The agent audit log keeps an agent's withdrawal; a person's is in the event.
   if (withdrawer.agentId) {
-    await audit({ agentId: withdrawer.agentId, tenantId: withdrawer.tenantId }, "idea.archived", `idea:${withdrawn.ideaId}`, {
+    await audit({ agentId: withdrawer.agentId, organisationId: withdrawer.organisationId }, "idea.archived", `idea:${withdrawn.ideaId}`, {
       reason: withdrawn.reason,
       evidence: withdrawn.evidence,
     });

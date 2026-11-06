@@ -29,10 +29,10 @@ export async function readProjectBrief(projectId: string): Promise<AgentBrief | 
 
 /**
  * Save a project's whole brief and audit which fields changed. Callers check the
- * person may change marketing settings and that the project is in their tenant.
+ * person may change marketing settings and that the project is in their organisation.
  */
 export async function saveProjectBrief(
-  tenantId: string,
+  organisationId: string,
   projectId: string,
   actorUserId: string,
   rawInput: unknown,
@@ -51,7 +51,7 @@ export async function saveProjectBrief(
       create: { projectId, ...brief },
     });
     await tx.projectAuditEvent.create({
-      data: { tenantId, projectId, actorUserId, action: "marketing.brief.updated", changes: { fields } },
+      data: { organisationId, projectId, actorUserId, action: "marketing.brief.updated", changes: { fields } },
     });
   });
 }

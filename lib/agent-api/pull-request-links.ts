@@ -44,9 +44,9 @@ async function knownLinks(bugId: string): Promise<Set<string>> {
   return new Set([bug?.pullRequestUrl, ...(bug?.proofLinks ?? []), ...(bug?.deliveries ?? []).map((d) => d.pullRequestUrl)].filter((url): url is string => Boolean(url)));
 }
 
-export async function repairPullRequestLink(agent: AgentContext, scope: { tenantId: string; projectId: string }, issueRef: string, raw: unknown) {
+export async function repairPullRequestLink(agent: AgentContext, scope: { organisationId: string; projectId: string }, issueRef: string, raw: unknown) {
   const input = pullRequestLinkRepairSchema.parse(raw);
-  const bugId = await issueIdFor(prisma, issueRef, scope.tenantId);
+  const bugId = await issueIdFor(prisma, issueRef, scope.organisationId);
   const bug = bugId ? await prisma.bug.findFirst({ where: { id: bugId, ...scope, isDeleted: false }, select: { id: true } }) : null;
   if (!bug) throw new IssueApiError(404, "Issue not found.");
   if (!(await knownLinks(bug.id)).has(input.originalUrl)) {
@@ -69,8 +69,8 @@ export async function repairPullRequestLink(agent: AgentContext, scope: { tenant
   return { repair };
 }
 
-export async function listPullRequestLinkRepairs(scope: { tenantId: string; projectId: string }, issueRef: string) {
-  const bugId = await issueIdFor(prisma, issueRef, scope.tenantId);
+export async function listPullRequestLinkRepairs(scope: { organisationId: string; projectId: string }, issueRef: string) {
+  const bugId = await issueIdFor(prisma, issueRef, scope.organisationId);
   const bug = bugId ? await prisma.bug.findFirst({ where: { id: bugId, ...scope, isDeleted: false }, select: { id: true } }) : null;
   if (!bug) throw new IssueApiError(404, "Issue not found.");
   const items = await prisma.pullRequestLinkRepair.findMany({ where: { bugId: bug.id }, orderBy: { updatedAt: "desc" } });

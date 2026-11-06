@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth-helpers";
-import { isTenantAdmin } from "@/lib/agents/membership";
-import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
+import { currentOrganisationIdFor, NO_ORGANISATION_MESSAGE } from "@/lib/organisation-context";
 import { prisma } from "@/lib/prisma";
 import { invalidateWorkflow } from "@/lib/workflow";
 import { workflowSettingsSchema, workflowValues } from "@/lib/workflow-config";
@@ -34,20 +34,20 @@ const NUMERIC_FIELDS = [
 
 async function projectSettingsAccess(slug: string) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { ok: false as const, error: NO_TENANT_MESSAGE };
-  if (!(await isTenantAdmin(user, tenantId))) {
-    return { ok: false as const, error: "Only workspace owners and admins can change workflow settings." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { ok: false as const, error: NO_ORGANISATION_MESSAGE };
+  if (!(await isAdminOfOrganisation(user, organisationId))) {
+    return { ok: false as const, error: "Only organisation owners and admins can change workflow settings." };
   }
   const project = await prisma.project.findFirst({
-    where: { tenantId, slug },
+    where: { organisationId, slug },
     select: { id: true, slug: true, workflow: true },
   });
   if (!project) return { ok: false as const, error: "Project not found." };
-  return { ok: true as const, user, tenantId, project };
+  return { ok: true as const, user, organisationId, project };
 }
 
-/** Save one project's workflow dials (#595). Tenant owners/admins only. */
+/** Save one project's workflow dials (#595). Organisation owners/admins only. */
 export async function updateProjectWorkflowAction(
   _previous: WorkflowActionResult | undefined,
   formData: FormData,
@@ -94,7 +94,7 @@ export async function updateProjectWorkflowAction(
         });
         await tx.projectAuditEvent.create({
           data: {
-            tenantId: access.tenantId,
+            organisationId: access.organisationId,
             projectId: access.project.id,
             actorUserId: access.user.id,
             action: "workflow.updated",

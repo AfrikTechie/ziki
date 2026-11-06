@@ -16,7 +16,7 @@ const task = (label: string) => ({
   acknowledgeSimilar: true,
 });
 
-/** A marketing task type of this sandbox's own: the Demo workspace's types belong to that workspace. */
+/** A marketing task type of this sandbox's own: the Demo organisation's types belong to that organisation. */
 let marketingTypeId: string;
 
 beforeAll(async () => {

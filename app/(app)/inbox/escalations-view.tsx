@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { listOwnerQuestions, parseEscalationBody } from "@/lib/agent-questions";
 import { issueHref } from "@/lib/issue-ref";
 import type { WorkTrack } from "@prisma/client";
@@ -26,14 +26,14 @@ export async function EscalationsView({
   searchParams?: Promise<{ status?: string; track?: WorkTrack | "all" }>;
 }) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
+  const organisationId = await currentOrganisationIdFor(user.id);
   const params = searchParams ? await searchParams : {};
   const track = params.track ?? "all";
-  const [questions, proposals] = tenantId
+  const [questions, proposals] = organisationId
     ? await Promise.all([
-        listOwnerQuestions(user.id, tenantId, track),
+        listOwnerQuestions(user.id, organisationId, track),
         prisma.redesignProposal.findMany({
-          where: { tenantId, ...escalationTrackWhere(track) },
+          where: { organisationId, ...escalationTrackWhere(track) },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: 50,
           select: {
@@ -42,7 +42,7 @@ export async function EscalationsView({
             body: true,
             status: true,
             createdAt: true,
-            bug: { select: { number: true, title: true, track: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+            bug: { select: { number: true, title: true, track: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
             authorAgent: { select: { name: true } },
           },
         }),

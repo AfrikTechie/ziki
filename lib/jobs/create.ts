@@ -17,7 +17,7 @@ export type JobRecord = Prisma.JobGetPayload<Record<string, never>>;
 
 const jobSelect = {
   id: true,
-  tenantId: true,
+  organisationId: true,
   projectId: true,
   createdById: true,
   brief: true,
@@ -35,9 +35,9 @@ export async function createJob(agent: AgentContext, input: CreateJobInput): Pro
   const { projectId, ...fields } = parsed;
 
   const project = await prisma.project.findFirst({
-    where: { tenantId: agent.tenantId, ...(projectId ? { id: projectId } : {}) },
+    where: { organisationId: agent.organisationId, ...(projectId ? { id: projectId } : {}) },
     orderBy: { createdAt: "asc" },
-    select: { id: true, tenantId: true },
+    select: { id: true, organisationId: true },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
   assertKeyProject(agent, project.id);
@@ -45,7 +45,7 @@ export async function createJob(agent: AgentContext, input: CreateJobInput): Pro
   return prisma.$transaction(async (tx) => {
     const job = await tx.job.create({
       data: {
-        tenantId: project.tenantId,
+        organisationId: project.organisationId,
         projectId: project.id,
         createdById: agent.ownerId,
         brief: fields.brief,
@@ -59,7 +59,7 @@ export async function createJob(agent: AgentContext, input: CreateJobInput): Pro
 
     await audit(agent, "job.created", job.id, { projectId: project.id }, { db: tx });
     await publish(tx, {
-      tenantId: project.tenantId,
+      organisationId: project.organisationId,
       type: "job.created",
       actorAgentId: agent.agentId,
       payload: {
@@ -76,19 +76,19 @@ export async function createJob(agent: AgentContext, input: CreateJobInput): Pro
 
 /** Lists a project's jobs, newest first (#617). */
 /** `take: null` lists every job (the work feed has no cap). */
-export async function listJobs(tenantId: string, projectId: string, take: number | null = 50) {
+export async function listJobs(organisationId: string, projectId: string, take: number | null = 50) {
   return prisma.job.findMany({
-    where: { tenantId, projectId },
+    where: { organisationId, projectId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: take ?? undefined,
     select: jobSelect,
   });
 }
 
-/** Loads a job scoped to the tenant, enforcing the key's project (#617). */
+/** Loads a job scoped to the organisation, enforcing the key's project (#617). */
 export async function readJob(agent: AgentContext, jobId: string) {
   const job = await prisma.job.findFirst({
-    where: { id: jobId, tenantId: agent.tenantId },
+    where: { id: jobId, organisationId: agent.organisationId },
     select: jobSelect,
   });
   if (!job) throw new IssueApiError(404, "Job not found.");
@@ -96,6 +96,6 @@ export async function readJob(agent: AgentContext, jobId: string) {
   return job;
 }
 
-export async function loadJob(db: Db, tenantId: string, jobId: string) {
-  return db.job.findFirst({ where: { id: jobId, tenantId }, select: jobSelect });
+export async function loadJob(db: Db, organisationId: string, jobId: string) {
+  return db.job.findFirst({ where: { id: jobId, organisationId }, select: jobSelect });
 }

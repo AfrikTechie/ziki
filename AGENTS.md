@@ -45,7 +45,7 @@ docker compose up -d
 cp .env.example .env   # never commit .env
 pnpm db:migrate
 # pnpm db:seed   # ONLY on empty first-time setup — never if real signups exist
-pnpm db:fixtures       # the Demo workspace (220 issues in every state) + an empty just-signed-up one (safe to rerun)
+pnpm db:fixtures       # the Demo organisation (220 issues in every state) + an empty just-signed-up one (safe to rerun)
 pnpm dev               # http://localhost:3001
 pnpm verify:ready      # once, after the whole change: lint + typecheck + full unit suite
 pnpm verify:recheck    # after repairs: failing tests + tests affected by the repairs
@@ -75,7 +75,7 @@ Every new report is an idea (`POST /api/v1/ideas`). An idea is not an issue: ide
    - **Testers** judge the delivered work (`POST /api/v1/issues/{id}/test-results`: `goodToMerge`, `summary`, `description`). Once the project's required independent judgements say good to merge, the issue moves to Done · Accepted on its own; once that many say not good to merge, it goes back to Open · Open.
    - **Manager agent review** (`POST /api/v1/issues/{id}/merge`): a merge review entry, `verdict` accept or reject, with a `summary` and a `description`. Accept moves it to Merge · Ready to merge; reject sends it back to In progress and puts the feedback the author acts on in the description. Any new anti-pattern found in review goes to `POST /api/v1/projects/{id}/mistakes`.
    - **Merger agent execution**: Merges the accepted pull request on GitHub itself (Ziki doesn't merge), after checking its checks are green, then reports it merged (`POST /api/v1/issues/{id}/pull-request-status`) and resolves it (`POST /api/v1/issues/{id}/resolve`), which moves the ticket to Live · On dev. While it is in Merge, the latest pull request report moves it between Ready to merge and Error. Agents then report where it is deployed (`POST /api/v1/issues/{id}/deployment`: dev, staging or prod), which moves it to On staging or On prod.
-   - Manager and merger are tenant admin grants; every other agent is a working agent. An owner's agents may confirm, judge, review, report on and resolve the owner's own work (#owner-agents): nothing is gated to other people. The one rule left is that the agent holding the claim can't review its own work. A manager or merger agent's test verdict counts 2 and a working agent's 1, one per person per class; a manager agent's confirmation counts `managerVoteWeight`, the owner's own report included.
+   - Manager and merger are organisation admin grants; every other agent is a working agent. An owner's agents may confirm, judge, review, report on and resolve the owner's own work (#owner-agents): nothing is gated to other people. The one rule left is that the agent holding the claim can't review its own work. A manager or merger agent's test verdict counts 2 and a working agent's 1, one per person per class; a manager agent's confirmation counts `managerVoteWeight`, the owner's own report included.
    - **Human Reviewer Gate (HITL)**: Mandatory review for issues involving major features or architectural pivots.
 
 4. **The Work Feed**:
@@ -121,7 +121,7 @@ The sequence is: **complete the implementation → collect every failure once �
 
 **Code locally without running tests.** While you work, and across rounds of feedback, keep the local dev server running and change the code without running tests, typecheck, lint, builds or any other verification. Tests and validation run once, at the very end, right before the PR is opened (the steps below), and not before the person you work for asks for the PR. This rule doesn't change what tests should check: behaviour, not wording, class names or source text.
 
-**Realistic local data:** `pnpm db:fixtures` loads the **Demo** workspace from the checked-in `scripts/dev/fixtures/local-ziki.json`: 220 issues across every status and substatus, with confirmations, bids and bid votes, claims, deliveries, judgements, merge reviews, pull request reports, comments, importance and history, plus 30 ideas still waiting as ideas. Sign in as `demo@fixtures.local` / `ziki-demo-password`; the command also makes every local account a member. It also loads **Fresh Start**, an empty workspace as it is right after signing up (one owner, one project, nothing else): sign in as `fresh@fixtures.local` with the same password. The Demo owner also gets **Demo Work** (issues assigned to them, nothing live) and **Demo Live** (assigned work and live issues), to see the Your Work and Live stages. It replaces only its own workspace (slug `demo`, ids `fx-*`, users `*@fixtures.local`) and refuses a non-local database. The CLI scenarios and the end-to-end seed load it on every run. To change the data, edit `scripts/dev/fixtures/generate.ts` (deterministic), run `pnpm db:fixtures:generate`, and commit the JSON with it.
+**Realistic local data:** `pnpm db:fixtures` loads the **Demo** organisation from the checked-in `scripts/dev/fixtures/local-ziki.json`: 220 issues across every status and substatus, with confirmations, bids and bid votes, claims, deliveries, judgements, merge reviews, pull request reports, comments, importance and history, plus 30 ideas still waiting as ideas. Sign in as `demo@fixtures.local` / `ziki-demo-password`; the command also makes every local account a member. It also loads **Fresh Start**, an empty organisation as it is right after signing up (one owner, one project, nothing else): sign in as `fresh@fixtures.local` with the same password. The Demo owner also gets **Demo Work** (issues assigned to them, nothing live) and **Demo Live** (assigned work and live issues), to see the Your Work and Live stages. It replaces only its own organisation (slug `demo`, ids `fx-*`, users `*@fixtures.local`) and refuses a non-local database. The CLI scenarios and the end-to-end seed load it on every run. To change the data, edit `scripts/dev/fixtures/generate.ts` (deterministic), run `pnpm db:fixtures:generate`, and commit the JSON with it.
 
 To reproduce a production situation locally, add a scenario script under `scripts/dev/` (see `scripts/dev/scenario-open-bids.ts`, run with `pnpm db:scenario:open-bids`): additive, local-database only, fixed ids so a rerun replaces only its own rows. Never reseed or reset to get data.
 
@@ -175,7 +175,7 @@ The unit suite is a small critical suite under `tests/`, one file per area, each
 
 | Folder | Files |
 | --- | --- |
-| `tests/security/` | `auth-session`, `login-2fa`, `tenant-membership`, `project-scope`, `agent-key`, `agent-independence`, `rate-limits`, `input-validation` |
+| `tests/security/` | `auth-session`, `login-2fa`, `organisation-membership`, `project-scope`, `agent-key`, `agent-independence`, `rate-limits`, `input-validation` |
 | `tests/intake/` | `idea-create`, `idea-verdict-convert`, `issue-confirm-duplicate`, `issue-edit-history`, `importance-votes` |
 | `tests/work/` | `bids`, `bid-award`, `offers-claims`, `claim-heartbeat-deadline`, `abandon-reclaim`, `comments-attachments`, `delivery`, `test-verdict`, `workfeed-dispatch`, `inbox` |
 | `tests/merge/` | `pr-report-gate`, `github-status`, `manager-accept`, `resolve-reconcile`, `point-award`, `ledger-idempotency`, `disputes`, `events-atomicity` |
@@ -242,7 +242,7 @@ pnpm test:cli          # or: pnpm test:cli lifecycle
 Rules for the scenarios themselves:
 
 - They run against `localhost` only and refuse any other database or server. Never point them at production or staging.
-- They rebuild only their own `cli-test-<n>` workspaces, one per parallel worker (`cli/tests/sandboxes.ts`). They never seed, reset or migrate a database, and never touch other accounts.
+- They rebuild only their own `cli-test-<n>` organisations, one per parallel worker (`cli/tests/sandboxes.ts`). They never seed, reset or migrate a database, and never touch other accounts.
 - A failing scenario is a real API break until you show otherwise. Fix the code, or fix the scenario if the behaviour changed on purpose, and say which in the PR.
 - When you add an agent route, add a command for it (the MCP tool, or `cli/catalog.ts`) and a scenario that exercises it.
 

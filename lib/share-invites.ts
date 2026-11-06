@@ -12,10 +12,10 @@ import { openSecret, sealSecret } from "@/lib/secret-box";
 import { absoluteUrl } from "@/lib/site-url";
 
 /**
- * Shareable tenant invite links. An email invite (#444) is one address and
+ * Shareable organisation invite links. An email invite (#444) is one address and
  * one use. A share link is for everyone else: the owner picks how long it
  * lasts and how many people may use it. Opening it and signing in with
- * Google (or any other sign-in) adds that account to the tenant as a member.
+ * Google (or any other sign-in) adds that account to the organisation as a member.
  *
  * The raw token is sealed with NEXTAUTH_SECRET so owners can copy it again.
  * Acceptance looks up the SHA-256 hash. A mail scanner that only GETs the
@@ -27,7 +27,7 @@ type Db = PrismaClient;
 export const SHARE_JOIN_PATH = "/join";
 export const SHARE_LINK_EXPIRY_DAYS = [1, 7, 30] as const;
 export const SHARE_LINK_USE_LIMITS = [1, 10, 25] as const;
-/** Links that still work. Stops one tenant from collecting an unbounded set. */
+/** Links that still work. Stops one organisation from collecting an unbounded set. */
 export const SHARE_LINK_ACTIVE_CAP = 20;
 
 export type ShareLinkState = "open" | "expired" | "used" | "revoked";
@@ -126,7 +126,7 @@ export type CreateShareLinkResult =
   | {
       ok: true;
       url: string;
-      tenantSlug: string;
+      organisationSlug: string;
       expiresAt: Date;
       maxUses: number | null;
     }
@@ -135,13 +135,13 @@ export type CreateShareLinkResult =
 export async function createShareLink(
   db: Db,
   inviter: { id: string },
-  input: { tenantId: string; expiresDays: unknown; maxUses: unknown; label: unknown },
+  input: { organisationId: string; expiresDays: unknown; maxUses: unknown; label: unknown },
   now = new Date(),
 ): Promise<CreateShareLinkResult> {
-  const membership = input.tenantId
+  const membership = input.organisationId
     ? await db.membership.findUnique({
-        where: { tenantId_userId: { tenantId: input.tenantId, userId: inviter.id } },
-        select: { role: true, tenant: { select: { id: true, slug: true, name: true } } },
+        where: { organisationId_userId: { organisationId: input.organisationId, userId: inviter.id } },
+        select: { role: true, organisation: { select: { id: true, slug: true, name: true } } },
       })
     : null;
   if (!membership || !canInvite(membership.role)) {
@@ -164,17 +164,17 @@ export async function createShareLink(
   const days = Number(expires.data);
   const maxUses = uses.data === "unlimited" ? null : Number(uses.data);
   const label = labelParsed.data.length > 0 ? labelParsed.data : null;
-  const { tenant } = membership;
+  const { organisation } = membership;
 
-  const existing = await db.tenantShareLink.findMany({
-    where: { tenantId: tenant.id, revokedAt: null, expiresAt: { gt: now } },
+  const existing = await db.organisationShareLink.findMany({
+    where: { organisationId: organisation.id, revokedAt: null, expiresAt: { gt: now } },
     select: { maxUses: true, useCount: true },
   });
   const active = existing.filter((link) => link.maxUses == null || link.useCount < link.maxUses).length;
   if (active >= SHARE_LINK_ACTIVE_CAP) {
     return {
       ok: false,
-      error: `This organization already has ${SHARE_LINK_ACTIVE_CAP} invite links that still work. Revoke one before creating another.`,
+      error: `This organisation already has ${SHARE_LINK_ACTIVE_CAP} invite links that still work. Revoke one before creating another.`,
     };
   }
 
@@ -186,9 +186,9 @@ export async function createShareLink(
     return { ok: false, error: "Invite links aren't available on this site yet." };
   }
 
-  const created = await db.tenantShareLink.create({
+  const created = await db.organisationShareLink.create({
     data: {
-      tenantId: tenant.id,
+      organisationId: organisation.id,
       tokenHash: token.hash,
       tokenEncrypted,
       label,
@@ -202,7 +202,7 @@ export async function createShareLink(
   return {
     ok: true,
     url: shareJoinUrl(token.raw),
-    tenantSlug: tenant.slug,
+    organisationSlug: organisation.slug,
     expiresAt: created.expiresAt,
     maxUses: created.maxUses,
   };
@@ -222,11 +222,11 @@ export type ManagedShareLink = {
 };
 
 /** Newest links first, active ones before links that no longer work. */
-export async function listShareLinks(db: Db, tenantId: string, now = new Date()): Promise<ManagedShareLink[]> {
+export async function listShareLinks(db: Db, organisationId: string, now = new Date()): Promise<ManagedShareLink[]> {
   // Names are loaded apart from the links. Joining `invitedBy` or `user` makes
   // Prisma throw when that account is gone, and the invite screen dies.
-  const rows = await db.tenantShareLink.findMany({
-    where: { tenantId },
+  const rows = await db.organisationShareLink.findMany({
+    where: { organisationId },
     orderBy: { createdAt: "desc" },
     take: 20,
     select: {
@@ -283,30 +283,30 @@ export async function listShareLinks(db: Db, tenantId: string, now = new Date())
   return links.sort((a, b) => rank[a.state] - rank[b.state] || b.createdAt.getTime() - a.createdAt.getTime());
 }
 
-export type RevokeShareLinkResult = { ok: true; tenantSlug: string } | { ok: false; error: string };
+export type RevokeShareLinkResult = { ok: true; organisationSlug: string } | { ok: false; error: string };
 
 /** An owner or admin turns a link off. People who already joined stay members. */
 export async function revokeShareLink(db: Db, actor: { id: string }, linkId: string, now = new Date()): Promise<RevokeShareLinkResult> {
   const link = linkId
-    ? await db.tenantShareLink.findUnique({
+    ? await db.organisationShareLink.findUnique({
         where: { id: linkId },
-        select: { id: true, tenantId: true, revokedAt: true, tenant: { select: { slug: true } } },
+        select: { id: true, organisationId: true, revokedAt: true, organisation: { select: { slug: true } } },
       })
     : null;
   const membership = link
     ? await db.membership.findUnique({
-        where: { tenantId_userId: { tenantId: link.tenantId, userId: actor.id } },
+        where: { organisationId_userId: { organisationId: link.organisationId, userId: actor.id } },
         select: { role: true },
       })
     : null;
   if (!link || !canInvite(membership?.role)) return { ok: false, error: INVITE_NOT_ALLOWED };
-  if (link.revokedAt) return { ok: true, tenantSlug: link.tenant.slug };
+  if (link.revokedAt) return { ok: true, organisationSlug: link.organisation.slug };
 
-  await db.tenantShareLink.updateMany({
+  await db.organisationShareLink.updateMany({
     where: { id: link.id, revokedAt: null },
     data: { revokedAt: now },
   });
-  return { ok: true, tenantSlug: link.tenant.slug };
+  return { ok: true, organisationSlug: link.organisation.slug };
 }
 
 // ---------------------------------------------------------------------------
@@ -315,18 +315,18 @@ export async function revokeShareLink(db: Db, actor: { id: string }, linkId: str
 
 const linkSelect = {
   id: true,
-  tenantId: true,
+  organisationId: true,
   expiresAt: true,
   maxUses: true,
   useCount: true,
   revokedAt: true,
   invitedBy: { select: { name: true } },
-  tenant: { select: { id: true, slug: true, name: true } },
+  organisation: { select: { id: true, slug: true, name: true } },
 } as const;
 
 async function findByToken(db: Db, token: string) {
   if (!isInviteToken(token)) return null;
-  return db.tenantShareLink.findUnique({
+  return db.organisationShareLink.findUnique({
     where: { tokenHash: hashInviteToken(token) },
     select: linkSelect,
   });
@@ -334,7 +334,7 @@ async function findByToken(db: Db, token: string) {
 
 export type ShareLinkPreview = {
   state: ShareLinkState;
-  tenant: { id: string; slug: string; name: string };
+  organisation: { id: string; slug: string; name: string };
   invitedByName: string;
   expiresAt: Date;
   maxUses: number | null;
@@ -356,13 +356,13 @@ export async function previewShareLink(
   if (!link) return null;
   const membership = viewer
     ? await db.membership.findUnique({
-        where: { tenantId_userId: { tenantId: link.tenantId, userId: viewer.id } },
+        where: { organisationId_userId: { organisationId: link.organisationId, userId: viewer.id } },
         select: { id: true },
       })
     : null;
   return {
     state: shareLinkState(link, now),
-    tenant: link.tenant,
+    organisation: link.organisation,
     invitedByName: link.invitedBy.name,
     expiresAt: link.expiresAt,
     maxUses: link.maxUses,
@@ -372,11 +372,11 @@ export async function previewShareLink(
 }
 
 export type AcceptShareLinkResult =
-  | { ok: true; tenant: { id: string; slug: string; name: string }; alreadyMember: boolean }
+  | { ok: true; organisation: { id: string; slug: string; name: string }; alreadyMember: boolean }
   | { ok: false; reason: ShareLinkFailure };
 
 /**
- * Adds the signed-in account to the tenant.
+ * Adds the signed-in account to the organisation.
  *
  * The seat is claimed with a conditional update so two people racing for the
  * last use can't both get in. The same account never takes two seats: a
@@ -395,53 +395,53 @@ export async function acceptShareLink(
 
   return db.$transaction(async (tx) => {
     const existing = await tx.membership.findUnique({
-      where: { tenantId_userId: { tenantId: link.tenantId, userId: account.id } },
+      where: { organisationId_userId: { organisationId: link.organisationId, userId: account.id } },
       select: { id: true },
     });
-    if (existing) return { ok: true as const, tenant: link.tenant, alreadyMember: true };
+    if (existing) return { ok: true as const, organisation: link.organisation, alreadyMember: true };
 
-    const redeemed = await tx.tenantShareRedemption.findUnique({
+    const redeemed = await tx.organisationShareRedemption.findUnique({
       where: { linkId_userId: { linkId: link.id, userId: account.id } },
       select: { id: true },
     });
     if (redeemed) {
       await tx.membership.upsert({
-        where: { tenantId_userId: { tenantId: link.tenantId, userId: account.id } },
-        create: { tenantId: link.tenantId, userId: account.id, role: "member" },
+        where: { organisationId_userId: { organisationId: link.organisationId, userId: account.id } },
+        create: { organisationId: link.organisationId, userId: account.id, role: "member" },
         update: {},
       });
-      await awardSignupBonus(tx, account.id, link.tenantId);
-      return { ok: true as const, tenant: link.tenant, alreadyMember: false };
+      await awardSignupBonus(tx, account.id, link.organisationId);
+      return { ok: true as const, organisation: link.organisation, alreadyMember: false };
     }
 
     if (shareLinkState(link, now) !== "open") return { ok: false as const, reason: failureOf(link, now) };
 
-    const claimWhere: Prisma.TenantShareLinkWhereInput = {
+    const claimWhere: Prisma.OrganisationShareLinkWhereInput = {
       id: link.id,
       revokedAt: null,
       expiresAt: { gt: now },
     };
     if (link.maxUses != null) claimWhere.useCount = { lt: link.maxUses };
 
-    const claimed = await tx.tenantShareLink.updateMany({
+    const claimed = await tx.organisationShareLink.updateMany({
       where: claimWhere,
       data: { useCount: { increment: 1 } },
     });
     if (claimed.count !== 1) {
-      const again = await tx.tenantShareRedemption.findUnique({
+      const again = await tx.organisationShareRedemption.findUnique({
         where: { linkId_userId: { linkId: link.id, userId: account.id } },
         select: { id: true },
       });
       if (again) {
         await tx.membership.upsert({
-          where: { tenantId_userId: { tenantId: link.tenantId, userId: account.id } },
-          create: { tenantId: link.tenantId, userId: account.id, role: "member" },
+          where: { organisationId_userId: { organisationId: link.organisationId, userId: account.id } },
+          create: { organisationId: link.organisationId, userId: account.id, role: "member" },
           update: {},
         });
-        await awardSignupBonus(tx, account.id, link.tenantId);
-        return { ok: true as const, tenant: link.tenant, alreadyMember: false };
+        await awardSignupBonus(tx, account.id, link.organisationId);
+        return { ok: true as const, organisation: link.organisation, alreadyMember: false };
       }
-      const latest = await tx.tenantShareLink.findUnique({
+      const latest = await tx.organisationShareLink.findUnique({
         where: { id: link.id },
         select: { revokedAt: true, expiresAt: true, maxUses: true, useCount: true },
       });
@@ -449,28 +449,28 @@ export async function acceptShareLink(
     }
 
     try {
-      await tx.tenantShareRedemption.create({ data: { linkId: link.id, userId: account.id } });
+      await tx.organisationShareRedemption.create({ data: { linkId: link.id, userId: account.id } });
     } catch (error) {
       if (!isUniqueError(error)) throw error;
-      await tx.tenantShareLink.updateMany({
+      await tx.organisationShareLink.updateMany({
         where: { id: link.id, useCount: { gt: 0 } },
         data: { useCount: { decrement: 1 } },
       });
       await tx.membership.upsert({
-        where: { tenantId_userId: { tenantId: link.tenantId, userId: account.id } },
-        create: { tenantId: link.tenantId, userId: account.id, role: "member" },
+        where: { organisationId_userId: { organisationId: link.organisationId, userId: account.id } },
+        create: { organisationId: link.organisationId, userId: account.id, role: "member" },
         update: {},
       });
-      await awardSignupBonus(tx, account.id, link.tenantId);
-      return { ok: true as const, tenant: link.tenant, alreadyMember: false };
+      await awardSignupBonus(tx, account.id, link.organisationId);
+      return { ok: true as const, organisation: link.organisation, alreadyMember: false };
     }
 
     await tx.membership.upsert({
-      where: { tenantId_userId: { tenantId: link.tenantId, userId: account.id } },
-      create: { tenantId: link.tenantId, userId: account.id, role: "member" },
+      where: { organisationId_userId: { organisationId: link.organisationId, userId: account.id } },
+      create: { organisationId: link.organisationId, userId: account.id, role: "member" },
       update: {},
     });
-    await awardSignupBonus(tx, account.id, link.tenantId);
-    return { ok: true as const, tenant: link.tenant, alreadyMember: false };
+    await awardSignupBonus(tx, account.id, link.organisationId);
+    return { ok: true as const, organisation: link.organisation, alreadyMember: false };
   });
 }

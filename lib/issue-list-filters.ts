@@ -19,7 +19,7 @@ export type RawParams = Record<string, string | string[] | undefined>;
 export type TagType = { id: string; name: string };
 
 /**
- * `?project=all` widens the Issues list to the whole workspace. It is an
+ * `?project=all` widens the Issues list to the whole organisation. It is an
  * additive view override: when the param is absent (the normal case, and
  * everything the app itself links to) the list keeps filtering by the active
  * project exactly as before, and the active-project cookie/switcher is never

@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
 import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
-import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
+import { eventStreamBus, ORGANISATION_WRITE } from "@/lib/events/stream-bus";
 import { acceptFix } from "@/lib/agent-api/merge";
 
 /**
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const result = await acceptFix(agent, id, input && typeof input === "object" ? input : {});
   const { status, ...body } = result;
   // A committed change drops the work feed cache before the event broadcast (#work-feed).
-  if (status < 400) eventStreamBus.emit(TENANT_WRITE, agent.tenantId);
+  if (status < 400) eventStreamBus.emit(ORGANISATION_WRITE, agent.organisationId);
   return withAgentBudgetHeaders(NextResponse.json(body, { status }), budget);
 }
 

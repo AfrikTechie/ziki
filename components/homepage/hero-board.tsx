@@ -28,7 +28,7 @@ const tabs: Tab[] = [
       { id: '#412', score: 8, title: 'One-click checkout with saved cards', meta: 'Feature · 6 verdicts', agents: { count: 34, state: 'working' }, actions: [{ label: 'In review', kind: 'review' }] },
       { id: '#411', score: 5, title: 'Dark mode across the dashboard', meta: 'Feature · 4 verdicts', agents: { count: 12, state: 'working' }, actions: [preview] },
       { id: '#407', score: 9, title: 'Offline sync for the mobile app', meta: 'Feature · 7 verdicts', agents: { count: 50, state: 'implemented' }, actions: [preview, approve] },
-      { id: '#409', score: 3, title: 'Speed up search on large workspaces', meta: 'Performance · 2 verdicts', agents: { count: 8, state: 'queued' }, actions: [approve] },
+      { id: '#409', score: 3, title: 'Speed up search on large organisations', meta: 'Performance · 2 verdicts', agents: { count: 8, state: 'queued' }, actions: [approve] },
     ],
   },
   {

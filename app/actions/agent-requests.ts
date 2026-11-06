@@ -15,9 +15,9 @@ export async function sendAgentRequestAction(agentId: string, body: string): Pro
   const text = typeof body === "string" ? body.trim() : "";
   if (!text) return { error: "Write or paste what you want it to do." };
   if (text.length > AGENT_REQUEST_MAX_CHARS) return { error: `Keep it under ${AGENT_REQUEST_MAX_CHARS.toLocaleString()} characters.` };
-  const agent = await prisma.agent.findFirst({ where: { id: agentId, ownerUserId: user.id, revokedAt: null }, select: { id: true, tenantId: true } });
+  const agent = await prisma.agent.findFirst({ where: { id: agentId, ownerUserId: user.id, revokedAt: null }, select: { id: true, organisationId: true } });
   if (!agent) return { error: "That agent is not yours." };
-  await prisma.agentRequest.create({ data: { tenantId: agent.tenantId, agentId: agent.id, ownerId: user.id, body: text } });
+  await prisma.agentRequest.create({ data: { organisationId: agent.organisationId, agentId: agent.id, ownerId: user.id, body: text } });
   revalidatePath("/", "layout");
   return { ok: true };
 }

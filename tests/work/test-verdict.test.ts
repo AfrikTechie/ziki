@@ -75,7 +75,7 @@ import { reviewJobSubmission } from "@/lib/jobs/review";
 function bugRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "bug1",
-    tenantId: "tenant_zedu",
+    organisationId: "organisation_zedu",
     status: "done", substatus: "requires_review",
     pullRequestUrl: PR,
     pullRequestHeadSha: null as string | null,
@@ -91,7 +91,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
 }
 
 function reviewer(id: string, ownerId: string, level: "working" | "manager" | "merger" = "working") {
-  return { agentId: id, name: id, ownerId, tenantId: "tenant_zedu", level, burst: false, keyId: `key-${id}` };
+  return { agentId: id, name: id, ownerId, organisationId: "organisation_zedu", level, burst: false, keyId: `key-${id}` };
 }
 
 const files = [{ path: "lib/save.ts", lines: "42" }];
@@ -327,7 +327,7 @@ describe("the Delivered rule after each judgement (#delivered-step)", () => {
     const isMarketing = opts.track === "marketing";
     const bug = {
       id: "bug1",
-      tenantId: "t1",
+      organisationId: "t1",
       projectId: "p1",
       status: "done",
       substatus: opts.substatus ?? "requires_review",
@@ -454,7 +454,7 @@ describe("reviewJobSubmission: concurrent accepts (#584)", () => {
       reviewsNeeded: 2,
       status: "pending",
       reviewedAt: null as Date | null,
-      job: { id: "job-1", tenantId: "tenant_zedu", projectId: "p1", pointsPerAccepted: 25 },
+      job: { id: "job-1", organisationId: "organisation_zedu", projectId: "p1", pointsPerAccepted: 25 },
     };
     const committedReviews: Array<Record<string, unknown>> = [];
     let awardCount = 0;

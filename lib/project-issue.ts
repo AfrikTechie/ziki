@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { resolveSessionUserId } from "@/lib/session-user";
-import { viewerBugScope } from "@/lib/tenant-viewer";
+import { viewerBugScope } from "@/lib/organisation-viewer";
 import { isReservedProjectSlug } from "@/lib/project-slug";
 import { refOf, type ProjectRef } from "@/lib/project-paths";
 
@@ -18,7 +18,7 @@ export function parseIssueNumber(raw: string): number | null {
   return number > 0 ? number : null;
 }
 
-export type ProjectIssue = { id: string; number: number; ref: ProjectRef; isDeleted: boolean };
+export type ProjectIssue = { id: string; number: number; organisationId: string; ref: ProjectRef; isDeleted: boolean };
 
 export type ProjectIssueLookup =
   /** The issue, in the project the URL names. */
@@ -28,10 +28,10 @@ export type ProjectIssueLookup =
   /** Another organisation the viewer belongs to has it (#519): offer the switch. */
   | { kind: "elsewhere"; issueId: string };
 
-const select = { id: true, number: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } as const;
+const select = { id: true, number: true, organisationId: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } as const;
 
-function toIssue(row: { id: string; number: number; isDeleted: boolean; project: { slug: string; tenant: { slug: string } } }): ProjectIssue {
-  return { id: row.id, number: row.number, ref: refOf(row.project), isDeleted: row.isDeleted };
+function toIssue(row: { id: string; number: number; organisationId: string; isDeleted: boolean; project: { slug: string; organisation: { slug: string } } }): ProjectIssue {
+  return { id: row.id, number: row.number, organisationId: row.organisationId, ref: refOf(row.project), isDeleted: row.isDeleted };
 }
 
 /**
@@ -54,25 +54,47 @@ export const findProjectIssue = cache(async (orgParam: string, projectParam: str
   const orgSlug = decodeURIComponent(orgParam);
   const projectSlug = decodeURIComponent(projectParam);
   if (isReservedProjectSlug(orgSlug)) return null;
-  const inUrl = { slug: projectSlug, tenant: { slug: orgSlug } };
+  const inUrl = { slug: projectSlug, organisation: { slug: orgSlug } };
   const scope = await viewerBugScope();
-  if (!("tenantId" in scope)) {
+  const resolved = await resolveSessionUserId();
+  const userId = "userId" in resolved ? resolved.userId : undefined;
+
+  if (userId) {
+    const inUrlRow = await prisma.bug.findFirst({
+      where: {
+        number,
+        project: {
+          ...inUrl,
+          archivedAt: null,
+          organisation: { archivedAt: null },
+          OR: [
+            { visibility: "public" },
+            { memberships: { some: { userId } } },
+            { organisation: { memberships: { some: { userId } } } },
+          ],
+        },
+      },
+      select,
+    });
+    if (inUrlRow) return { kind: "found", issue: toIssue(inUrlRow) };
+  }
+
+  if (!("organisationId" in scope)) {
     const rows = await prisma.bug.findMany({ where: { number, project: inUrl }, select, take: 2 });
     return rows.length === 1 ? { kind: "found", issue: toIssue(rows[0]) } : null;
   }
 
   const row = await prisma.bug.findFirst({ where: { number, ...scope }, select });
-  if (row && row.project.slug === projectSlug && row.project.tenant.slug === orgSlug) return { kind: "found", issue: toIssue(row) };
+  if (row && row.project.slug === projectSlug && row.project.organisation.slug === orgSlug) return { kind: "found", issue: toIssue(row) };
 
-  const resolved = await resolveSessionUserId();
-  if ("userId" in resolved) {
+  if (userId) {
     const other = await prisma.bug.findFirst({
       where: {
         number,
         isDeleted: false,
         project: inUrl,
-        ...(typeof scope.tenantId === "string" ? { tenantId: { not: scope.tenantId } } : {}),
-        tenant: { memberships: { some: { userId: resolved.userId } } },
+        ...(typeof scope.organisationId === "string" ? { organisationId: { not: scope.organisationId } } : {}),
+        organisation: { memberships: { some: { userId } } },
       },
       select: { id: true },
     });

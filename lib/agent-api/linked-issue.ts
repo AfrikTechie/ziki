@@ -22,8 +22,8 @@ const NOT_FOUND = "No such issue in this project.";
 const FROM_MARKETING_ONLY = "Only a marketing issue links to a product issue.";
 const TO_PRODUCT_ONLY = "A marketing issue links to a product issue, not to another marketing issue.";
 
-type Agent = { agentId: string; tenantId: string };
-type Scope = { tenantId: string; projectId: string };
+type Agent = { agentId: string; organisationId: string };
+type Scope = { organisationId: string; projectId: string };
 type Linked = { id: string; number: number; title: string };
 
 const refWhere = (raw: string) => {
@@ -60,8 +60,8 @@ async function writeLink(agent: Agent, scope: Scope, issueRef: string, target: s
     if (changed) {
       await tx.bug.update({ where: { id: bug.id }, data: { linkedIssueId: linked?.id ?? null } });
       const payload = { issueId: bug.id, from: bug.linkedIssueId, to: linked?.id ?? null };
-      await audit({ agentId: agent.agentId, tenantId: scope.tenantId }, "issue.linked_issue_changed", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
-      await publish(tx, { tenantId: scope.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload });
+      await audit({ agentId: agent.agentId, organisationId: scope.organisationId }, "issue.linked_issue_changed", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
+      await publish(tx, { organisationId: scope.organisationId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload });
     }
     return { issueId: bug.id, linkedIssue: linked, changed };
   });

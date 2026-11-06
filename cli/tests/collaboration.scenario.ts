@@ -177,7 +177,7 @@ describe("working on issues together", () => {
       acknowledgeSimilar: true,
     });
     expect(JSON.stringify(created.idea.attachments)).toContain(attachmentId);
-    // #722: agents read the file back with their key, at the URL the idea gives; any agent in the tenant may.
+    // #722: agents read the file back with their key, at the URL the idea gives; any agent in the organisation may.
     const file = created.idea.attachments.find((entry: { id: string }) => entry.id === attachmentId);
     expect(file.url).toBe(`/api/v1/attachments/${attachmentId}`);
     const reads = await Promise.all((["ada", "bob"] as const).map((reader) => ziki("request", "GET", file.url, "--as", reader)));

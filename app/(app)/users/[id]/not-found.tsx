@@ -2,7 +2,7 @@ import Link from "next/link";
 import { StatusPage, primaryActionClass } from "@/components/status-page";
 
 /**
- * The same page whether the person doesn't exist or shares no workspace with
+ * The same page whether the person doesn't exist or shares no organisation with
  * the viewer (#503), so guessing ids tells nobody who has an account.
  */
 export default function PersonNotFound() {
@@ -16,7 +16,7 @@ export default function PersonNotFound() {
         </Link>
       }
     >
-      <p>The link may be wrong, or you don&apos;t share a workspace with them.</p>
+      <p>The link may be wrong, or you don&apos;t share an organisation with them.</p>
     </StatusPage>
   );
 }

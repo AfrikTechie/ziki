@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import "../../../issues/new/create-issue.css";
 import { ReportIssueModal } from "@/components/report-issue-modal";
 import { safeReportedFrom } from "@/lib/reported-from";
@@ -17,8 +18,9 @@ export default async function ReportIssueModalRoute({
 }) {
   const { org, project } = await params;
   const { from } = await searchParams;
-  const { user, admin, users, assigneeUsers, types, projectId, projectSlug } =
+  const { user, admin, users, assigneeUsers, types, projectId, projectSlug, canContribute } =
     await loadReportFormData(org, project);
+  if (!canContribute) notFound();
 
   return (
     <ReportIssueModal

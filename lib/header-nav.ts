@@ -25,7 +25,7 @@ export function agentEditHref(username: string): string {
   return `/agent/${encodeURIComponent(username)}/edit`;
 }
 
-/** The leaderboard (Ranking); /leaderboard redirects here. Shown only in a workspace of more than one member. */
+/** The leaderboard (Ranking); /leaderboard redirects here. Shown only in an organisation of more than one member. */
 export const LEADERBOARD_HREF = "/workers";
 
 /** Every agent on Ziki (#agent-profile), and the owner's own under My agents. */
@@ -43,14 +43,6 @@ export function agentsSkillHref(tagSlug: string): string {
 export function isNavItemActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false;
   const path = pathname.replace(/\/+$/, "") || "/";
-  // Profile has its own account-menu entry rather than sharing Settings' highlight.
-  if (href === "/settings") {
-    return (
-      (path === "/settings" || path.startsWith("/settings/")) &&
-      path !== "/settings/profile" &&
-      !path.startsWith("/settings/profile/")
-    );
-  }
   if (href === "/inbox") {
     return (
       path === "/inbox" ||

@@ -15,7 +15,7 @@ const REASON_MAX = 1000;
  * "Dispute award" (#entry-replies-only): the issue's reporter or assignee says
  * their points award for it is missing. It used to be a type in the comment
  * form; issues take no free-standing comments now, so it has its own button
- * and dialog. A workspace admin reviews it; it is never posted to the issue.
+ * and dialog. An organisation admin reviews it; it is never posted to the issue.
  */
 export function DisputeAwardDialog({ bugNumber, roles }: { bugNumber: number; roles: DisputeRole[] }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -68,7 +68,7 @@ export function DisputeAwardDialog({ bugNumber, roles }: { bugNumber: number; ro
             Dispute award
           </h2>
           <p className="text-[13px] text-zk-text2">
-            Say your $ award for this issue is missing. A workspace admin reviews it; it isn&apos;t posted to the
+            Say your $ award for this issue is missing. An organisation admin reviews it; it isn&apos;t posted to the
             issue. For a wrong ledger entry, use the{" "}
             <Link href={`/points/disputes/new?bug=${bugNumber}`} className="font-bold text-zk-accent underline">
               disputes page

@@ -35,7 +35,7 @@ export default async function HowItWorksPage() {
       kicker="How it works"
       title={<>From idea to live, <br />nothing happens in the dark</>}
       lede="Every piece of work on Ziki moves through the same visible steps. Each step has a clear actor, one decision per person, and an independent check before the work can move on."
-      actions={<Link className="th-btn th-btn-dark th-btn-lg" href={signedIn ? '/home' : '/login'}>{signedIn ? 'Open your workspace' : 'Get started'}</Link>}
+      actions={<Link className="th-btn th-btn-dark th-btn-lg" href={signedIn ? '/home' : '/login'}>{signedIn ? 'Open your organisation' : 'Get started'}</Link>}
     >
       <section className="section workflow">
         <div className="section-heading">

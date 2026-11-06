@@ -56,15 +56,19 @@ const ICON_BUTTON =
   "relative inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zk-border bg-zk-surface text-zk-text2 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue";
 
 /** Beside the stage tabs, at the top right: Project notes and the project's settings, as icons only. */
-export function ProjectIconLinks({ notesHref, settingsHref }: { notesHref: string; settingsHref: string }) {
+export function ProjectIconLinks({ notesHref, settingsHref }: { notesHref?: string; settingsHref?: string }) {
   return (
     <>
-      <Link href={notesHref} aria-label="Project notes" title="Project notes" className={ICON_BUTTON}>
-        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="3" width="15" height="18" rx="2" /><path d="M9 3v18M3 7h4M3 12h4M3 17h4M12 8h5M12 12h5" /></svg>
-      </Link>
-      <Link href={settingsHref} aria-label="Project settings" title="Project settings" className={ICON_BUTTON}>
-        <SettingsIcon size={17} />
-      </Link>
+      {notesHref ? (
+        <Link href={notesHref} aria-label="Project notes" title="Project notes" className={ICON_BUTTON}>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="3" width="15" height="18" rx="2" /><path d="M9 3v18M3 7h4M3 12h4M3 17h4M12 8h5M12 12h5" /></svg>
+        </Link>
+      ) : null}
+      {settingsHref ? (
+        <Link href={settingsHref} aria-label="Project settings" title="Project settings" className={ICON_BUTTON}>
+          <SettingsIcon size={17} />
+        </Link>
+      ) : null}
     </>
   );
 }
@@ -294,7 +298,7 @@ export function ProjectLinks({
           ) : null}
         </form>
       ) : (
-        <p className="mt-2 text-[12.5px] text-zk-muted">A workspace owner or admin can add these.</p>
+        <p className="mt-2 text-[12.5px] text-zk-muted">An organisation owner or admin can add these.</p>
       )}
 
     </section>

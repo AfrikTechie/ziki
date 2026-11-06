@@ -3,10 +3,10 @@ import { prisma } from "@/lib/prisma";
 import type { ProjectContext } from "@/lib/project-route";
 import { deliveryFiles, type LibraryItem } from "@/components/marketing/library/model";
 
-/** The caller must resolve access with requireProject; every read remains tenant/project scoped. */
-export async function readLibrary({ project, tenantId }: ProjectContext): Promise<LibraryItem[]> {
+/** The caller must resolve access with requireProject; every read remains organisation/project scoped. */
+export async function readLibrary({ project, organisationId }: ProjectContext): Promise<LibraryItem[]> {
   const tasks = await prisma.bug.findMany({
-    where: { projectId: project.id, tenantId, isDeleted: false, track: "marketing", status: "resolved", substatus: "published" },
+    where: { projectId: project.id, organisationId, isDeleted: false, track: "marketing", status: "resolved", substatus: "published" },
     orderBy: [{ number: "desc" }, { id: "asc" }],
     select: {
       id: true, number: true, title: true,

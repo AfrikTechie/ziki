@@ -2,14 +2,14 @@ import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import "server-only";
 import { Prisma, type Status } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { bugInTenant } from "@/lib/tenant-context";
+import { bugInOrganisation } from "@/lib/organisation-context";
 import { issueHref } from "@/lib/issue-ref";
 import { isDeliveryOverdue } from "@/lib/claim-deadline";
-import { pointTotals, tenantRankFor, type PointTotals } from "@/lib/points/leaderboard";
+import { pointTotals, organisationRankFor, type PointTotals } from "@/lib/points/leaderboard";
 
 /**
  * The Overview dashboard's data (#dashboard): every number is counted live in
- * Postgres, workspace-wide. Nothing here is cached or hard-coded — the
+ * Postgres, organisation-wide. Nothing here is cached or hard-coded — the
  * screenshots' sample figures are design references, not data.
  */
 
@@ -45,7 +45,7 @@ export type OverviewIssue = {
   resolvedAt: Date | null;
 };
 
-export type WorkspaceOverview = {
+export type OrganisationOverview = {
   unresolvedCount: number;
   resolvedCount: number;
   recentUnresolved: OverviewIssue[];
@@ -58,7 +58,7 @@ export type WorkspaceOverview = {
 };
 
 /** Shown if the queries fail, so the shell still renders (all zeros). */
-export const EMPTY_OVERVIEW: WorkspaceOverview = {
+export const EMPTY_OVERVIEW: OrganisationOverview = {
   unresolvedCount: 0,
   resolvedCount: 0,
   recentUnresolved: [],
@@ -74,32 +74,32 @@ export const EMPTY_OVERVIEW: WorkspaceOverview = {
  * There is no resolvedAt column, and updatedAt moves on every later edit, so
  * it cannot stand in for one — same derivation the admin dashboard uses
  * (lib/dashboard-queries.ts). The join is inside the aggregate so Postgres
- * does not scan every workspace's activity before applying the tenant.
+ * does not scan every organisation's activity before applying the organisation.
  */
-export function firstCloseForTenant(tenantId: string): Prisma.Sql {
+export function firstCloseForOrganisation(organisationId: string): Prisma.Sql {
   return Prisma.sql`
     SELECT a."bugId" AS bug_id, MIN(a."createdAt") AS closed_at
     FROM "BugActivity" a
     INNER JOIN "Bug" bug ON bug."id" = a."bugId"
     WHERE a.type = 'status_changed'
       AND a.metadata ->> 'to' IN ('resolved', 'on_dev', 'on_staging', 'on_prod', 'published', 'closed')
-      AND bug."tenantId" = ${tenantId}
+      AND bug."organisationId" = ${organisationId}
       AND bug."isDeleted" = false
       AND bug."track" = 'product'
     GROUP BY a."bugId"
   `;
 }
 
-export async function loadWorkspaceOverview({
+export async function loadOrganisationOverview({
   userId,
-  tenantId,
+  organisationId,
 }: {
   userId: string;
-  tenantId: string | null;
-}): Promise<WorkspaceOverview> {
-  if (!tenantId) return EMPTY_OVERVIEW;
+  organisationId: string | null;
+}): Promise<OrganisationOverview> {
+  if (!organisationId) return EMPTY_OVERVIEW;
 
-  const base: Prisma.BugWhereInput = { ...bugInTenant(tenantId), ...PRODUCT_TRACK, isDeleted: false };
+  const base: Prisma.BugWhereInput = { ...bugInOrganisation(organisationId), ...PRODUCT_TRACK, isDeleted: false };
 
   const [
     unresolvedCount,
@@ -124,9 +124,9 @@ export async function loadWorkspaceOverview({
       >`
         SELECT b."id", b."number", b."title", b."status"::text AS status,
                fc.closed_at AS resolved_at
-        FROM (${firstCloseForTenant(tenantId)}) fc
+        FROM (${firstCloseForOrganisation(organisationId)}) fc
         JOIN "Bug" b ON b."id" = fc.bug_id
-        WHERE b."tenantId" = ${tenantId}
+        WHERE b."organisationId" = ${organisationId}
           AND b."isDeleted" = false
           AND b."status"::text IN ('resolved', 'closed')
         ORDER BY fc.closed_at DESC, b."number" DESC
@@ -134,8 +134,8 @@ export async function loadWorkspaceOverview({
       `,
       prisma.bug.count({ where: { ...base, assigneeId: userId } }),
       prisma.bug.count({ where: { ...base, reporterId: userId } }),
-      pointTotals(prisma, tenantId, userId),
-      tenantRankFor(prisma, tenantId, userId),
+      pointTotals(prisma, organisationId, userId),
+      organisationRankFor(prisma, organisationId, userId),
     ]);
 
   return {
@@ -161,7 +161,7 @@ export async function loadWorkspaceOverview({
 
 /**
  * The three live badges in the persistent sidebar. Kept separate from
- * `loadWorkspaceOverview` so pages that only need the sidebar (the issue list)
+ * `loadOrganisationOverview` so pages that only need the sidebar (the issue list)
  * do not pay for previews, points or the rank query.
  */
 export type SidebarCounts = {
@@ -172,14 +172,14 @@ export type SidebarCounts = {
 
 export async function loadSidebarCounts({
   userId,
-  tenantId,
+  organisationId,
 }: {
   userId: string;
-  tenantId: string | null;
+  organisationId: string | null;
 }): Promise<SidebarCounts> {
-  if (!tenantId) return { unresolved: 0, assigned: 0, reported: 0 };
+  if (!organisationId) return { unresolved: 0, assigned: 0, reported: 0 };
 
-  const base: Prisma.BugWhereInput = { ...bugInTenant(tenantId), ...PRODUCT_TRACK, isDeleted: false };
+  const base: Prisma.BugWhereInput = { ...bugInOrganisation(organisationId), ...PRODUCT_TRACK, isDeleted: false };
   const [unresolved, assigned, reported] = await Promise.all([
     prisma.bug.count({ where: { ...base, status: { in: [...UNRESOLVED_STATUSES] } } }),
     prisma.bug.count({ where: { ...base, assigneeId: userId } }),
@@ -288,22 +288,22 @@ const latest = (...dates: (Date | null | undefined)[]): Date | null => {
 };
 
 /**
- * The signed-in person's own non-revoked agents in this workspace, with the
+ * The signed-in person's own non-revoked agents in this organisation, with the
  * table's four columns. Only reads: no agent row is created here.
  */
 export async function loadOwnAgents({
   userId,
-  tenantId,
+  organisationId,
   now = new Date(),
 }: {
   userId: string;
-  tenantId: string | null;
+  organisationId: string | null;
   now?: Date;
 }): Promise<DashboardAgent[]> {
-  if (!tenantId) return [];
+  if (!organisationId) return [];
 
   const agents = await prisma.agent.findMany({
-    where: { ownerUserId: userId, tenantId, revokedAt: null },
+    where: { ownerUserId: userId, organisationId, revokedAt: null },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
@@ -317,7 +317,7 @@ export async function loadOwnAgents({
         where: { answeredAt: null },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 1,
-        select: { createdAt: true, body: true, bug: { select: { number: true, isDeleted: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } } },
+        select: { createdAt: true, body: true, bug: { select: { number: true, isDeleted: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } } },
       },
       claims: {
         where: { releasedAt: null, status: "active" },
@@ -328,7 +328,7 @@ export async function loadOwnAgents({
           lastHeartbeatAt: true,
           deliverBy: true,
           waitingOnOwnerSince: true,
-          bug: { select: { number: true, title: true, status: true, isDeleted: true, pullRequestUrl: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+          bug: { select: { number: true, title: true, status: true, isDeleted: true, pullRequestUrl: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
         },
       },
     },

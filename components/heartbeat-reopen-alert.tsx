@@ -73,7 +73,7 @@ export function HeartbeatReopenAlert({
         return;
       }
 
-      toast(next ? "You'll get an alert when bidding reopens." : "Reopen alerts are off.");
+      toast(next ? "You'll get an alert if bidding reopens." : "Reopen alerts are off.");
       router.refresh();
     });
   };
@@ -107,7 +107,7 @@ export function HeartbeatReopenAlert({
         >
           {isWatching ? "Alerts on" : "Notify me"}
         </button>
-        <span className="text-xs text-zk-text2">Get alert once bidding reopens</span>
+        <span className="text-xs text-zk-text2">Get an alert if bidding reopens</span>
       </div>
     </div>
   );

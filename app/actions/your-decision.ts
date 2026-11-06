@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { agreeWithClose, respondToClose, respondToCloseSchema } from "@/lib/agent-api/close-suggestions";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -11,12 +11,12 @@ import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/
 
 export type DecisionActionResult = { ok?: true; error?: string };
 
-/** The issue in the viewer's workspace, or null. */
+/** The issue in the viewer's organisation, or null. */
 async function viewersIssue(userId: string, issueId: string) {
-  const tenantId = await currentTenantIdFor(userId);
-  if (!tenantId || typeof issueId !== "string" || !issueId) return null;
-  const issue = await prisma.bug.findFirst({ where: { id: issueId, tenantId, isDeleted: false }, select: { id: true, projectId: true } });
-  return issue ? { tenantId, ...issue } : null;
+  const organisationId = await currentOrganisationIdFor(userId);
+  if (!organisationId || typeof issueId !== "string" || !issueId) return null;
+  const issue = await prisma.bug.findFirst({ where: { id: issueId, organisationId, isDeleted: false }, select: { id: true, projectId: true } });
+  return issue ? { organisationId, ...issue } : null;
 }
 
 async function run(kind: string, userId: string, fn: () => Promise<unknown>): Promise<DecisionActionResult> {
@@ -46,7 +46,7 @@ export async function respondToCloseAction(issueId: string, evidence: string): P
   if (!parsed.success) return { error: "Say why you disagree, with your evidence." };
   const issue = await viewersIssue(user.id, issueId);
   if (!issue) return { error: "Issue not found" };
-  return run("respond", user.id, () => respondToClose({ tenantId: issue.tenantId, userId: user.id }, issue.projectId, issue.id, parsed.data));
+  return run("respond", user.id, () => respondToClose({ organisationId: issue.organisationId, userId: user.id }, issue.projectId, issue.id, parsed.data));
 }
 
 /** "I agree" on the decision card (#your-decisions): the owner accepts the close, and the card folds away. */
@@ -54,5 +54,5 @@ export async function agreeWithCloseAction(issueId: string): Promise<DecisionAct
   const user = await requireUser();
   const issue = await viewersIssue(user.id, issueId);
   if (!issue) return { error: "Issue not found" };
-  return run("agree", user.id, () => agreeWithClose({ tenantId: issue.tenantId, userId: user.id }, issue.projectId, issue.id));
+  return run("agree", user.id, () => agreeWithClose({ organisationId: issue.organisationId, userId: user.id }, issue.projectId, issue.id));
 }

@@ -14,7 +14,7 @@ export default async function NewDisputePage({
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">Open a $ dispute</h1>
         <p className="text-sm text-zk-text2">
-          Say an award is missing or an entry is wrong. A workspace admin reviews it; points are
+          Say an award is missing or an entry is wrong. An organisation admin reviews it; points are
           never deleted, a correction is a reversing entry.
         </p>
       </div>

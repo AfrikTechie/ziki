@@ -4,7 +4,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
  * The `issue.accepted` audit row that still stands for an issue (#490).
  *
  * Acceptance lives on the audit row rather than on `Bug.status`, so this is
- * the single test for "a manager accepted this fix". A tenant admin undo
+ * the single test for "a manager accepted this fix". A organisation admin undo
  * (#450) stamps `undoneAt`; an undone acceptance must not gate anything.
  *
  * The payload carries what was accepted (#489): the pull request and its head

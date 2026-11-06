@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Event scope, subscriptions and SSRF (#405, #498, #512): event filters stay inside the key's project and tenant, subscriptions are capped per agent, and no webhook URL may reach a private address. */
+/** Event scope, subscriptions and SSRF (#405, #498, #512): event filters stay inside the key's project and organisation, subscriptions are capped per agent, and no webhook URL may reach a private address. */
 const findFirst = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prisma", () => ({ prisma: { bug: { findFirst } } }));
 
@@ -9,8 +9,8 @@ import { scopeEventFilters, type EventFilters } from "@/lib/agent-api/events";
 import { createSubscriptionRecord, MAX_SUBSCRIPTIONS_PER_AGENT } from "@/lib/webhooks/manage";
 import { checkSsrf } from "@/lib/webhooks/ssrf";
 
-const scoped = { tenantId: "tenant-a", projectId: "proj-ziki", projectSlug: "ziki" };
-const legacy = { tenantId: "tenant-a", projectId: null as string | null, projectSlug: null as string | null };
+const scoped = { organisationId: "organisation-a", projectId: "proj-ziki", projectSlug: "ziki" };
+const legacy = { organisationId: "organisation-a", projectId: null as string | null, projectSlug: null as string | null };
 
 describe("scopeEventFilters project scope (#405)", () => {
   beforeEach(() => {
@@ -23,18 +23,18 @@ describe("scopeEventFilters project scope (#405)", () => {
     expect(findFirst).not.toHaveBeenCalled();
   });
 
-  it("rejects a foreign projectId and a same-tenant foreign bugId with AgentProjectError", async () => {
+  it("rejects a foreign projectId and a same-organisation foreign bugId with AgentProjectError", async () => {
     await expect(scopeEventFilters(scoped, { projectId: "proj-web" })).rejects.toBeInstanceOf(AgentProjectError);
     findFirst.mockResolvedValue({ projectId: "proj-web" });
     await expect(scopeEventFilters(scoped, { bugId: "issue-web" })).rejects.toBeInstanceOf(AgentProjectError);
     await expect(scopeEventFilters(scoped, { projectId: "proj-ziki", bugId: "issue-web" })).rejects.toBeInstanceOf(AgentProjectError);
   });
 
-  it("answers 404 for a bugId that does not exist or belongs to another tenant", async () => {
+  it("answers 404 for a bugId that does not exist or belongs to another organisation", async () => {
     findFirst.mockResolvedValue(null);
     await expect(scopeEventFilters(scoped, { bugId: "issue-missing" })).resolves.toEqual({ status: 404, error: "Issue not found." });
-    await expect(scopeEventFilters(scoped, { bugId: "issue-other-tenant" })).resolves.toEqual({ status: 404, error: "Issue not found." });
-    expect(findFirst).toHaveBeenCalledWith({ where: { id: "issue-other-tenant", tenantId: "tenant-a" }, select: { projectId: true } });
+    await expect(scopeEventFilters(scoped, { bugId: "issue-other-organisation" })).resolves.toEqual({ status: 404, error: "Issue not found." });
+    expect(findFirst).toHaveBeenCalledWith({ where: { id: "issue-other-organisation", organisationId: "organisation-a" }, select: { projectId: true } });
   });
 
   it("accepts its own project and filters unfiltered polls to it", async () => {

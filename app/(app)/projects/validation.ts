@@ -44,6 +44,9 @@ export const projectSettingsSchema = z.object({
   stagingUrl: optionalUrl((url) => url.protocol === "https:",
     "Enter a valid HTTPS staging URL."),
   siteUrl: siteUrlSchema,
+  visibility: z.enum(["public", "private"]).optional().default("private"),
+  isOpenForContributors: z.boolean().optional().default(false),
+  contributorGuidelines: z.string().trim().max(4000, "The guidelines must be 4,000 characters or fewer.").transform((value) => value || null).optional(),
 });
 
 const areaPathPattern = z.string().trim().min(1).max(256).refine(

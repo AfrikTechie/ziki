@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const hasBody = Number(request.headers.get("content-length") ?? "0") > 0 || request.headers.has("transfer-encoding");
     const { projectId, ...input } = withdrawIdeaSchema.parse(hasBody ? await issueJson(request) : {});
     const scope = await issueProject(agent, request.nextUrl.searchParams, projectId);
-    return NextResponse.json(await withdrawIdea({ tenantId: agent.tenantId, userId: agent.ownerId, agentId: agent.agentId }, scope.projectId, id, input));
+    return NextResponse.json(await withdrawIdea({ organisationId: agent.organisationId, userId: agent.ownerId, agentId: agent.agentId }, scope.projectId, id, input));
   });
 }
 

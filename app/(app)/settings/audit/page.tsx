@@ -2,8 +2,8 @@ import Link from "next/link";
 import { forbidden } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { isTenantAdminRole } from "@/lib/agents/membership";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { isOrganisationAdminRole } from "@/lib/agents/membership";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { auditAccess, auditWhere } from "@/lib/agent-audit/visibility";
 import { AuditLog, type AuditLogRow } from "@/components/audit-log";
 import { undoAuditEventAction } from "@/app/actions/audit";
@@ -28,30 +28,30 @@ const single = (value: string | string[] | undefined): string | null => {
 };
 
 /**
- * Every agent action in the tenant (#447), for its owners and admins, and for
+ * Every agent action in the organisation (#447), for its owners and admins, and for
  * an agent's owner limited to their own agents. Optional: nothing links here
  * by force. Rows start collapsed; "Show more" opens one row's details.
  */
 export default async function AuditLogPage({ searchParams }: Props) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  const membership = tenantId
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const membership = organisationId
     ? await prisma.membership.findUnique({
-        where: { tenantId_userId: { tenantId, userId: user.id } },
+        where: { organisationId_userId: { organisationId, userId: user.id } },
         select: { role: true },
       })
     : null;
-  const tenant = tenantId ? { tenantId, role: membership?.role } : null;
-  const owned = tenant
+  const organisation = organisationId ? { organisationId, role: membership?.role } : null;
+  const owned = organisation
     ? await prisma.agent.findMany({
-        where: { ownerUserId: user.id, tenantId: tenant.tenantId },
+        where: { ownerUserId: user.id, organisationId: organisation.organisationId },
         select: { id: true },
       })
     : [];
 
   const access = auditAccess({
-    isTenantAdmin: isTenantAdminRole(tenant?.role, user.role),
-    tenantId: tenant?.tenantId ?? null,
+    isAdminOfOrganisation: isOrganisationAdminRole(organisation?.role, user.role),
+    organisationId: organisation?.organisationId ?? null,
     ownedAgentIds: owned.map((a) => a.id),
   });
   if (access.kind === "forbidden") forbidden();
@@ -69,12 +69,12 @@ export default async function AuditLogPage({ searchParams }: Props) {
     ref && "number" in ref
       ? ((
           await prisma.bug.findFirst({
-            where: { number: ref.number, tenantId: access.tenantId },
+            where: { number: ref.number, organisationId: access.organisationId },
             select: { id: true },
           })
         )?.id ?? null)
       : (ref?.id ?? issueInput); // anything else is taken as an internal id, as before
-  // A filter that names no issue in this workspace matches nothing, not everything.
+  // A filter that names no issue in this organisation matches nothing, not everything.
   const noSuchIssue = Boolean(issueInput) && !issueId;
 
   const [events, agents] = await Promise.all([
@@ -96,15 +96,15 @@ export default async function AuditLogPage({ searchParams }: Props) {
             payload: true,
             undoneAt: true,
             agent: { select: { name: true } },
-            bug: { select: { number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+            bug: { select: { number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
           },
         }),
     // Only the agents this viewer may filter by.
     prisma.agent.findMany({
       where:
         access.kind === "all"
-          ? { tenantId: access.tenantId }
-          : { tenantId: access.tenantId, id: { in: [...access.agentIds] } },
+          ? { organisationId: access.organisationId }
+          : { organisationId: access.organisationId, id: { in: [...access.agentIds] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -134,7 +134,7 @@ export default async function AuditLogPage({ searchParams }: Props) {
         <h1 className="m-0 text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Agent audit log</h1>
         <p className="text-sm text-zk-muted">
           {access.kind === "all"
-            ? "Every agent action in this workspace, newest first."
+            ? "Every agent action in this organisation, newest first."
             : "Your agents' actions, newest first."}
         </p>
       </div>
@@ -190,12 +190,12 @@ export default async function AuditLogPage({ searchParams }: Props) {
       <section className="rounded-[20px] border border-zk-border bg-zk-surface px-5">
         <AuditLog
           rows={rows}
-          isTenantAdmin={access.kind === "all"}
+          isAdminOfOrganisation={access.kind === "all"}
           onUndo={undoAuditEventAction}
         />
       </section>
       {noSuchIssue ? (
-        <p className="text-sm text-zk-muted">No issue matches “{issueInput}” in this workspace.</p>
+        <p className="text-sm text-zk-muted">No issue matches “{issueInput}” in this organisation.</p>
       ) : null}
       {before || olderCursor ? (
         <nav aria-label="Audit log pages" className="flex items-center justify-between text-sm">

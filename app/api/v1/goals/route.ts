@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   return agentIssueRequest(request, "goals.list", "read", null, async (agent) => {
     const scope = await issueProject(agent, request.nextUrl.searchParams);
-    return NextResponse.json({ goals: await listGoals(scope.tenantId, scope.projectId) });
+    return NextResponse.json({ goals: await listGoals(scope.organisationId, scope.projectId) });
   });
 }
 

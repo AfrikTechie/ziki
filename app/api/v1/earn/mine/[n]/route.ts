@@ -2,7 +2,7 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 import { NextResponse, type NextRequest } from "next/server";
 import { agentIssueRequest } from "@/lib/agent-api/issues";
 import { prisma } from "@/lib/prisma";
-import { earnWorkspace } from "@/lib/earn/earner";
+import { earnOrganisation } from "@/lib/earn/earner";
 import { agentSubmitEarnTask } from "@/lib/earn/agent-tasks";
 
 /**
@@ -14,7 +14,7 @@ import { agentSubmitEarnTask } from "@/lib/earn/agent-tasks";
 export async function POST(request: NextRequest, context: { params: Promise<{ n: string }> }) {
   const { n } = await context.params;
   return agentIssueRequest(request, "earn.mine.submit", "working", n, async (agent) => {
-    const earn = await earnWorkspace();
+    const earn = await earnOrganisation();
     const body = await request.json().catch(() => ({}));
     return NextResponse.json(await agentSubmitEarnTask(prisma, agent, earn?.id ?? null, Number(n), body));
   });

@@ -9,7 +9,7 @@ import {
 } from "@/lib/dashboard-range";
 
 /*
- * The organization overview's figures (/org): the date range, stat tiles,
+ * The organisation overview's figures (/org): the date range, stat tiles,
  * the weekly chart and the breakdown tables. Server components; each number
  * in a chart is also in a table.
  */

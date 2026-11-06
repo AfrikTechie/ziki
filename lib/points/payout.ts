@@ -47,7 +47,7 @@ export async function holdPayout(tx: Tx, bugId: string, awards: PointAward[]): P
 export async function releasePayoutIfLive(tx: Tx, bugId: string): Promise<boolean> {
   const bug = await tx.bug.findUniqueOrThrow({
     where: { id: bugId },
-    select: { id: true, number: true, tenantId: true, projectId: true, assigneeId: true, heldPayout: true, payoutReleasedAt: true },
+    select: { id: true, number: true, organisationId: true, projectId: true, assigneeId: true, heldPayout: true, payoutReleasedAt: true },
   });
   const held = heldAwards(bug.heldPayout);
   if (bug.payoutReleasedAt || held.length === 0) return false;
@@ -56,7 +56,7 @@ export async function releasePayoutIfLive(tx: Tx, bugId: string): Promise<boolea
   for (const entry of held) await award(tx, entry);
   await tx.bug.update({ where: { id: bug.id }, data: { heldPayout: [] as unknown as Prisma.InputJsonValue, payoutReleasedAt: new Date() } });
   await publish(tx, {
-    tenantId: bug.tenantId,
+    organisationId: bug.organisationId,
     type: "issue.updated",
     actorAgentId: null,
     bugId: bug.id,

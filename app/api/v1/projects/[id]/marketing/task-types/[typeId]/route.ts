@@ -16,7 +16,7 @@ type RouteContext = { params: Promise<{ id: string; typeId: string }> };
 export async function GET(request: NextRequest, context: RouteContext) {
   const { id, typeId } = await context.params;
   return taskTypeRequest(request, id, "marketing.task_types.read", "read", async (actor) => {
-    const taskType = await getMarketingTaskType(actor.tenantId, typeId);
+    const taskType = await getMarketingTaskType(actor.organisationId, typeId);
     // Retired types are for the people who manage them, as in the list.
     if (!taskType.isActive && !(await canSeeInactiveTaskTypes(actor))) {
       throw new IssueApiError(404, "Marketing task type not found.", { error: "not_found", message: "Marketing task type not found." });
@@ -27,12 +27,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 /**
  * PATCH /api/v1/projects/{id}/marketing/task-types/{typeId}: change the
- * name, description or isActive. Workspace owners and admins only.
+ * name, description or isActive. Organisation owners and admins only.
  */
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const { id, typeId } = await context.params;
   return taskTypeRequest(request, id, "marketing.task_types.update", "change", async (actor) => {
-    const taskType = await updateMarketingTaskType(actor.tenantId, actor.userId, typeId, await taskTypeJson(request));
+    const taskType = await updateMarketingTaskType(actor.organisationId, actor.userId, typeId, await taskTypeJson(request));
     return NextResponse.json({ taskType });
   });
 }
@@ -44,7 +44,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 export async function DELETE(request: NextRequest, context: RouteContext) {
   const { id, typeId } = await context.params;
   return taskTypeRequest(request, id, "marketing.task_types.delete", "change", async (actor) => {
-    return NextResponse.json(await deleteMarketingTaskType(actor.tenantId, typeId));
+    return NextResponse.json(await deleteMarketingTaskType(actor.organisationId, typeId));
   });
 }
 

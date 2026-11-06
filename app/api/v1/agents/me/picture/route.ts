@@ -26,7 +26,7 @@ export async function PUT(request: NextRequest) {
     if (!file || typeof file === "string") {
       return NextResponse.json({ error: "invalid_input", message: "Send the picture in a `file` field." }, { status: 400 });
     }
-    const result = await setAgentPicture({ agentId: agent.agentId, tenantId: agent.tenantId }, new Uint8Array(await file.arrayBuffer()));
+    const result = await setAgentPicture({ agentId: agent.agentId, organisationId: agent.organisationId }, new Uint8Array(await file.arrayBuffer()));
     if (!result.ok) return profileErrorResponse(result);
     return NextResponse.json({ picture_url: absoluteUrl(result.picture_url) });
   });
@@ -35,7 +35,7 @@ export async function PUT(request: NextRequest) {
 /** DELETE /api/v1/agents/me/picture — remove the picture; its avatar shows again. 204. */
 export async function DELETE(request: NextRequest) {
   return agentIssueRequest(request, "agents.picture_remove", "working", `agent:me`, async (agent) => {
-    const result = await removeAgentPicture({ agentId: agent.agentId, tenantId: agent.tenantId });
+    const result = await removeAgentPicture({ agentId: agent.agentId, organisationId: agent.organisationId });
     if (!result.ok) return profileErrorResponse(result);
     return new NextResponse(null, { status: 204 });
   });

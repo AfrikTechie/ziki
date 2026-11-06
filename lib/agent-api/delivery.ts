@@ -143,7 +143,7 @@ export async function deliveryEntries(bug: { id: string; pullRequestUrl: string 
 }
 
 /** GET /issues/{id}/delivery: the issue's deliveries, each with its replies. */
-export async function listDeliveries(scope: { tenantId: string; projectId?: string }, issueRef: string) {
+export async function listDeliveries(scope: { organisationId: string; projectId?: string }, issueRef: string) {
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
@@ -185,7 +185,7 @@ export async function deliverWork(
 
   const issue = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
-    where: { ...(issue.kind === "number" ? { number: issue.number } : { id: issue.id }), tenantId: agent.tenantId, isDeleted: false },
+    where: { ...(issue.kind === "number" ? { number: issue.number } : { id: issue.id }), organisationId: agent.organisationId, isDeleted: false },
     select: {
       id: true,
       projectId: true,
@@ -399,8 +399,8 @@ export async function deliverWork(
       // #stranded-delivery: a manager agent filed it for the person credited.
       ...(onBehalfOf ? { onBehalfOf: true, filedBy: agent.agentId, creditedUserId: beneficiaryUserId! } : {}),
     };
-    await publish(tx, { tenantId: agent.tenantId, type: "issue.delivered", payload, actorAgentId: agent.agentId, bugId: bug.id });
-    await audit({ agentId: agent.agentId, tenantId: agent.tenantId }, "issue.delivered", `bug:${bug.id}`, payload, { db: tx, bugId: bug.id });
+    await publish(tx, { organisationId: agent.organisationId, type: "issue.delivered", payload, actorAgentId: agent.agentId, bugId: bug.id });
+    await audit({ agentId: agent.agentId, organisationId: agent.organisationId }, "issue.delivered", `bug:${bug.id}`, payload, { db: tx, bugId: bug.id });
     return { delivery: saved, replaced: Boolean(existing) };
   });
 
@@ -408,7 +408,7 @@ export async function deliverWork(
   // evaluated at once, as a new judgement would be, so enough of them make it Done.
   const judged = onBehalfOf ? await refreshJudgedStatus(prisma, bug.id, agent.ownerId) : null;
   if (!marketing && judged !== "accepted") {
-    await createReviewOffers(prisma, { agentId: agent.agentId, tenantId: agent.tenantId }, bug.id, { pullRequestUrl: pullRequestUrl!, headSha }).catch(() => null);
+    await createReviewOffers(prisma, { agentId: agent.agentId, organisationId: agent.organisationId }, bug.id, { pullRequestUrl: pullRequestUrl!, headSha }).catch(() => null);
   }
 
   const entries = await deliveryEntries({ id: bug.id, pullRequestUrl });

@@ -1,11 +1,11 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { ZEDU_SLUG } from "@/lib/tenant";
+import { ZEDU_SLUG } from "@/lib/organisation";
 
 /**
- * A workspace's projects, and its default one (#426): the Zedu project, else
+ * An organisation's projects, and its default one (#426): the Zedu project, else
  * the oldest. Pages that show a project take it from their URL's slug
  * (lib/project-route.ts, #project-urls); nothing remembers a project in a
- * cookie. The default is for workspace-level work with no project in its
+ * cookie. The default is for organisation-level work with no project in its
  * address yet.
  */
 
@@ -34,31 +34,31 @@ export function pickProjectId(
   return (projects.find((project) => project.slug === ZEDU_SLUG) ?? projects[0])?.id ?? null;
 }
 
-export async function projectsForTenant(
+export async function projectsForOrganisation(
   db: Db,
-  tenantId: string,
+  organisationId: string,
 ): Promise<ProjectChoice[]> {
   try {
     return await db.project.findMany({
-      where: { tenantId, archivedAt: null },
+      where: { organisationId, archivedAt: null },
       select: { id: true, name: true, slug: true },
       orderBy: { createdAt: "asc" },
     });
   } catch (error) {
-    console.error("[project-context] projectsForTenant failed", error);
+    console.error("[project-context] projectsForOrganisation failed", error);
     return [];
   }
 }
 
-/** The tenant's projects, and its default one. */
+/** The organisation's projects, and its default one. */
 export async function projectContextFor(
   db: Db,
-  tenantId: string | null,
+  organisationId: string | null,
 ): Promise<ProjectContext> {
-  if (!tenantId) return { projects: [], activeProjectId: null };
+  if (!organisationId) return { projects: [], activeProjectId: null };
 
   try {
-    const projects = await projectsForTenant(db, tenantId);
+    const projects = await projectsForOrganisation(db, organisationId);
     return { projects, activeProjectId: pickProjectId(projects) };
   } catch (error) {
     console.error("[project-context] projectContextFor failed", error);
@@ -66,10 +66,10 @@ export async function projectContextFor(
   }
 }
 
-/** The tenant's default project: Zedu, else the oldest. */
+/** The organisation's default project: Zedu, else the oldest. */
 export async function activeProjectIdFor(
   db: Db,
-  tenantId: string | null,
+  organisationId: string | null,
 ): Promise<string | null> {
-  return (await projectContextFor(db, tenantId)).activeProjectId;
+  return (await projectContextFor(db, organisationId)).activeProjectId;
 }

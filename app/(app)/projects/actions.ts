@@ -8,14 +8,13 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { refererProjectRef } from "@/lib/referer-path";
 import { ideasPath, orgPath, projectRef } from "@/lib/project-paths";
-import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
-import { isTenantAdmin } from "@/lib/agents/membership";
+import { currentOrganisationIdFor, NO_ORGANISATION_MESSAGE } from "@/lib/organisation-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { createMissionSchema, createTestMissions } from "@/lib/missions";
 import {
   nextProjectSlug,
   projectLinksSchema,
-  projectNameSchema,
   projectSettingsSchema,
   projectSlugBase,
   parseRewardConfigFromFormData,
@@ -39,32 +38,32 @@ async function projectsMessage(key: "error" | "notice", message: string): Promis
   return slug ? `${orgPath(slug, "projects")}?${key}=${encodeURIComponent(message)}` : "/home";
 }
 
-/** The current tenant, only when the signed-in person owns it or is super admin. */
-async function ownerTenantFor(
+/** The current organisation, only when the signed-in person owns it or is super admin. */
+async function ownerOrganisationFor(
   userId: string,
   userRole?: AppRole | null,
-): Promise<{ tenantId: string } | { error: string }> {
-  const tenantId = await currentTenantIdFor(userId);
-  if (!tenantId) return { error: NO_TENANT_MESSAGE };
+): Promise<{ organisationId: string } | { error: string }> {
+  const organisationId = await currentOrganisationIdFor(userId);
+  if (!organisationId) return { error: NO_ORGANISATION_MESSAGE };
 
   if (isSuperAdmin(userRole)) {
-    return { tenantId };
+    return { organisationId };
   }
 
   const membership = await prisma.membership.findUnique({
-    where: { tenantId_userId: { tenantId, userId } },
+    where: { organisationId_userId: { organisationId, userId } },
     select: { role: true },
   });
   if (membership?.role !== "owner") {
-    return { error: "Only a tenant owner can manage its projects." };
+    return { error: "Only a organisation owner can manage its projects." };
   }
-  return { tenantId };
+  return { organisationId };
 }
 
-function projectInTenant(tenantId: string, projectId: string) {
+function projectInOrganisation(organisationId: string, projectId: string) {
   if (!projectId) return null;
   return prisma.project.findFirst({
-    where: { id: projectId, tenantId },
+    where: { id: projectId, organisationId },
     select: {
       id: true,
       name: true,
@@ -79,9 +78,14 @@ export async function updateProjectAction(
   formData: FormData,
 ): Promise<ProjectActionResult> {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { error: NO_TENANT_MESSAGE };
-  if (!(await isTenantAdmin(user, tenantId))) return { error: "Only workspace owners and admins can change project settings." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { error: NO_ORGANISATION_MESSAGE };
+  if (!(await isAdminOfOrganisation(user, organisationId))) return { error: "Only organisation owners and admins can change project settings." };
+
+  const visibilityRaw = (formData.get("visibility") as string | null)?.trim();
+  const visibility = visibilityRaw === "public" ? "public" : "private";
+  const isOpenForContributors = visibility === "public" && (formData.get("isOpenForContributors") === "true" || formData.get("isOpenForContributors") === "on");
+  const contributorGuidelines = (formData.get("contributorGuidelines") as string | null)?.trim() || null;
 
   const parsed = projectSettingsSchema.safeParse({
     name: formData.get("name"),
@@ -89,12 +93,15 @@ export async function updateProjectAction(
     repoUrl: formData.get("repoUrl"),
     stagingUrl: formData.get("stagingUrl"),
     siteUrl: formData.get("siteUrl") ?? "",
+    visibility,
+    isOpenForContributors,
+    contributorGuidelines,
   });
   if (!parsed.success) return fromZodError(parsed.error, "Check the project settings.");
   const slug = String(formData.get("slug") ?? "").trim();
   const project = await prisma.project.findFirst({
-    where: { tenantId, slug },
-    select: { id: true, name: true, goal: true, repoUrl: true, stagingUrl: true, siteUrl: true, rewardConfig: true },
+    where: { organisationId, slug },
+    select: { id: true, name: true, goal: true, repoUrl: true, stagingUrl: true, siteUrl: true, visibility: true, isOpenForContributors: true, contributorGuidelines: true, rewardConfig: true },
   });
   if (!project) return { error: "Project not found." };
 
@@ -103,7 +110,7 @@ export async function updateProjectAction(
   const rewardConfig = rawReward ? parseProjectRewardConfig(rawReward, platformBase) : undefined;
 
   const changes: Record<string, { from: unknown; to: unknown }> = {};
-  for (const field of ["name", "goal", "repoUrl", "stagingUrl", "siteUrl"] as const) {
+  for (const field of ["name", "goal", "repoUrl", "stagingUrl", "siteUrl", "visibility", "isOpenForContributors", "contributorGuidelines"] as const) {
     if (project[field] !== parsed.data[field]) {
       changes[field] = { from: project[field], to: parsed.data[field] };
     }
@@ -123,7 +130,7 @@ export async function updateProjectAction(
       });
       await tx.projectAuditEvent.create({
         data: {
-          tenantId,
+          organisationId,
           projectId: project.id,
           actorUserId: user.id,
           action: "settings.updated",
@@ -139,7 +146,7 @@ export async function updateProjectAction(
 
 /**
  * The panel above the list (#project-links): set the project's live site and
- * GitHub repository in one step. Same rules as the settings page: workspace
+ * GitHub repository in one step. Same rules as the settings page: organisation
  * owners and admins only, validated the same way, recorded in the project's
  * audit log.
  */
@@ -148,14 +155,14 @@ export async function saveProjectLinksAction(
   formData: FormData,
 ): Promise<ProjectActionResult> {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { error: NO_TENANT_MESSAGE };
-  if (!(await isTenantAdmin(user, tenantId))) return { error: "Only workspace owners and admins can set these." };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { error: NO_ORGANISATION_MESSAGE };
+  if (!(await isAdminOfOrganisation(user, organisationId))) return { error: "Only organisation owners and admins can set these." };
 
   const parsed = projectLinksSchema.safeParse({ siteUrl: formData.get("siteUrl") ?? "", repoUrl: formData.get("repoUrl") ?? "" });
   if (!parsed.success) return fromZodError(parsed.error, "Check the addresses.");
   const slug = String(formData.get("slug") ?? "").trim();
-  const project = await prisma.project.findFirst({ where: { tenantId, slug }, select: { id: true, siteUrl: true, repoUrl: true } });
+  const project = await prisma.project.findFirst({ where: { organisationId, slug }, select: { id: true, siteUrl: true, repoUrl: true } });
   if (!project) return { error: "Project not found." };
 
   const changes: Record<string, { from: unknown; to: unknown }> = {};
@@ -166,7 +173,7 @@ export async function saveProjectLinksAction(
     await prisma.$transaction(async (tx) => {
       await tx.project.update({ where: { id: project.id }, data: parsed.data });
       await tx.projectAuditEvent.create({
-        data: { tenantId, projectId: project.id, actorUserId: user.id, action: "settings.updated", changes: changes as Prisma.InputJsonValue },
+        data: { organisationId, projectId: project.id, actorUserId: user.id, action: "settings.updated", changes: changes as Prisma.InputJsonValue },
       });
     });
   }
@@ -180,16 +187,16 @@ export async function createTestMissionAction(
   formData: FormData,
 ): Promise<ProjectActionResult> {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { error: NO_TENANT_MESSAGE };
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) return { error: NO_ORGANISATION_MESSAGE };
 
   const projectId = String(formData.get("projectId") ?? "").trim();
   const project = projectId ? await prisma.project.findFirst({
-    where: { id: projectId, tenantId },
+    where: { id: projectId, organisationId },
     select: { id: true },
   }) : null;
   if (!project) return { error: "Project not found." };
-  if (!(await isTenantAdmin(user, tenantId))) {
+  if (!(await isAdminOfOrganisation(user, organisationId))) {
     return { error: "Only project admins can manage test missions." };
   }
 
@@ -209,7 +216,7 @@ export async function createTestMissionAction(
 }
 
 /**
- * Create a project in the current tenant and make it active (#426).
+ * Create a project in the current organisation and make it active (#426).
  *
  * The slug is derived from the name; a second "Zedu Web" becomes
  * "zedu-web-2" rather than failing the person's click.
@@ -219,14 +226,41 @@ export async function createProjectAction(
   formData: FormData,
 ): Promise<ProjectActionResult> {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return { error: NO_TENANT_MESSAGE };
+  const requestedOrgSlug = (formData.get("orgSlug") as string | null)?.trim();
+  let organisationId = await currentOrganisationIdFor(user.id);
+  if (requestedOrgSlug) {
+    const orgBySlug = await prisma.organisation.findUnique({
+      where: { slug: requestedOrgSlug },
+      select: { id: true, slug: true },
+    });
+    if (orgBySlug) {
+      organisationId = orgBySlug.id;
+    }
+  }
+  if (!organisationId) return { error: NO_ORGANISATION_MESSAGE };
+  if (!(await isAdminOfOrganisation(user, organisationId))) {
+    return { error: "Only organisation owners and admins can create projects." };
+  }
 
-  const parsed = projectNameSchema.safeParse({ name: formData.get("name") });
-  if (!parsed.success) return fromZodError(parsed.error, "Invalid project name");
+  const visibilityRaw = (formData.get("visibility") as string | null)?.trim();
+  const visibility: "public" | "private" = visibilityRaw === "public" ? "public" : "private";
+  const isOpenForContributors = visibility === "public" && (formData.get("isOpenForContributors") === "true" || formData.get("isOpenForContributors") === "on");
+  const contributorGuidelines = (formData.get("contributorGuidelines") as string | null)?.trim() || null;
+
+  const parsed = projectSettingsSchema.safeParse({
+    name: formData.get("name"),
+    goal: formData.get("goal") ?? "",
+    repoUrl: formData.get("repoUrl") ?? "",
+    stagingUrl: formData.get("stagingUrl") ?? "",
+    siteUrl: formData.get("siteUrl") ?? "",
+    visibility,
+    isOpenForContributors,
+    contributorGuidelines,
+  });
+  if (!parsed.success) return fromZodError(parsed.error, "Check the project settings.");
 
   const existing = await prisma.project.findMany({
-    where: { tenantId },
+    where: { organisationId },
     select: { slug: true },
   });
   const slug = nextProjectSlug(
@@ -241,9 +275,16 @@ export async function createProjectAction(
   try {
     await prisma.project.create({
       data: {
-        tenantId,
+        organisationId,
         name: parsed.data.name,
         slug,
+        goal: parsed.data.goal,
+        repoUrl: parsed.data.repoUrl,
+        siteUrl: parsed.data.siteUrl,
+        stagingUrl: parsed.data.stagingUrl,
+        visibility,
+        isOpenForContributors,
+        contributorGuidelines: parsed.data.contributorGuidelines,
         rewardConfig: rewardConfig ?? undefined,
         workflow: { create: {} },
       },
@@ -263,18 +304,18 @@ export async function createProjectAction(
 
   revalidatePath("/", "layout");
   // A new project opens on its own page (#project-urls).
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
-  redirect(tenant ? ideasPath(projectRef(tenant.slug, slug)) : "/home");
+  const organisation = await prisma.organisation.findUnique({ where: { id: organisationId }, select: { slug: true } });
+  redirect(organisation ? ideasPath(projectRef(organisation.slug, slug)) : "/home");
 }
 
-/** Archive or restore a project the tenant owner owns. */
+/** Archive or restore a project the organisation owner owns. */
 export async function setProjectArchivedAction(formData: FormData): Promise<void> {
   const user = await requireUser();
-  const owner = await ownerTenantFor(user.id, user.role);
+  const owner = await ownerOrganisationFor(user.id, user.role);
   if ("error" in owner) redirect(await projectsMessage("error", owner.error));
 
-  const project = await projectInTenant(owner.tenantId, String(formData.get("projectId") ?? ""));
-  if (!project) redirect(await projectsMessage("error", "That project isn't in this workspace."));
+  const project = await projectInOrganisation(owner.organisationId, String(formData.get("projectId") ?? ""));
+  if (!project) redirect(await projectsMessage("error", "That project isn't in this organisation."));
 
   const archived = String(formData.get("archived") ?? "") === "true";
   if (Boolean(project.archivedAt) !== archived) {
@@ -291,11 +332,11 @@ export async function setProjectArchivedAction(formData: FormData): Promise<void
 /** Delete a project after the owner types its name, and only when it has no issues. */
 export async function deleteProjectAction(formData: FormData): Promise<void> {
   const user = await requireUser();
-  const owner = await ownerTenantFor(user.id, user.role);
+  const owner = await ownerOrganisationFor(user.id, user.role);
   if ("error" in owner) redirect(await projectsMessage("error", owner.error));
 
-  const project = await projectInTenant(owner.tenantId, String(formData.get("projectId") ?? ""));
-  if (!project) redirect(await projectsMessage("error", "That project isn't in this workspace."));
+  const project = await projectInOrganisation(owner.organisationId, String(formData.get("projectId") ?? ""));
+  if (!project) redirect(await projectsMessage("error", "That project isn't in this organisation."));
 
   if (project._count.bugs > 0) {
     redirect(

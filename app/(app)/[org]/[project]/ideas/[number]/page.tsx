@@ -60,11 +60,11 @@ export default async function IdeaPage({ params, searchParams }: {
 }) {
   const { org, project: slugParam, number: id } = await params;
   const query = await searchParams;
-  const { user, tenantId, project } = await requireProject(org, slugParam);
+  const { user, organisationId, project } = await requireProject(org, slugParam);
   const slug = project.ref;
   const ref = parseIssueRef(id);
   const idea = await prisma.idea.findFirst({
-    where: { tenantId, projectId: project.id, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
+    where: { organisationId, projectId: project.id, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
     select: {
       id: true,
       number: true,
@@ -92,7 +92,7 @@ export default async function IdeaPage({ params, searchParams }: {
       createdByAgent: { select: { name: true, ownerUserId: true } },
       type: { select: { name: true } },
       area: { select: { name: true } },
-      issue: { select: { number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+      issue: { select: { number: true, title: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } } },
       attachments: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { id: true, filename: true, contentType: true, size: true },
@@ -105,7 +105,7 @@ export default async function IdeaPage({ params, searchParams }: {
   if (!idea) notFound();
 
   const [verdicts, workflow] = await Promise.all([
-    listIdeaVerdicts({ tenantId, projectId: idea.projectId }, idea.id),
+    listIdeaVerdicts({ organisationId, projectId: idea.projectId }, idea.id),
     workflowFor(idea.projectId),
   ]);
   const own = idea.reporterId === user.id || idea.beneficiaryUserId === user.id || idea.createdByAgent?.ownerUserId === user.id;
@@ -130,7 +130,7 @@ export default async function IdeaPage({ params, searchParams }: {
     governance: { thresholdOnly: isThresholdOnly(workflow), managerVoteWeight: workflow.managerVoteWeight },
   });
   // What this person can do from the Actions box, through their highest-level agent.
-  const actingAgent = idea.status === "open" && (rejectable || verdicts.convertible) ? await awardingAgentOf(user.id, tenantId) : null;
+  const actingAgent = idea.status === "open" && (rejectable || verdicts.convertible) ? await awardingAgentOf(user.id, organisationId) : null;
   const canApprove = idea.status === "open" && verdicts.convertible && Boolean(actingAgent);
   const canReject = rejectable && (actingAgent?.level === "manager" || actingAgent?.level === "merger");
   const canWithdraw = own && idea.status === "open";

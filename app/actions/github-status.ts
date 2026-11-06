@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { tenantAccessFor } from "@/lib/tenant-access";
+import { organisationAccessFor } from "@/lib/organisation-access";
 import { consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { addCommentAction } from "@/app/actions/issues";
 import { publish } from "@/lib/agent-api/events";
@@ -37,7 +37,7 @@ async function load(bugId: unknown) {
       id: true,
       number: true,
       title: true,
-      tenantId: true,
+      organisationId: true,
       projectId: true,
       status: true,
       substatus: true,
@@ -55,8 +55,8 @@ async function load(bugId: unknown) {
   });
   if (!bug) return null;
   const [access, agents] = await Promise.all([
-    tenantAccessFor(user.id, bug.tenantId, user.role),
-    prisma.agent.findMany({ where: { tenantId: bug.tenantId, ownerUserId: user.id, revokedAt: null }, select: { level: true } }),
+    organisationAccessFor(user.id, bug.organisationId, user.role),
+    prisma.agent.findMany({ where: { organisationId: bug.organisationId, ownerUserId: user.id, revokedAt: null }, select: { level: true } }),
   ]);
   const powers = githubStatusPowers({
     member: Boolean(access.membershipRole),
@@ -76,8 +76,8 @@ async function guard(bugId: unknown, power: keyof GitHubStatusPowers): Promise<L
     return {
       ok: false,
       error: power === "merge"
-        ? "Only a workspace admin, or someone whose merger agent works here, can merge from Ziki."
-        : "Only a workspace admin, the person this issue is for, or someone whose manager or merger agent works here can do that.",
+        ? "Only an organisation admin, or someone whose merger agent works here, can merge from Ziki."
+        : "Only an organisation admin, the person this issue is for, or someone whose manager or merger agent works here can do that.",
     };
   }
   if (power !== "refresh") {
@@ -216,7 +216,7 @@ export async function sendBackToFixerAction(bugId: string, rawNote: string): Pro
       },
     });
     await publish(tx, {
-      tenantId: bug.tenantId,
+      organisationId: bug.organisationId,
       type: "issue.updated",
       payload: {
         issueId: bug.id,

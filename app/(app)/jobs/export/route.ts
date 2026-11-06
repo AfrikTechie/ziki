@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 import { CSV_EOL, csvRow } from "@/lib/csv";
@@ -28,15 +28,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) {
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
   const jobId = request.nextUrl.searchParams.get("jobId")?.trim() || undefined;
   const where = {
     status: "accepted" as const,
-    job: { tenantId, ...(jobId ? { id: jobId } : {}) },
+    job: { organisationId, ...(jobId ? { id: jobId } : {}) },
   };
 
   const encoder = new TextEncoder();

@@ -2,8 +2,8 @@ import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth-helpers";
-import { isTenantAdmin } from "@/lib/agents/membership";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { isAdminOfOrganisation } from "@/lib/agents/membership";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { prisma } from "@/lib/prisma";
 import { appCookieOptions } from "@/lib/cookie-options";
 import { getRequestOrigin } from "@/lib/auth-origin";
@@ -21,9 +21,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.redirect(settingsUrl);
   }
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId || !(await isTenantAdmin(user, tenantId))) return NextResponse.redirect(new URL("/home", origin));
-  const project = await prisma.project.findFirst({ where: { tenantId, slug }, select: { id: true } });
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId || !(await isAdminOfOrganisation(user, organisationId))) return NextResponse.redirect(new URL("/home", origin));
+  const project = await prisma.project.findFirst({ where: { organisationId, slug }, select: { id: true } });
   if (!project) return NextResponse.redirect(new URL("/home", origin));
 
   const state = `${slug}.${randomBytes(24).toString("base64url")}`;

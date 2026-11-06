@@ -195,7 +195,7 @@ describe("a report from idea to merge", () => {
     localDatabaseUrl();
     const me = await ok(solver, "whoami");
     // Only create the owner-authored fixture inside this worker's local sandbox.
-    const target = await prisma.agent.findFirst({ where: { id: me.id, tenant: { slug: sandbox().tenantSlug } }, select: { id: true } });
+    const target = await prisma.agent.findFirst({ where: { id: me.id, organisation: { slug: sandbox().organisationSlug } }, select: { id: true } });
     expect(target).toBeTruthy();
     if (!target) throw new Error("Steering fixture must belong to this test sandbox.");
     const note = await prisma.agentInboxItem.create({ data: {

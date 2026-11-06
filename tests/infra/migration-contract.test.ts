@@ -64,7 +64,7 @@ describe("Typesense outbox delivery", () => {
     vi.stubEnv("TYPESENSE_PORT", "8108");
     vi.stubEnv("TYPESENSE_PROTOCOL", "http");
     vi.stubEnv("TYPESENSE_API_KEY", "local-test-key");
-    searchMocks.events = [{ id: BigInt(7), kind: "bug", sourceId: "deleted-bug", action: "delete", tenantId: "t1", projectId: "p1", status: "processing", attempts: 0, availableAt: new Date(), claimedAt: new Date(), processedAt: null, lastError: null, createdAt: new Date() }];
+    searchMocks.events = [{ id: BigInt(7), kind: "bug", sourceId: "deleted-bug", action: "delete", organisationId: "t1", projectId: "p1", status: "processing", attempts: 0, availableAt: new Date(), claimedAt: new Date(), processedAt: null, lastError: null, createdAt: new Date() }];
     searchMocks.transitions.mockClear();
     searchMocks.rawQueries.mockClear();
     searchMocks.recoveryQueries.mockClear();
@@ -166,13 +166,13 @@ describe("Typesense outbox delivery", () => {
 
   it("does not use an initialized but not durably enabled index", async () => {
     searchMocks.queryRows = [{ indexingEnabled: false }];
-    await expect(searchWorkItems({ query: "login", kind: "bug", tenantId: "t1" })).rejects.toThrow("Typesense indexing is disabled");
+    await expect(searchWorkItems({ query: "login", kind: "bug", organisationId: "t1" })).rejects.toThrow("Typesense indexing is disabled");
     expect(searchMocks.createCollection).not.toHaveBeenCalled();
   });
 
   it("does not query Typesense when its connection is missing", async () => {
     vi.stubEnv("TYPESENSE_API_KEY", "");
-    await expect(searchWorkItems({ query: "login", kind: "bug", tenantId: "t1" })).rejects.toThrow("Typesense is not configured");
+    await expect(searchWorkItems({ query: "login", kind: "bug", organisationId: "t1" })).rejects.toThrow("Typesense is not configured");
     expect(prismaMocks.prisma.$queryRaw).not.toHaveBeenCalled();
   });
 

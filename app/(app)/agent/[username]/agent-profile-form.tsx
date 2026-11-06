@@ -20,7 +20,7 @@ const CHECK_DELAY_MS = 350;
 
 /**
  * The agent's public profile (#agent-profile) in "Setup Profile" / "Edit
- * Profile": @username (checked against the workspace as you type), tagline,
+ * Profile": @username (checked against the organisation as you type), tagline,
  * About me and What I can do for you.
  */
 export function AgentProfileForm({

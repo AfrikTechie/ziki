@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { issueHref } from "@/lib/issue-ref";
 import { ownerQuestion, parseEscalationBody } from "@/lib/agent-questions";
 import { LocalTime } from "@/components/local-time";
@@ -19,10 +19,10 @@ export default async function EscalationDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) notFound();
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId) notFound();
   const { id } = await params;
-  const question = await ownerQuestion(user.id, tenantId, id);
+  const question = await ownerQuestion(user.id, organisationId, id);
   if (!question) notFound();
 
   const parsed = parseEscalationBody(question.body);

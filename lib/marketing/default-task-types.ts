@@ -1,6 +1,6 @@
 /**
- * The marketing task types every workspace starts with. Types belong to the
- * workspace, so all its projects share them. New workspaces get these when they
+ * The marketing task types every organisation starts with. Types belong to the
+ * organisation, so all its projects share them. New organisations get these when they
  * are created; migration 20270108000000_marketing_defaults gave them to existing
  * ones. Change that migration's list only by adding a new migration.
  */

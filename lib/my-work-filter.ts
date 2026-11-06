@@ -37,7 +37,7 @@ export function parseInboxTrack(raw: string | string[] | null | undefined): Work
 
 /**
  * The notifications a track filter keeps. One that names no issue (an invite, a
- * workspace notice) isn't marketing work, so it stays under Product.
+ * organisation notice) isn't marketing work, so it stays under Product.
  */
 export function notificationTrackWhere(track: WorkTrack | "all"): Prisma.NotificationWhereInput {
   if (track === "all") return {};

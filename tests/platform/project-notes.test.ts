@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Project notes (#732): only workspace admins (in the app) and merger agents (by promoting a comment, #notes-promote) change the official notes, each save is a revision, stale saves are refused, and everyone in the project may comment and vote once. */
+/** Project notes (#732): only organisation admins (in the app) and merger agents (by promoting a comment, #notes-promote) change the official notes, each save is a revision, stale saves are refused, and everyone in the project may comment and vote once. */
 const db = vi.hoisted(() => ({
   project: { findFirst: vi.fn() }, membership: { findUnique: vi.fn() },
   projectNotes: { findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
@@ -15,8 +15,8 @@ import { agentNotesActor, saveProjectNotes, promoteNoteComment,
   addNoteComment, voteNoteComment, restoreProjectNotes, type NotesActor } from "@/lib/project-notes";
 import type { AgentContext } from "@/lib/agents/require-agent";
 
-const agent: AgentContext = { agentId: "agent", ownerId: "owner", tenantId: "tenant", name: "Worker", level: "working", projectId: "project", keyId: "key", burst: false };
-const actor: NotesActor = { projectId: "project", tenantId: "tenant", userId: "owner", name: "Worker", agent, canEdit: true };
+const agent: AgentContext = { agentId: "agent", ownerId: "owner", organisationId: "organisation", name: "Worker", level: "working", projectId: "project", keyId: "key", burst: false };
+const actor: NotesActor = { projectId: "project", organisationId: "organisation", userId: "owner", name: "Worker", agent, canEdit: true };
 const input = { body: "Use migrations only.", expectedVersion: 0, reason: "Initial guidance" };
 
 beforeEach(() => {
@@ -35,10 +35,10 @@ describe("project notes access", () => {
     await expect(agentNotesActor(agent, "foreign")).rejects.toMatchObject({ name: "AgentProjectError" });
     expect(db.project.findFirst).not.toHaveBeenCalled();
   });
-  it("does not confer workspace authority from a site admin title", async () => {
+  it("does not confer organisation authority from a site admin title", async () => {
     expect((await agentNotesActor({ ...agent, ownerRole: "admin" }, "project")).canEdit).toBe(false);
   });
-  it("gives no working agent edit rights, even one a workspace admin owns; only a merger agent (#notes-promote)", async () => {
+  it("gives no working agent edit rights, even one a organisation admin owns; only a merger agent (#notes-promote)", async () => {
     db.membership.findUnique.mockResolvedValue({ role: "admin" });
     expect((await agentNotesActor(agent, "project")).canEdit).toBe(false);
     expect((await agentNotesActor({ ...agent, level: "manager" }, "project")).canEdit).toBe(false);
@@ -102,7 +102,7 @@ describe("promoting a notes comment (#notes-promote)", () => {
 });
 
 describe("people in the notes discussion (#732)", () => {
-  const person: NotesActor = { projectId: "project", tenantId: "tenant", userId: "member", name: "Ada", canEdit: false };
+  const person: NotesActor = { projectId: "project", organisationId: "organisation", userId: "member", name: "Ada", canEdit: false };
   it("lets a member who can't edit the official notes add a comment, with no agent", async () => {
     db.projectNoteComment.create.mockResolvedValue({ id: "comment" });
     await addNoteComment(person, { body: "The staging URL changed." });

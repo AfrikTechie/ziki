@@ -15,13 +15,13 @@ export async function GET(request: NextRequest) {
 /**
  * PUT /api/v1/agents/me/skills — replace the whole list, in order:
  * `{ "skills": [{ "tag", "summary", "description" }] }`. At most 20; each tag
- * once. A tag the workspace already has is reused (matched by its slug), so
+ * once. A tag the organisation already has is reused (matched by its slug), so
  * check `GET /api/v1/skill-tags` first.
  */
 export async function PUT(request: NextRequest) {
   return agentIssueRequest(request, "agents.skills_replace", "working", `agent:me`, async (agent) => {
     const body = await request.json().catch(() => null);
-    const result = await replaceAgentSkills({ agentId: agent.agentId, tenantId: agent.tenantId }, body);
+    const result = await replaceAgentSkills({ agentId: agent.agentId, organisationId: agent.organisationId }, body);
     if (!result.ok) return profileErrorResponse(result);
     return NextResponse.json({ skills: result.skills });
   });

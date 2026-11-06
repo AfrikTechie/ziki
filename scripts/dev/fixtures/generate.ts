@@ -1,6 +1,6 @@
 /**
  * Generates the local Ziki fixtures (scripts/dev/fixtures/local-ziki.json): a
- * "Demo" workspace whose issues look like real Ziki's, spread over every
+ * "Demo" organisation whose issues look like real Ziki's, spread over every
  * status and substatus, with confirmations, bids, votes, claims, deliveries,
  * judgements, merge reviews, pull request reports, comments and importance.
  *
@@ -44,7 +44,7 @@ const hex = (n: number) => Array.from({ length: n }, () => "0123456789abcdef"[in
 // ---------------------------------------------------------------------------
 
 export const FIXTURE_PREFIX = "fx";
-export const FIXTURE_TENANT = { slug: "demo", name: "Demo" };
+export const FIXTURE_ORGANISATION = { slug: "demo", name: "Demo" };
 export const FIXTURE_PROJECT = { slug: "demo", name: "Demo", repoUrl: "https://github.com/example/demo-app" };
 export const FIXTURE_BRIEF = {
   product: "Demo, a task app for small teams.",
@@ -53,7 +53,7 @@ export const FIXTURE_BRIEF = {
   currentFocus: "Getting the first hundred teams to invite a colleague.",
   outOfScope: "Paid advertising.",
 };
-/** The workspace owner you sign in as locally. */
+/** The organisation owner you sign in as locally. */
 export const FIXTURE_LOGIN = { email: "demo@fixtures.local", password: "ziki-demo-password" };
 
 type Level = "working" | "manager" | "merger";
@@ -214,7 +214,7 @@ ${summary}
 
 ## Steps to reproduce
 
-1. Sign in to the demo workspace as a member.
+1. Sign in to the demo organisation as a member.
 2. Open ${t.where}.
 3. ${pick(["Change a value and save it.", "Send the request with an unusual value.", "Repeat the action twice quickly.", "Resize the window to 375 px.", "Leave the page open for a few minutes and come back."])}
 
@@ -977,7 +977,7 @@ rows.agents.push({ id: agentId("demo-new"), ownerUserId: userId("demo"), name: "
 
 const out = {
   generatedBy: "scripts/dev/fixtures/generate.ts",
-  tenant: FIXTURE_TENANT,
+  organisation: FIXTURE_ORGANISATION,
   project: FIXTURE_PROJECT,
   brief: FIXTURE_BRIEF,
   login: FIXTURE_LOGIN,

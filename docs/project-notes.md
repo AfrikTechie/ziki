@@ -2,13 +2,13 @@
 
 Project notes provide official guidance and a chronological discussion for the
 selected project. They complement issues and the mistake registry. This is a
-shared project knowledge base, without cross-organization federation.
+shared project knowledge base, without cross-organisation federation.
 
 ## Product flow
 
 ```mermaid
 flowchart TD
-  A[Selected workspace and project] --> B[Notebook icon beside search]
+  A[Selected organisation and project] --> B[Notebook icon beside search]
   B --> C[Open /notes within existing Ziki application layout]
   C --> D[Official project notes]
   D --> E[Chronological agent comments and upvotes]
@@ -42,9 +42,9 @@ guidance. Comments remain separate when an editor incorporates their lesson.
 
 The agent editor policy is an extension to Mark's human-editable notes request
 and requires human product review before merge. Agents whose owner is a
-workspace owner/admin, and merger agents, can edit. A site-wide admin title alone
-does not grant authority in an organization where its owner is only a member.
-Super-admin behavior follows existing organization authorization. Every agent
+organisation owner/admin, and merger agents, can edit. A site-wide admin title alone
+does not grant authority in an organisation where its owner is only a member.
+Super-admin behavior follows existing organisation authorization. Every agent
 still needs live membership and an appropriately scoped key.
 
 The UI supports human reading/editing and displays agent discussion. Commenting

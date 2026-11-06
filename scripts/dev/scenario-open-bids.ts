@@ -12,12 +12,12 @@
  * It refuses to run against anything but a local database.
  *
  * Sign in as alice@zendor.dev; she is made an owner of the "zedu" (Ziki)
- * workspace if she isn't a member yet, and given a manager agent so the
+ * organisation if she isn't a member yet, and given a manager agent so the
  * open bid shows the Award button. The script prints the issue's address.
  */
 import { PrismaClient } from "@prisma/client";
 
-const TENANT_SLUG = "zedu";
+const ORGANISATION_SLUG = "zedu";
 const PROJECT_SLUG = "zedu";
 const ALICE_ID = "local-alice";
 const P = "scn-ob";
@@ -143,13 +143,13 @@ async function main() {
   assertLocalDatabase(process.env.DATABASE_URL);
   const db = new PrismaClient();
   try {
-    const tenant = await db.tenant.findUnique({ where: { slug: TENANT_SLUG }, select: { id: true } });
-    if (!tenant) throw new Error(`No "${TENANT_SLUG}" workspace in this database.`);
+    const organisation = await db.organisation.findUnique({ where: { slug: ORGANISATION_SLUG }, select: { id: true } });
+    if (!organisation) throw new Error(`No "${ORGANISATION_SLUG}" organisation in this database.`);
     const project = await db.project.findUnique({
-      where: { tenantId_slug: { tenantId: tenant.id, slug: PROJECT_SLUG } },
+      where: { organisationId_slug: { organisationId: organisation.id, slug: PROJECT_SLUG } },
       select: { id: true, slug: true },
     });
-    if (!project) throw new Error(`No "${PROJECT_SLUG}" project in the "${TENANT_SLUG}" workspace.`);
+    if (!project) throw new Error(`No "${PROJECT_SLUG}" project in the "${ORGANISATION_SLUG}" organisation.`);
     const now = Date.now();
     const at = (ago: number) => new Date(now - ago);
 
@@ -157,22 +157,22 @@ async function main() {
     const alice = await db.user.findUnique({ where: { id: ALICE_ID }, select: { id: true } });
     if (alice) {
       await db.membership.upsert({
-        where: { tenantId_userId: { tenantId: tenant.id, userId: ALICE_ID } },
-        create: { tenantId: tenant.id, userId: ALICE_ID, role: "owner" },
+        where: { organisationId_userId: { organisationId: organisation.id, userId: ALICE_ID } },
+        create: { organisationId: organisation.id, userId: ALICE_ID, role: "owner" },
         update: {},
       });
-      // Some $ of her own in this workspace, so the header shows a balance ($21.21).
+      // Some $ of her own in this organisation, so the header shows a balance ($21.21).
       for (const [key, role, value] of [["solver", "solver", 15], ["reporter", "reporter", 4.5], ["reviewer", "reviewer", 1.71]] as const) {
         await db.pointEntry.upsert({
           where: { sourceKey: `${P}-points-alice-${key}` },
-          create: { tenantId: tenant.id, userId: ALICE_ID, role, points: value, sourceKey: `${P}-points-alice-${key}` },
+          create: { organisationId: organisation.id, userId: ALICE_ID, role, points: value, sourceKey: `${P}-points-alice-${key}` },
           update: { points: value },
         });
       }
       // A manager agent of hers, so the issue page offers her the Award button.
       await db.agent.upsert({
         where: { id: `${P}-agent-alice-manager` },
-        create: { id: `${P}-agent-alice-manager`, tenantId: tenant.id, ownerUserId: ALICE_ID, name: "Alice's Manager", level: "manager" },
+        create: { id: `${P}-agent-alice-manager`, organisationId: organisation.id, ownerUserId: ALICE_ID, name: "Alice's Manager", level: "manager" },
         update: { level: "manager", revokedAt: null },
       });
     }
@@ -185,15 +185,15 @@ async function main() {
         update: { name: person.name },
       });
       await db.membership.upsert({
-        where: { tenantId_userId: { tenantId: tenant.id, userId: userId(person.key) } },
-        create: { tenantId: tenant.id, userId: userId(person.key), role: "member" },
+        where: { organisationId_userId: { organisationId: organisation.id, userId: userId(person.key) } },
+        create: { organisationId: organisation.id, userId: userId(person.key), role: "member" },
         update: {},
       });
       await db.agent.upsert({
         where: { id: agentId(person.key) },
         create: {
           id: agentId(person.key),
-          tenantId: tenant.id,
+          organisationId: organisation.id,
           ownerUserId: userId(person.key),
           name: person.agent,
           level: "working",
@@ -216,7 +216,7 @@ async function main() {
         description: DESCRIPTION,
         status: "open",
         substatus: "open",
-        tenantId: tenant.id,
+        organisationId: organisation.id,
         projectId: project.id,
         reporterId: reporter,
         beneficiaryUserId: reporter,
@@ -233,7 +233,7 @@ async function main() {
         summary: SUMMARY,
         description: DESCRIPTION,
         status: "converted",
-        tenantId: tenant.id,
+        organisationId: organisation.id,
         projectId: project.id,
         reporterId: reporter,
         beneficiaryUserId: reporter,

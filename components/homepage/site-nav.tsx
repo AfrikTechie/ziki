@@ -64,7 +64,7 @@ export function SiteNav({ signedIn = false }: { signedIn?: boolean }) {
             {item.label}
           </Link>
         ))}
-        <Link className="th-btn th-btn-dark th-menu-cta" href={signedIn ? '/home' : '/login'} onClick={() => setMenuOpen(false)}>{signedIn ? 'Open workspace' : 'Get started'}</Link>
+        <Link className="th-btn th-btn-dark th-menu-cta" href={signedIn ? '/home' : '/login'} onClick={() => setMenuOpen(false)}>{signedIn ? 'Open organisation' : 'Get started'}</Link>
       </nav>
       <div className="th-actions">
         <button
@@ -81,7 +81,7 @@ export function SiteNav({ signedIn = false }: { signedIn?: boolean }) {
           <Icon name={darkMode ? 'sun' : 'moon'} size={16} />
         </button>
         {signedIn ? (
-          <Link className="th-btn th-btn-dark th-desktop" href="/home">Open workspace</Link>
+          <Link className="th-btn th-btn-dark th-desktop" href="/home">Open organisation</Link>
         ) : (
           <>
             <Link className="th-btn th-btn-light th-desktop" href="/login">Login</Link>

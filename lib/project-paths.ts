@@ -15,9 +15,9 @@ export function projectRef(orgSlug: string, projectSlug: string): ProjectRef {
   return `${encodeURIComponent(orgSlug)}/${encodeURIComponent(projectSlug)}` as ProjectRef;
 }
 
-/** The ref of a project read with `tenant: { select: { slug: true } }`. */
-export function refOf(project: { slug: string; tenant: { slug: string } }): ProjectRef {
-  return projectRef(project.tenant.slug, project.slug);
+/** The ref of a project read with `organisation: { select: { slug: true } }`. */
+export function refOf(project: { slug: string; organisation: { slug: string } }): ProjectRef {
+  return projectRef(project.organisation.slug, project.slug);
 }
 
 /** An organisation's own page, the list of its projects: `/<org>`. */
@@ -88,7 +88,7 @@ export function ideaPath(slug: ProjectRef, number: number): string {
   return projectPath(slug, `/ideas/${number}`);
 }
 
-/** The organization admin area under a project: `/<org>/<project>/org`, `.../org/members`. */
+/** The organisation admin area under a project: `/<org>/<project>/org`, `.../org/members`. */
 export function orgPath(slug: ProjectRef, section = ""): string {
   return projectPath(slug, section ? `/org/${section}` : "/org");
 }

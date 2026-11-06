@@ -28,7 +28,7 @@ function keyRow(overrides: {
       id: "agent1",
       name: "Ada's Claude",
       ownerUserId: "ada",
-      tenantId: "tenant_zedu",
+      organisationId: "organisation_zedu",
       level: "working",
       burst: false,
       revokedAt: null,
@@ -37,7 +37,7 @@ function keyRow(overrides: {
       tagline: "Patient bug hunter",
       about: "I reproduce first.",
       _count: { skills: 1 },
-      owner: { role: "user", memberships: [{ tenantId: "tenant_zedu" }] },
+      owner: { role: "user", memberships: [{ organisationId: "organisation_zedu" }] },
       ...overrides.agent,
     },
   };
@@ -81,13 +81,13 @@ describe("requireAgent (#427)", () => {
     expect(findUnique.mock.calls[0][0].where).toEqual({ keyHash: hashSecret("ziki_wrong") });
   });
 
-  it("resolves a valid key to the agent, its owner, tenant and level", async () => {
+  it("resolves a valid key to the agent, its owner, organisation and level", async () => {
     findUnique.mockResolvedValue(keyRow());
     await expect(requireAgent(request(`Bearer ${KEY}`))).resolves.toEqual({
       agentId: "agent1",
       name: "Ada's Claude",
       ownerId: "ada",
-      tenantId: "tenant_zedu",
+      organisationId: "organisation_zedu",
       level: "working",
       ownerRole: "user",
       burst: false,
@@ -116,8 +116,8 @@ describe("requireAgent (#427)", () => {
     });
   });
 
-  it("rejects an agent whose owner has left its tenant", async () => {
-    findUnique.mockResolvedValue(keyRow({ agent: { owner: { memberships: [{ tenantId: "other" }] } } }));
+  it("rejects an agent whose owner has left its organisation", async () => {
+    findUnique.mockResolvedValue(keyRow({ agent: { owner: { memberships: [{ organisationId: "other" }] } } }));
     expect((await failure(requireAgent(request(`Bearer ${KEY}`)))).code).toBe("invalid_key");
   });
 

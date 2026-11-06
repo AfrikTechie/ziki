@@ -61,12 +61,12 @@ import { workflowFor } from "@/lib/workflow";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { DUPLICATE_ERRORS, duplicateLinkProblem } from "@/lib/duplicates";
 
-const scope = { tenantId: "t1", projectId: "p1" };
+const scope = { organisationId: "t1", projectId: "p1" };
 const agentOf = (id: string, owner: string) => {
   state.agentOwners[id] = owner;
-  return { tenantId: "t1", userId: owner, agent: { id, level: "working" as const } };
+  return { organisationId: "t1", userId: owner, agent: { id, level: "working" as const } };
 };
-const person = (userId: string) => ({ tenantId: "t1", userId });
+const person = (userId: string) => ({ organisationId: "t1", userId });
 const body = (verdict: string, extra: Record<string, unknown> = {}) => ({
   verdict,
   summary: "Reproduced it on staging.",
@@ -79,7 +79,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "bug1",
     number: 7,
-    tenantId: "t1",
+    organisationId: "t1",
     projectId: "p1",
     status: "open", substatus: "requires_confirmation",
     isDeleted: false,
@@ -192,7 +192,7 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.confirmed" }));
     expect(audit).toHaveBeenCalledTimes(1);
     expect(audit).toHaveBeenCalledWith(
-      { agentId: "agent-bob", tenantId: "t1" },
+      { agentId: "agent-bob", organisationId: "t1" },
       "issue.confirmation",
       "bug:bug1",
       expect.objectContaining({ confirmationId: first.confirmation.id, verdict: "confirm", entryAt: expect.any(String) }),
@@ -222,7 +222,7 @@ describe("giveConfirmation (#issue-confirmations)", () => {
   });
 
   it("keeps one entry per person per class: a manager agent's counts its weight beside the person's own (#confirmation-weights)", async () => {
-    const manager = { tenantId: "t1", userId: "bob", agent: { id: "agent-bob-m", level: "manager" as const } };
+    const manager = { organisationId: "t1", userId: "bob", agent: { id: "agent-bob-m", level: "manager" as const } };
     state.agentOwners["agent-bob-m"] = "bob";
     await giveConfirmation(person("bob"), scope, "bug1", body("confirm"));
     const both = await giveConfirmation(manager, scope, "bug1", body("confirm"));
@@ -238,12 +238,12 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     expect(refused.body).toMatchObject({ error: "wrong_track" });
     expect(db.issueConfirmation.upsert).not.toHaveBeenCalled();
     expect(state.points).toEqual([]);
-    const opener = { agentId: "agent-eli", ownerId: "eli", tenantId: "t1" };
+    const opener = { agentId: "agent-eli", ownerId: "eli", organisationId: "t1" };
     expect((await rejection(openConfirmedIssue(opener, scope, "bug1"))).body).toMatchObject({ error: "wrong_track" });
   });
 
   it("moves a confirmed issue to Open for any agent, and refuses below the threshold (#confirmation-weights)", async () => {
-    const opener = { agentId: "agent-eli", ownerId: "eli", tenantId: "t1" };
+    const opener = { agentId: "agent-eli", ownerId: "eli", organisationId: "t1" };
     await giveConfirmation(person("bob"), scope, "bug1", body("confirm"));
     expect((await rejection(openConfirmedIssue(opener, scope, "bug1"))).body).toMatchObject({ error: "below_threshold", confirmations: 1, confirmationsNeeded: 2 });
     expect(state.bug.substatus).toBe("requires_confirmation");
@@ -354,7 +354,7 @@ describe("duplicate links (#285)", () => {
 });
 
 describe("telling the owner about a close by votes (#your-decisions)", () => {
-  const voter = { agentId: "agent-cara", name: "Docker", ownerId: "cara", tenantId: "t1", level: "working" as const, burst: false, keyId: "k1" };
+  const voter = { agentId: "agent-cara", name: "Docker", ownerId: "cara", organisationId: "t1", level: "working" as const, burst: false, keyId: "k1" };
   const notPlanned = { reason: "not_planned" as const, evidence: "The roadmap drops this screen in December.", summary: "We decided not to build this." };
 
   beforeEach(() => {
@@ -393,7 +393,7 @@ describe("telling the owner about a close by votes (#your-decisions)", () => {
 });
 
 describe("the owner's answer to a close by votes (#your-decisions)", () => {
-  const ada = { tenantId: "t1", userId: "ada" };
+  const ada = { organisationId: "t1", userId: "ada" };
   const reply = { evidence: "#3 is about the desktop app; this is the mobile page, with its own screenshot." };
 
   beforeEach(() => {
@@ -414,7 +414,7 @@ describe("the owner's answer to a close by votes (#your-decisions)", () => {
   it("records the owner's agreement, and refuses anyone else, an open issue or a withdrawal", async () => {
     await agreeWithClose(ada, "p1", "7");
     expect(state.bug.closeAgreedAt).toBeInstanceOf(Date);
-    expect((await rejection(respondToClose({ tenantId: "t1", userId: "bob" }, "p1", "7", reply))).status).toBe(403);
+    expect((await rejection(respondToClose({ organisationId: "t1", userId: "bob" }, "p1", "7", reply))).status).toBe(403);
     state.bug = { ...state.bug, status: "open", substatus: "open", closeReason: null };
     expect((await rejection(agreeWithClose(ada, "p1", "7"))).status).toBe(409);
     state.bug = { ...state.bug, status: "closed", substatus: "closed", closeReason: "withdrawn" };

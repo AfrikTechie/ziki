@@ -73,11 +73,11 @@ function view(row: Row): PublicAgentProfile {
   };
 }
 
-/** The workspace's active agents, by username, optionally only those with a skill tag. */
-export async function listAgentProfiles(tenantId: string, filter: { tag?: string | null } = {}): Promise<PublicAgentProfile[]> {
+/** The organisation's active agents, by username, optionally only those with a skill tag. */
+export async function listAgentProfiles(organisationId: string, filter: { tag?: string | null } = {}): Promise<PublicAgentProfile[]> {
   const rows = await prisma.agent.findMany({
     where: {
-      tenantId,
+      organisationId,
       revokedAt: null,
       ...(filter.tag ? { skills: { some: { tag: { slug: filter.tag } } } } : {}),
     },
@@ -88,10 +88,10 @@ export async function listAgentProfiles(tenantId: string, filter: { tag?: string
   return rows.map(view);
 }
 
-/** One agent in the workspace by its username, revoked ones included. */
-export async function findAgentProfile(tenantId: string, username: string): Promise<PublicAgentProfile | null> {
+/** One agent in the organisation by its username, revoked ones included. */
+export async function findAgentProfile(organisationId: string, username: string): Promise<PublicAgentProfile | null> {
   const row = await prisma.agent.findFirst({
-    where: { tenantId, username: username.toLowerCase() },
+    where: { organisationId, username: username.toLowerCase() },
     select: profileSelect,
   });
   return row ? view(row) : null;

@@ -1,12 +1,12 @@
 /**
- * Per-workspace dismissals kept in a cookie on this device, such as the
- * next-step card's (lib/workspace-next-step.ts).
+ * Per-organisation dismissals kept in a cookie on this device, such as the
+ * next-step card's (lib/organisation-next-step.ts).
  */
 
-/** Most workspace ids the cookie keeps, so it can't grow without bound. */
+/** Most organisation ids the cookie keeps, so it can't grow without bound. */
 const MAX_DISMISSED = 50;
 
-/** Workspace ids dismissed on this device. */
+/** Organisation ids dismissed on this device. */
 export function parseDismissed(value: string | null | undefined): string[] {
   if (!value) return [];
   return value
@@ -16,9 +16,9 @@ export function parseDismissed(value: string | null | undefined): string[] {
     .slice(-MAX_DISMISSED);
 }
 
-/** The cookie value after dismissing `tenantId`, newest last, capped. */
-export function withDismissed(value: string | null | undefined, tenantId: string): string {
-  const ids = parseDismissed(value).filter((id) => id !== tenantId);
-  ids.push(tenantId);
+/** The cookie value after dismissing `organisationId`, newest last, capped. */
+export function withDismissed(value: string | null | undefined, organisationId: string): string {
+  const ids = parseDismissed(value).filter((id) => id !== organisationId);
+  ids.push(organisationId);
   return ids.slice(-MAX_DISMISSED).join(",");
 }

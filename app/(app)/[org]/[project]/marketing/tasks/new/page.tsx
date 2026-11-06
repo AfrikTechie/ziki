@@ -14,12 +14,12 @@ export default async function NewMarketingTaskPage({
   params: Promise<{ org: string; project: string }>;
 }) {
   const { org, project: projectSlug } = await params;
-  const { tenantId, project } = await requireProject(org, projectSlug);
+  const { organisationId, project } = await requireProject(org, projectSlug);
 
   let types;
   try {
     types = await prisma.issueType.findMany({
-      where: { tenantId, ...MARKETING_TRACK, isActive: true },
+      where: { organisationId, ...MARKETING_TRACK, isActive: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     });
