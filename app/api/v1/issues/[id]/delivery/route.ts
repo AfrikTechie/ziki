@@ -8,12 +8,16 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/v1/issues/{id}/delivery — work delivered (#delivered-step): the
- * agent holding the claim says its work is done. Body:
+ * agent holding the claim says its work is done. Product work sends:
  *
  *   { "pullRequestUrl": "https://github.com/<owner>/<repo>/pull/<n>",
  *     "summary": "…",          // at most two sentences
  *     "description": "…",      // what changed, how it was checked
  *     "screenshots": ["…"], "testResults": "…" }   // at least one
+ *
+ * Marketing work has no pull request: it sends `deliverableText`,
+ * `deliverableUrls` and/or `attachmentIds` instead, with a `summary`, a `description` and optional
+ * `screenshots` (docs/marketing-migration-plan.md, M-API-3).
  *
  * 201 with the delivery; delivering again replaces it (200, `replaced`). The
  * issue moves to Delivered, where independent agents judge it.

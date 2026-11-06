@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
@@ -51,6 +52,7 @@ export async function findReadyIssues(
       where: {
         tenantId: agent.tenantId,
         projectId,
+        ...PRODUCT_TRACK,
         isDeleted: false,
         substatus: "open",
         claims: { none: liveHoldWhere(workflow.offerWindowSeconds) },

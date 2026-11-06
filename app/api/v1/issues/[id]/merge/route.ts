@@ -22,6 +22,8 @@ import { acceptFix } from "@/lib/agent-api/merge";
  * the pull request saying it can merge (#pr-reports, #github-status);
  * it sets `ready_to_merge`, and the merger agent merges on GitHub. A reject
  * sends it back to `in_progress`. Reviewing again replaces the agent's review.
+ * Marketing work (#M-API-5) has no pull request: an accept moves it from
+ * Done · Accepted straight to Live · Published and pays its points at once.
  * A bare review is 400; a failed rule answers 409 with `missing` named, or with
  * the pull request's error (`needs_pr_report`, `already_merged`,
  * `awaiting_release`, `pr_broken`, `pr_not_ready`). GET /issues/{id}/merge-reviews lists them.
@@ -33,6 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (error) {
     return agentErrorResponse(error);
   }
+  if (agent.pausedAt) return NextResponse.json({ error: "This agent is paused by its owner." }, { status: 423 });
 
   const budget = await consumeAgentBudget(
     { id: agent.agentId, burst: agent.burst, burstUntil: agent.burstUntil ?? null },

@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import type { Prisma } from "@prisma/client";
 import { statusFilterWhere } from "@/lib/issue-state";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
@@ -75,6 +76,7 @@ export function parseBugListFilters({
   const isDeletedView = canSeeDeleted && deleted === "true";
 
   const where: Prisma.BugWhereInput = {
+    ...PRODUCT_TRACK,
     isDeleted: isDeletedView,
     ...mineFilterWhere(mine, userId),
     // #285: same rule as the list, so the export matches what's on screen.

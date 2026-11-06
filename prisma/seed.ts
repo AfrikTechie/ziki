@@ -1,3 +1,4 @@
+import { DEFAULT_MARKETING_TASK_TYPES } from "../lib/marketing/default-task-types";
 import { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
@@ -279,6 +280,13 @@ async function ensureDefaultTypes() {
   if (!tenant) {
     console.log("Skipping default issue types: the Zedu organization is missing.");
     return;
+  }
+  for (const type of DEFAULT_MARKETING_TASK_TYPES) {
+    await prisma.issueType.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: type.name } },
+      update: {},
+      create: { ...type, tenantId: tenant.id, track: "marketing" },
+    });
   }
   const count = await prisma.issueType.count({ where: { tenantId: tenant.id } });
   if (count > 0) {

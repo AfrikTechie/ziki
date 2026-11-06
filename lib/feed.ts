@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -51,7 +52,7 @@ export function parseFeedCursor(params: URLSearchParams): FeedCursor | null {
 
 export function feedWhere(tenantId: string, projectId: string, cursor: FeedCursor | null, area: string | null = null): Prisma.BugWhereInput {
   return {
-    tenantId, projectId, isDeleted: false,
+    tenantId, projectId, ...PRODUCT_TRACK, isDeleted: false,
     ...projectAreaFilterWhere(area),
     ...(cursor ? { OR: [
       { createdAt: { gt: new Date(cursor.after) } },

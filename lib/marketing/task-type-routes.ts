@@ -1,0 +1,103 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { IssueApiError } from "@/lib/agent-api/errors";
+import { agentIssueRequest } from "@/lib/agent-api/issues";
+import { isTenantAdmin } from "@/lib/agents/membership";
+import { assertKeyProject } from "@/lib/agents/require-agent";
+import { assertMarketingSettingsAccess } from "@/lib/marketing/settings";
+import { marketingTaskTypeProject } from "@/lib/marketing/task-types";
+import { prisma } from "@/lib/prisma";
+import type { AppRole } from "@/lib/roles";
+import { resolveSessionUserId } from "@/lib/session-user";
+import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
+
+/**
+ * Shared plumbing for /api/v1/projects/{id}/marketing/task-types (M-API-7).
+ * A request with an `Authorization` header is an agent, acting for its owner.
+ * Without one it is a signed-in person. Both get the same access rule: any
+ * member of the workspace may read, and only owners and admins may change.
+ */
+
+export type TaskTypeActor = {
+  tenantId: string;
+  projectId: string;
+  /** The person acting: the signed-in user, or the agent's owner. */
+  userId: string;
+  role: AppRole | null;
+};
+
+type Access = "read" | "change";
+
+function errorResponse(error: IssueApiError): Response {
+  return NextResponse.json(error.body ? { error: error.message, ...error.body } : { error: error.message }, { status: error.status });
+}
+
+/** Writes are for workspace owners and admins only. */
+export async function assertTaskTypeAccess(actor: TaskTypeActor, access: Access): Promise<void> {
+  if (access === "change") await assertMarketingSettingsAccess({ id: actor.userId, role: actor.role }, actor.tenantId, "change");
+}
+
+/** Whether the actor may see retired types: owners and admins, who manage them. */
+export async function canSeeInactiveTaskTypes(actor: TaskTypeActor): Promise<boolean> {
+  return isTenantAdmin({ id: actor.userId, role: actor.role }, actor.tenantId);
+}
+
+async function sessionActor(projectIdOrSlug: string): Promise<TaskTypeActor | Response> {
+  const session = await resolveSessionUserId();
+  if ("error" in session) {
+    return NextResponse.json({ error: "unauthorized", message: "Authentication required." }, { status: 401 });
+  }
+  const tenantId = await currentTenantIdFor(session.userId);
+  if (!tenantId) return NextResponse.json({ error: "no_tenant", message: NO_TENANT_MESSAGE }, { status: 400 });
+  const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { id: true, role: true } });
+  if (!user) return NextResponse.json({ error: "unauthorized", message: "User not found." }, { status: 401 });
+  const project = await marketingTaskTypeProject(tenantId, projectIdOrSlug);
+  return { tenantId, projectId: project.id, userId: user.id, role: user.role ?? null };
+}
+
+/**
+ * Runs `run` as the caller after resolving the project and checking `access`.
+ * `action` names the call in the agent audit log.
+ */
+export async function taskTypeRequest(
+  request: NextRequest,
+  projectIdOrSlug: string,
+  action: string,
+  access: Access,
+  run: (actor: TaskTypeActor) => Promise<Response>,
+): Promise<Response> {
+  if (!request.headers.has("authorization")) {
+    try {
+      const actor = await sessionActor(projectIdOrSlug);
+      if (actor instanceof Response) return actor;
+      await assertTaskTypeAccess(actor, access);
+      return await run(actor);
+    } catch (error) {
+      if (error instanceof IssueApiError) return errorResponse(error);
+      throw error;
+    }
+  }
+
+  return agentIssueRequest(request, action, "working", projectIdOrSlug, async (agent) => {
+    const project = await marketingTaskTypeProject(agent.tenantId, projectIdOrSlug);
+    // A key issued for one project cannot act in another (#742).
+    assertKeyProject(agent, project.id);
+    const actor: TaskTypeActor = {
+      tenantId: agent.tenantId,
+      projectId: project.id,
+      userId: agent.ownerId,
+      role: agent.ownerRole ?? null,
+    };
+    await assertTaskTypeAccess(actor, access);
+    return run(actor);
+  });
+}
+
+/** Reads the JSON body; a missing or broken body is a 400. */
+export async function taskTypeJson(request: NextRequest): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    const message = "Send a valid JSON body.";
+    throw new IssueApiError(400, message, { error: "invalid_request", message });
+  }
+}

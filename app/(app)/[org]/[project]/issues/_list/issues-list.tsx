@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { IdeasWelcome } from "@/components/ideas-welcome";
 import { IdeaChat } from "@/components/idea-chat";
 import { LocalTime } from "@/components/local-time";
@@ -21,11 +22,11 @@ import { StatusFilterChips } from "@/components/status-filter-chips";
 import { ToolbarFilterMenu, type ToolbarFilterGroup, type ToolbarFilterOption } from "@/components/toolbar-filter-menu";
 import { IdeasMoreFilters } from "@/components/ideas-more-filters";
 import { IDEA_AUTHOR_PARAM, parseIdeaAuthorFilter } from "@/lib/idea-filters";
-import { MY_WORK_PARAM, myWorkWhere, parseMyWorkFilter, yourWorkWhere } from "@/lib/my-work-filter";
+import { MY_WORK_PARAM, TRACK_PARAM, myWorkWhere, parseMyWorkFilter, parseTrackFilter, trackWhere, yourWorkWhere } from "@/lib/my-work-filter";
 import { WORK_TAG_TONE, whatsNext } from "@/lib/whats-next";
 import { IDEA_SORT_COOKIE, ISSUE_SORT_COOKIE, getIdeaOrderBy, parseIdeaSort } from "@/lib/list-sort";
 import { SortHeader } from "@/components/sort-header";
-import { PROJECT_LINKS_SLOT_ID, ProjectLinks } from "@/components/project-links";
+import { PROJECT_LINKS_SLOT_ID, ProjectIconLinks, ProjectLinks } from "@/components/project-links";
 import { AgentSetupNotice, type UnconfiguredAgent } from "@/components/agent-setup-notice";
 import { WorkspaceNextStepCard } from "@/components/workspace-next-step-card";
 import { NEXT_STEP_COOKIE, workspaceNextStep, type WorkspaceNextStep } from "@/lib/workspace-next-step";
@@ -86,8 +87,7 @@ import { ideasPath, issuesPath, orgPath, projectPath, type ProjectRef } from "@/
 import { RichText } from "@/components/rich-text";
 import { isOrganizationAdmin } from "@/lib/organization-role";
 import { cookies } from "next/headers";
-import { GettingStarted } from "@/components/getting-started";
-import { GETTING_STARTED_COOKIE, gettingStartedFor, parseDismissed, type GettingStartedStep } from "@/lib/onboarding";
+import { parseDismissed } from "@/lib/onboarding";
 import { liveCheck, liveConfirmLabel, liveFactLabel, type LiveCheck, type LiveFact } from "@/lib/live-check";
 import { latestPullRequestReports } from "@/lib/agent-api/pull-request-report";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
@@ -108,6 +108,7 @@ import { ConfirmDots } from "@/components/confirm-dots";
 import { ExpandableRow, RowToggle } from "@/components/expandable-row";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
+import { bugSearchSort, ideaSearchSort, searchWorkItems, typesenseFilter } from "@/lib/search-index";
 import { EARN_PROJECT_SLUG, EARN_TASKS, tasksPaid } from "@/lib/earn/draft";
 import { isEarner } from "@/lib/earn/earner";
 import { earnState } from "@/lib/earn/state";
@@ -258,25 +259,6 @@ export async function IssuesList({
   const projectId: string | null = project.id;
   const activeProject = project;
 
-  // #641: a short checklist for a new workspace's owner or admin, until it's
-  // done or dismissed on this device.
-  let gettingStarted: { tenantId: string; workspaceName: string; steps: GettingStartedStep[] } | null = null;
-  if (tenantId && userId && membershipRole && isOrganizationAdmin(membershipRole, effectiveRole)) {
-    try {
-      const dismissed = parseDismissed((await cookies()).get(GETTING_STARTED_COOKIE)?.value);
-      // Earn (#earn-drafts): someone who came to earn never sees the new-workspace checklist.
-      if (!dismissed.includes(tenantId) && slug !== EARN_PROJECT_SLUG) {
-        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
-        if (tenant) {
-          const checklist = await gettingStartedFor(prisma, tenantId, ref);
-          if (!checklist.complete) gettingStarted = { tenantId, workspaceName: tenant.name, steps: checklist.steps };
-        }
-      }
-    } catch (error) {
-      console.error("[bugs] getting-started checklist failed", error);
-    }
-  }
-
   const canDelete = canDeleteTicket(effectiveRole, membershipRole);
   const params: Awaited<SearchParams> = { ...(await searchParams), status, ...(ideas ? { [IDEAS_PARAM]: ideas } : {}) };
   /** A list's address from its query: the status and ideas view become the path (lib/project-paths.ts). */
@@ -298,6 +280,9 @@ export async function IssuesList({
   const deletedParam = toSingleQueryParam(params.deleted);
   const mineFilter = parseMineFilter(params.mine);
   const ideaAuthor = parseIdeaAuthorFilter(params[IDEA_AUTHOR_PARAM]);
+  const trackFilter = parseTrackFilter(params[TRACK_PARAM]);
+  // Search follows the same track as the list; "all" names none, so both come back.
+  const trackSearch = trackFilter === "all" ? {} : { track: trackFilter };
   const isDeletedView = canDelete && deletedParam === "true";
   // Workspace-wide view (`?all=1`). Absent → unchanged project scope.
   const allProjects = showsAllProjects(params[PROJECT_ALL_PARAM]);
@@ -312,6 +297,7 @@ export async function IssuesList({
   const where: Prisma.BugWhereInput = {
     ...bugInTenant(tenantId),
     ...(projectId && !allProjects ? { projectId } : {}),
+    ...trackWhere(trackFilter),
     isDeleted: isDeletedView,
     ...mineFilterWhere(mineFilter, userId),
     ...duplicatesWhere(showDuplicates),
@@ -447,9 +433,27 @@ export async function IssuesList({
     const text = next.toString();
     return text ? `${path}?${text}` : path;
   };
+  const complexBugSearchFilter = Boolean(
+    mineFilter || (parseMyWorkFilter(params[MY_WORK_PARAM]) && userId)
+      || statusParam === REJECTED_STATUS || statusParam === POSSIBLY_DELIVERED
+      || toSingleQueryParam(params.stage) || confirmFilter,
+  );
+  const bugSearchExtraFilters = ["status", "substatus", "typeId", "areaId", "milestoneId", "reporterId", "assigneeId", "duplicateOfId", "isBoosted", "isDeleted"]
+    .map((field) => typesenseFilter(field, (where as Record<string, unknown>)[field]))
+    .filter((filter): filter is string => filter !== null);
+  let typesenseBugSearch: { found: number } | null = null;
+  if (qParam && boundSearchTerm(qParam).length >= 3 && tenantId && !isIdeasView && !complexBugSearchFilter) {
+    try {
+      const indexed = await searchWorkItems({ query: boundSearchTerm(qParam), kind: "bug", tenantId, ...(projectId && !allProjects ? { projectId } : {}), ...trackSearch, includeDeleted: isDeletedView, page: 1, perPage: 1, sortBy: bugSearchSort(currentSort, !isWatchingView), extraFilters: bugSearchExtraFilters });
+      if (indexed.found > 0) typesenseBugSearch = indexed;
+    } catch (error) {
+      console.error("[issues] Typesense search failed; using PostgreSQL", error);
+    }
+  }
 
   let totalCount = 0;
   try {
+    // PostgreSQL is authoritative for pagination totals while the index is asynchronous.
     totalCount = await prisma.bug.count({ where });
   } catch (error) {
     const reference = logLoadFailure("[bugs] list count failed", error);
@@ -473,6 +477,9 @@ export async function IssuesList({
       return issuesQueryError(reference);
     }
   }
+  // A cardinality mismatch means the asynchronous index cannot safely define
+  // this request's page set. Use PostgreSQL for both rows and exact total.
+  if (typesenseBugSearch && typesenseBugSearch.found !== totalCount) typesenseBugSearch = null;
 
   const stageView: IssueStage | null = isDeletedView || isIdeasView
     ? null
@@ -555,9 +562,23 @@ export async function IssuesList({
 
   // Select only what the list shows: no `description` (up to 5000 chars
   // each), which the list never displays (#217).
-  const listed = await prisma.bug
+  let indexedBugIds: string[] | null = null;
+  if (typesenseBugSearch && tenantId && qParam) {
+    try {
+      const result = await searchWorkItems({ query: boundSearchTerm(qParam), kind: "bug", tenantId, ...(projectId && !allProjects ? { projectId } : {}), ...trackSearch, includeDeleted: isDeletedView, page: pagination.page, perPage: pagination.take, sortBy: bugSearchSort(currentSort, !isWatchingView), extraFilters: bugSearchExtraFilters });
+      indexedBugIds = result.hits.map((hit) => hit.id);
+    } catch (error) {
+      console.error("[issues] Typesense result lookup failed; using PostgreSQL", error);
+    }
+  }
+  const issueRowWhere = { ...where };
+  if (indexedBugIds) {
+    delete issueRowWhere.OR;
+    issueRowWhere.id = { in: indexedBugIds };
+  }
+  let listed = await prisma.bug
     .findMany({
-      where,
+      where: issueRowWhere,
       select: {
         id: true,
         number: true,
@@ -607,11 +628,44 @@ export async function IssuesList({
       orderBy: confirmFilter === "more"
         ? [{ deploymentReports: { _count: "desc" } }, ...getBugOrderBy(currentSort, { boostFirst: false })]
         : getBugOrderBy(currentSort, { boostFirst: !isWatchingView }),
-      skip: pagination.skip,
-      take: pagination.take,
+      skip: indexedBugIds ? 0 : pagination.skip,
+      take: indexedBugIds ? indexedBugIds.length : pagination.take,
     })
     .then((bugs) => ({ bugs }))
     .catch((error: unknown) => ({ reference: logLoadFailure("[bugs] list query failed", error) }));
+  let forcePgFallback = false;
+  if (indexedBugIds && "bugs" in listed && qParam) {
+    try {
+      const literalQuery = boundSearchTerm(qParam).toLocaleLowerCase();
+      const exactNumber = parseIssueNumberQuery(qParam);
+      const descriptionsNeeded = listed.bugs.filter((bug) => !bug.title.toLocaleLowerCase().includes(literalQuery) && bug.number !== exactNumber).map((bug) => bug.id);
+      const descriptions = descriptionsNeeded.length
+        ? await prisma.bug.findMany({ where: { ...issueRowWhere, id: { in: descriptionsNeeded } }, select: { id: true, description: true } })
+        : [];
+      const byId = new Map(descriptions.map((row) => [row.id, row.description]));
+      const matched = listed.bugs.filter((bug) => bug.title.toLocaleLowerCase().includes(literalQuery)
+        || bug.number === exactNumber || (byId.get(bug.id)?.toLocaleLowerCase().includes(literalQuery) ?? false));
+      if (matched.length !== listed.bugs.length) listed = { bugs: matched };
+    } catch (error) {
+      console.error("[issues] could not validate indexed text results; using PostgreSQL", error);
+      forcePgFallback = true;
+    }
+  }
+  if (indexedBugIds && "bugs" in listed && (forcePgFallback || listed.bugs.length < Math.min(pagination.take, Math.max(0, totalCount - pagination.skip)))) {
+    // The index is eventually consistent. If validation drops a stale hit, use the established query for this request rather than render a short page.
+    listed = await prisma.bug.findMany({ where, select: {
+      id: true, number: true, title: true, status: true, substatus: true, closeReason: true, voteCount: true,
+      projectId: true, project: { select: { slug: true, tenant: { select: { slug: true } } } }, isDeleted: true, isBoosted: true, createdAt: true, updatedAt: true,
+      pullRequestUrl: true, type: { select: { name: true } }, reporter: { select: { name: true, role: true, image: true } },
+      assignee: { select: { name: true, role: true, image: true } },
+      claims: { where: { status: { in: ["active", "offered"] }, releasedAt: null }, select: { status: true, claimedAt: true, createdAt: true, deliverBy: true, beneficiaryUserId: true, beneficiary: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 2 },
+      area: { select: { id: true, name: true } }, reward: true, rewardEstimateCount: true, rewardFixedAt: true,
+      duplicateOf: showDuplicates ? { select: { number: true } } : false,
+      _count: { select: { comments: true, attachments: true, bids: { where: OPEN_BID_WHERE } } },
+    }, orderBy: getBugOrderBy(currentSort, { boostFirst: !isWatchingView }), skip: pagination.skip, take: pagination.take })
+      .then((bugs) => ({ bugs }))
+      .catch((error: unknown) => ({ reference: logLoadFailure("[bugs] list query failed", error) }));
+  }
   if ("reference" in listed) {
     return issuesQueryError(listed.reference);
   }
@@ -645,6 +699,7 @@ export async function IssuesList({
   // headings.
   const ideaWhere: Prisma.IdeaWhereInput = {
     tenantId: tenantId ?? "",
+    ...PRODUCT_TRACK,
     ...(projectId && !allProjects ? { projectId } : {}),
     isDeleted: false,
     status: "open",
@@ -692,7 +747,7 @@ export async function IssuesList({
         )
       : [];
   // The next-step card (#agents-dock) where the empty agents bar used to be: the one next thing for you, from your role and what the
-  // workspace has. Never beside AgentSetupNotice, never repeating a Getting started step that is showing, and dismissable per workspace.
+  // workspace has. Never beside AgentSetupNotice, and dismissable per workspace.
   let nextStep: WorkspaceNextStep | null = null;
   if (tenantId && userId && membershipRole && slug !== EARN_PROJECT_SLUG && !isDeletedView) {
     const dismissed = parseDismissed((await cookies()).get(NEXT_STEP_COOKIE)?.value).includes(tenantId);
@@ -719,7 +774,6 @@ export async function IssuesList({
           blockedAgentCount: unconfiguredAgents.length,
           dismissed,
           // The checklist is drawn on every view but Your Work (and hidden on phones).
-          openChecklistSteps: gettingStarted && !isYourWorkView ? gettingStarted.steps.filter((step) => !step.done).map((step) => step.id) : [],
         });
       }
     }
@@ -731,7 +785,7 @@ export async function IssuesList({
           "my work",
           () =>
             prisma.bug.count({
-              where: { ...bugInTenant(tenantId), ...(projectId && !allProjects ? { projectId } : {}), isDeleted: false, ...myWorkWhere(userId) },
+              where: { ...bugInTenant(tenantId), ...(projectId && !allProjects ? { projectId } : {}), ...trackWhere(trackFilter), isDeleted: false, ...myWorkWhere(userId) },
             }),
           0,
         )
@@ -775,11 +829,31 @@ export async function IssuesList({
   );
   const ideaRows: IdeaListRow[] = isIdeasView && tenantId
     ? await loadOrEmpty("ideas list", async () => {
-        const rows = await prisma.idea.findMany({
-          where: ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideasView === "rejected" ? rejectedIdeaWhere : ideaWhere,
+        const originalIdeaWhere = ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideasView === "rejected" ? rejectedIdeaWhere : ideaWhere;
+        let indexedIdeaIds: string[] | null = null;
+        if (qParam && boundSearchTerm(qParam).length >= 3 && ideasView !== "drafts") {
+          try {
+            const filters = [
+              ...(ideasView === "rejected" ? ["status:[rejected,archived]"] : ["status:=open"]),
+              ...(ideaAuthor === "agents" ? ["hasAgentCreator:=true"] : ideaAuthor === "people" ? ["hasAgentCreator:=false"] : []),
+              ...(mineFilter === "created" && userId ? [`reporterId:=${userId}`] : []),
+            ];
+            const indexed = await searchWorkItems({ query: boundSearchTerm(qParam), kind: "idea", tenantId, ...(projectId && !allProjects ? { projectId } : {}), track: "product", page: ideaPagination.page, perPage: ideaPagination.take, sortBy: ideaSearchSort(currentIdeaSort), extraFilters: filters });
+            if (indexed.found === ideaPagination.totalCount) indexedIdeaIds = indexed.hits.map((hit) => hit.id);
+          } catch (error) {
+            console.error("[ideas] Typesense result lookup failed; using PostgreSQL", error);
+          }
+        }
+        const ideaRowWhere = { ...originalIdeaWhere };
+        if (indexedIdeaIds) {
+          delete ideaRowWhere.OR;
+          ideaRowWhere.id = { in: indexedIdeaIds };
+        }
+        let rows = await prisma.idea.findMany({
+          where: ideaRowWhere,
           orderBy: getIdeaOrderBy(currentIdeaSort),
-          skip: ideaPagination.skip,
-          take: ideaPagination.take,
+          skip: indexedIdeaIds ? 0 : ideaPagination.skip,
+          take: indexedIdeaIds ? indexedIdeaIds.length : ideaPagination.take,
           select: {
             id: true, number: true, title: true, score: true, projectId: true, createdAt: true, updatedAt: true,
             status: true, archiveReason: true, archiveDuplicateOf: true, rejectedAt: true, archivedAt: true,
@@ -789,6 +863,30 @@ export async function IssuesList({
             _count: { select: { verdicts: true } },
           },
         });
+        let validatedRows = rows;
+        let forcePgIdeaFallback = false;
+        if (indexedIdeaIds && qParam) {
+          try {
+            const literalQuery = boundSearchTerm(qParam).toLocaleLowerCase();
+            const descriptionsNeeded = rows.filter((row) => !row.title.toLocaleLowerCase().includes(literalQuery)).map((row) => row.id);
+            const descriptions = descriptionsNeeded.length
+              ? await prisma.idea.findMany({ where: { ...ideaRowWhere, id: { in: descriptionsNeeded } }, select: { id: true, description: true } })
+              : [];
+            const byId = new Map(descriptions.map((row) => [row.id, row.description]));
+            validatedRows = rows.filter((row) => row.title.toLocaleLowerCase().includes(literalQuery) || (byId.get(row.id)?.toLocaleLowerCase().includes(literalQuery) ?? false));
+          } catch (error) {
+            console.error("[ideas] could not validate indexed text results; using PostgreSQL", error);
+            forcePgIdeaFallback = true;
+          }
+        }
+        if (indexedIdeaIds && (forcePgIdeaFallback || validatedRows.length < Math.min(ideaPagination.take, Math.max(0, ideaPagination.totalCount - ideaPagination.skip)))) {
+          rows = await prisma.idea.findMany({ where: originalIdeaWhere, orderBy: getIdeaOrderBy(currentIdeaSort), skip: ideaPagination.skip, take: ideaPagination.take, select: {
+            id: true, number: true, title: true, score: true, projectId: true, createdAt: true, updatedAt: true,
+            status: true, archiveReason: true, archiveDuplicateOf: true, rejectedAt: true, archivedAt: true,
+            verdicts: { orderBy: { updatedAt: "desc" }, take: 1, select: { updatedAt: true } },
+            reporter: { select: { name: true } }, _count: { select: { verdicts: true } },
+          } });
+        } else rows = validatedRows;
         const thresholds = new Map<string, number | null>();
         for (const id of new Set(rows.map((row) => row.projectId))) {
           thresholds.set(id, await workflowFor(id).then((w) => w.ideaThreshold).catch(() => null));
@@ -889,6 +987,7 @@ export async function IssuesList({
       isFirstRun = (await prisma.bug.count({
         where: {
           ...bugInTenant(tenantId),
+          ...PRODUCT_TRACK,
           ...(projectId && !allProjects ? { projectId } : {}),
           isDeleted: false,
         },
@@ -904,7 +1003,7 @@ export async function IssuesList({
   if (isWatchingView && userId) {
     try {
       finishedWatched = await prisma.bug.count({
-        where: { ...finishedWatchedWhere(userId), ...bugInTenant(tenantId) },
+        where: { ...finishedWatchedWhere(userId), ...bugInTenant(tenantId), ...PRODUCT_TRACK },
       });
     } catch (error) {
       console.error("[bugs] finished watched count failed", error);
@@ -964,7 +1063,20 @@ export async function IssuesList({
     else next.set(MY_WORK_PARAM, "1");
     return listHref(next);
   })();
-  // The toolbar's Filter menu: on the All tab, All / Rejected / Duplicates (pick one); then My Work (on or off).
+  // Track filter: Product (the default, which leaves the address alone) / Marketing / All
+  const trackHref = (track: "product" | "marketing" | "all") => {
+    const next = new URLSearchParams(currentQuery);
+    next.delete("page");
+    if (track === "product") next.delete(TRACK_PARAM);
+    else next.set(TRACK_PARAM, track);
+    return listHref(next);
+  };
+  const trackFilterOptions: ToolbarFilterOption[] = [
+    { label: "Product", count: 0, href: trackHref("product"), selected: trackFilter === "product" },
+    { label: "Marketing", count: 0, href: trackHref("marketing"), selected: trackFilter === "marketing" },
+    { label: "All", count: 0, href: trackHref("all"), selected: trackFilter === "all" },
+  ];
+  // The toolbar's Filter menu: on the All tab, All / Rejected / Duplicates (pick one); then My Work (on or off); then Track filter.
   const allTabFilters: ToolbarFilterOption[] = !isDeletedView && allSelected
     ? ALL_FILTERS.map(({ value, label }) => ({ label, count: allFilterCount(value), href: statusHref(value), selected: statusParam === value }))
     : [];
@@ -972,11 +1084,13 @@ export async function IssuesList({
   const filterGroups: ToolbarFilterGroup[] = [
     ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
     ...(myWorkFilter.length ? [{ options: myWorkFilter }] : []),
+    { label: "Track", options: trackFilterOptions },
   ];
   // What the Filter button names while closed: anything beyond the default "All".
   const filterSummary = [
     ...allTabFilters.filter((option) => option.selected && option.label !== "All").map((option) => option.label),
     ...(myWorkOn ? ["My Work"] : []),
+    ...(trackFilter !== "product" ? [trackFilter === "all" ? "Track: All" : `Track: ${trackFilter.charAt(0).toUpperCase() + trackFilter.slice(1)}`] : []),
   ].join(" · ");
   // Only a status tab is picked (no search or other filter): an empty list then
   // just means that tab is empty, so the empty state names the tab.
@@ -1002,12 +1116,6 @@ export async function IssuesList({
 
   const headerContent = (
     <>
-      {/* Your Work is about your own assignments, not setting up the workspace; and on a phone it would cover the list. */}
-      {gettingStarted && !isYourWorkView ? (
-        <div className="max-sm:hidden">
-          <GettingStarted {...gettingStarted} />
-        </div>
-      ) : null}
       {activeProject?.goal ? (
         <section aria-labelledby="project-goal-heading" className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -1113,7 +1221,7 @@ export async function IssuesList({
               />
             }
             // Open ideas, none yet and no search: what Ziki is for and where to type (#ideas-welcome).
-            welcome={ideasView === "new" && !qParam ? <IdeasWelcome projectId={project.id} projectName={project.name} /> : undefined}
+            welcome={ideasView === "new" && !qParam ? <IdeasWelcome projectId={project.id} /> : undefined}
             empty={
               ideasView === "drafts"
                 ? "No unstructured draft ideas are waiting to be structured."
@@ -1429,18 +1537,20 @@ export async function IssuesList({
         />
       ) : null}
       <div className="absolute right-0 top-0 flex items-center gap-2 max-sm:static max-sm:self-end">
-        {/* The project's settings icon, at the far right: the site and code URLs, notes, and the settings page. */}
+        {/* At the far right: the site and code addresses, then Project notes and the settings page. */}
         {projectLinks && !isDeletedView ? (
           <ProjectLinks
             slug={slug}
             siteUrl={projectLinks.siteUrl}
             repoUrl={projectLinks.repoUrl}
             canEdit={canEditProjectLinks}
-            notesHref={projectPath(ref, "/notes")}
-            settingsHref={`/projects/${encodeURIComponent(slug)}/settings`}
             // #agent-work-gate: a blocked agent comes first; the site URL ask waits (the icon still opens it).
             askOnLoad={isIdeasView && unconfiguredAgents.length === 0}
           />
+        ) : null}
+        {/* Project notes and settings, as icons, beside the tabs. */}
+        {!isDeletedView ? (
+          <ProjectIconLinks notesHref={projectPath(ref, "/notes")} settingsHref={`/projects/${encodeURIComponent(slug)}/settings`} />
         ) : null}
       </div>
     </div>

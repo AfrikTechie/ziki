@@ -31,6 +31,7 @@ import {
   normalizeMentions,
 } from "@/lib/mentions";
 import { resolveTenantMentions, tenantMemberWhere } from "@/lib/tenant-mentions";
+import { parseIdeaTrack, typeFitsTrack } from "@/lib/marketing/idea-track";
 import { structureIdea } from "@/lib/idea-structuring";
 import {
   commentSchema,
@@ -105,7 +106,8 @@ import {
   type MentionedAgent,
 } from "@/lib/agent-mentions";
 import { ideaPath, refOf } from "@/lib/project-paths";
-import { ENTRY_SUBSTATUS, moveTo } from "@/lib/issue-substatus";
+import { moveTo } from "@/lib/issue-substatus";
+import { entrySubstatus } from "@/lib/marketing/track";
 
 export type ActionResult = {
   error?: string;
@@ -154,7 +156,7 @@ async function issueTypeForCreate(typeId: string, tenantId: string) {
   try {
     return await prisma.issueType.findUnique({
       where: { id_tenantId: { id: typeId, tenantId } },
-      select: { id: true, isActive: true, template: true },
+      select: { id: true, isActive: true, template: true, track: true },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
@@ -171,7 +173,7 @@ async function issueTypeForCreate(typeId: string, tenantId: string) {
       where: { id_tenantId: { id: typeId, tenantId } },
       select: { id: true, isActive: true },
     });
-    return row ? { ...row, template: null } : null;
+    return row ? { ...row, template: null, track: "product" as const } : null;
   }
 }
 
@@ -230,6 +232,13 @@ export async function createBugAction(
     return fromZodError(parsed.error);
   }
 
+  // Product (the default) or a marketing task, which must say why it is worth doing.
+  const trackFields = parseIdeaTrack({ track: formData.get("track"), rationale: formData.get("rationale") });
+  if (!trackFields.ok) {
+    return fieldError(trackFields.field, trackFields.message);
+  }
+  const { track, rationale } = trackFields.value;
+
   const typeId =
     parsed.data.typeId && parsed.data.typeId.length > 0
       ? parsed.data.typeId
@@ -252,6 +261,12 @@ export async function createBugAction(
     if (!issueType || !issueType.isActive) {
       return fieldError("typeId", "That type no longer exists. Please pick another.");
     }
+    if (!typeFitsTrack(issueType.track, track)) {
+      return fieldError(
+        "typeId",
+        track === "marketing" ? "Pick one of the marketing task types." : "That type is for marketing tasks. Please pick another.",
+      );
+    }
     // #307: headings alone pass the length check but say nothing.
     if (isUntouchedTemplate(parsed.data.description, issueType.template)) {
       return fieldError("description", UNFILLED_TEMPLATE_MESSAGE);
@@ -263,7 +278,10 @@ export async function createBugAction(
     : null;
   // #idea-intake: Claude writes what they typed up as a clear idea (title and the standard
   // headings) before it is saved. Without the key, or if that fails, it is saved as typed.
-  const structured = await structureIdea({ title: parsed.data.title, description: parsed.data.description });
+  // A marketing task is kept as written: the structuring writes a product report's headings.
+  const structured = track === "product"
+    ? await structureIdea({ title: parsed.data.title, description: parsed.data.description })
+    : null;
   const ideaTitle = structured?.title ?? parsed.data.title;
   // #502: mentions resolve only to members of the idea's tenant.
   const description = await resolveTenantMentions(prisma, tenantId, structured?.description ?? parsed.data.description);
@@ -287,6 +305,8 @@ export async function createBugAction(
           reporterId: userId,
           title: ideaTitle,
           description,
+          track,
+          rationale,
           typeId,
           proofLinks: parsed.data.proofLinks,
           areaId,
@@ -476,7 +496,7 @@ export async function updateBugAction(
     boostedAt?: Date | null;
   } = {};
 
-  if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(ENTRY_SUBSTATUS[parsed.data.status]));
+  if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(entrySubstatus(existing.track, parsed.data.status)));
   if (admin) {
     if (parsed.data.typeId !== undefined) {
       data.typeId = parsed.data.typeId === "" ? null : parsed.data.typeId;

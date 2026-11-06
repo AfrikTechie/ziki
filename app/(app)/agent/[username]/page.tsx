@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 import { isTenantAdmin } from "@/lib/agents/membership";
 import { missingProfileFields } from "@/lib/agents/work-gate";
-import { agentEditHref, AGENTS_DIRECTORY_HREF } from "@/lib/header-nav";
+import { agentEditHref, AGENTS_DIRECTORY_HREF, MANAGE_AGENTS_HREF } from "@/lib/header-nav";
 import { agentsLink, agentsMutedClass, agentsPrimaryBtn, agentsSecondaryBtn, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
 import { AgentActivity, AgentProfileHeader, AgentSideCard, AgentStats } from "./agent-profile";
 import { AgentReviews } from "./agent-reviews";
@@ -13,6 +13,8 @@ import { AgentTabs } from "./agent-tabs";
 import { findAgentByUsername, loadAgentProfile, loadOwnAgents, loadReviews } from "./data";
 import { agentProfileJsonLd, agentProfileMetadata } from "@/lib/seo/agents";
 import { JsonLd } from "@/components/json-ld";
+import { AgentKeyPanel } from "./agent-key-panel";
+import { loadOwnerKey } from "./owner-key";
 
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
@@ -27,7 +29,13 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
  * and its activity (they name the workspace's issues) show to members, its
  * activity collapsed until opened. Only they see the link to edit it, at /agent/{username}/edit.
  */
-export default async function AgentProfilePage({ params }: { params: Promise<{ username: string }> }) {
+export default async function AgentProfilePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ username: string }>;
+  searchParams: Promise<{ connect?: string | string[] }>;
+}) {
   if (!isAgentPlatformEnabled()) notFound();
   const { username } = await params;
   const found = await findAgentByUsername(username);
@@ -53,6 +61,8 @@ export default async function AgentProfilePage({ params }: { params: Promise<{ u
   const reviewCount = isMember ? reviews.length : 0;
   // #seo-agents: structured data for a public (set-up, not revoked) profile only.
   const jsonLd = await agentProfileJsonLd(username);
+  // Its key is its owner's alone: not even a team admin is shown it.
+  const ownerKey = isOwner && !profile.agent.revokedAt ? await loadOwnerKey(found.id, found.tenantId) : null;
   const missing = missingProfileFields({ ...profile.agent, skillCount: profile.agent.skills.length });
   const blocked = !profile.agent.revokedAt && missing.length > 0;
 
@@ -61,8 +71,9 @@ export default async function AgentProfilePage({ params }: { params: Promise<{ u
       {jsonLd ? <JsonLd data={jsonLd} /> : null}
       {/* The way back on the left and your agents' tabs centred on one line; stacked on a phone. */}
       <div className="grid items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
-        <Link href={AGENTS_DIRECTORY_HREF} className={`justify-self-start text-sm ${agentsLink}`}>
-          ← All agents
+        {/* Back to your own agents from one of them; to every agent from anyone else's. */}
+        <Link href={isOwner ? MANAGE_AGENTS_HREF : AGENTS_DIRECTORY_HREF} className={`justify-self-start text-sm ${agentsLink}`}>
+          {isOwner ? "← My agents" : "← All agents"}
         </Link>
         <div className="min-w-0 md:justify-self-center">
           <AgentTabs agents={ownAgents} currentId={found.id} />
@@ -93,6 +104,18 @@ export default async function AgentProfilePage({ params }: { params: Promise<{ u
           agent={profile.agent}
           blocked={canEdit && blocked}
           showActivity={isMember}
+          keyPanel={
+            ownerKey ? (
+              <AgentKeyPanel
+                agentId={found.id}
+                agentName={profile.agent.name}
+                liveKey={ownerKey.liveKey}
+                startOpen={(await searchParams).connect === "1"}
+                projectId={ownerKey.projectId}
+                projectName={ownerKey.projectName}
+              />
+            ) : null
+          }
           editControl={
             canEdit && !profile.agent.revokedAt ? (
               <Link href={agentEditHref(found.username)} className={blocked ? agentsPrimaryBtn : agentsSecondaryBtn}>

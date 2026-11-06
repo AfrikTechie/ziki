@@ -4,13 +4,136 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
   agentInboxItem: { findMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
   bug: { findMany: vi.fn() },
+  agentQuestion: { findMany: vi.fn() },
+  notification: { updateMany: vi.fn(), count: vi.fn(), findMany: vi.fn() },
+  membership: { count: vi.fn() },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
+vi.mock("@/lib/auth-helpers", () => ({ requireUser: vi.fn(async () => ({ id: "owner-1" })) }));
+vi.mock("@/lib/tenant-context", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/tenant-context")>()),
+  currentTenantIdFor: vi.fn(async () => "tenant-a"),
+}));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/cache-tags", () => ({ expireTag: vi.fn(), TAGS: { unread: (id: string) => `unread:${id}` } }));
 const markMessagesRead = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/agent-messages", () => ({ markMessagesRead }));
 
 import { inboxRecipients, listInbox, markInboxRead, writeInbox, type InboxEvent } from "@/lib/agent-api/inbox";
 import { publish } from "@/lib/agent-api/events";
+import { escalationOnTrack, escalationTrackWhere, notificationTrackWhere, parseInboxTrack } from "@/lib/my-work-filter";
+import { listOwnerQuestions } from "@/lib/agent-questions";
+import { markAllNotificationsReadAction } from "@/app/actions/notifications";
+import { NotificationsView } from "@/app/(app)/inbox/notifications-view";
+import { requireUser } from "@/lib/auth-helpers";
+import { currentTenantIdFor } from "@/lib/tenant-context";
+
+describe("the person's Inbox track filter (M-UI-8)", () => {
+  it("hides nothing until the person picks a track", () => {
+    expect(parseInboxTrack(undefined)).toBe("all");
+    expect(parseInboxTrack("nonsense")).toBe("all");
+    expect(notificationTrackWhere("all")).toEqual({});
+    expect(escalationOnTrack(null, "all")).toBe(true);
+    expect(escalationOnTrack({ track: "marketing" }, "all")).toBe(true);
+  });
+
+  it("keeps only marketing work under Marketing", () => {
+    expect(notificationTrackWhere("marketing")).toEqual({ bug: { track: "marketing" } });
+    expect(escalationOnTrack({ track: "marketing" }, "marketing")).toBe(true);
+    expect(escalationOnTrack({ track: "product" }, "marketing")).toBe(false);
+    expect(escalationOnTrack(null, "marketing")).toBe(false);
+  });
+
+  it("keeps items with no issue under Product, without overwriting the workspace scope's OR", () => {
+    expect(notificationTrackWhere("product")).toEqual({
+      AND: [{ OR: [{ bugId: null }, { bug: { track: "product" } }] }],
+    });
+    expect(notificationTrackWhere("product")).not.toHaveProperty("OR");
+    expect(escalationOnTrack(null, "product")).toBe(true);
+    expect(escalationOnTrack({ track: "product" }, "product")).toBe(true);
+    expect(escalationOnTrack({ track: "marketing" }, "product")).toBe(false);
+  });
+
+  it("filters owner questions by track before the bounded query while keeping owner and tenant scope", async () => {
+    db.agentQuestion.findMany.mockResolvedValue([]);
+
+    await listOwnerQuestions("owner-1", "tenant-a", "marketing");
+
+    expect(db.agentQuestion.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        ownerUserId: "owner-1",
+        agent: { tenantId: "tenant-a" },
+        bug: { is: { track: "marketing" } },
+      },
+      take: 100,
+    }));
+    expect(escalationTrackWhere("product")).toEqual({
+      OR: [{ bugId: null }, { bug: { is: { track: "product" } } }],
+    });
+    expect(escalationTrackWhere("all")).toEqual({});
+  });
+});
+
+describe("track-scoped mark-all-read", () => {
+  it("counts unread only on the selected track, so the button matches what it can mark", async () => {
+    vi.mocked(requireUser).mockResolvedValue({ id: "owner-1" } as never);
+    vi.mocked(currentTenantIdFor).mockResolvedValue("tenant-a");
+    db.notification.count.mockResolvedValue(0);
+    db.notification.findMany.mockResolvedValue([]);
+    db.membership.count.mockResolvedValue(1);
+
+    await NotificationsView({ searchParams: Promise.resolve({ track: "marketing" }) });
+
+    expect(db.notification.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ userId: "owner-1", readAt: null, bug: { track: "marketing" } }),
+    });
+  });
+
+  it.each([
+    {
+      name: "Marketing in this workspace",
+      allWorkspaces: false,
+      track: "marketing",
+      expectedScope: { OR: [{ tenantId: null }, { tenantId: "tenant-a" }, { kind: "tenant_invite" }] },
+      expectedTrack: { bug: { track: "marketing" } },
+    },
+    {
+      name: "Product in this workspace",
+      allWorkspaces: false,
+      track: "product",
+      expectedScope: { OR: [{ tenantId: null }, { tenantId: "tenant-a" }, { kind: "tenant_invite" }] },
+      expectedTrack: { AND: [{ OR: [{ bugId: null }, { bug: { track: "product" } }] }] },
+    },
+    {
+      name: "All tracks in this workspace",
+      allWorkspaces: false,
+      track: "all",
+      expectedScope: { OR: [{ tenantId: null }, { tenantId: "tenant-a" }, { kind: "tenant_invite" }] },
+      expectedTrack: {},
+    },
+    {
+      name: "All tracks across workspaces for this user",
+      allWorkspaces: true,
+      track: "all",
+      expectedScope: {},
+      expectedTrack: {},
+    },
+  ] as const)("marks $name without crossing user or tenant boundaries", async ({ allWorkspaces, track, expectedScope, expectedTrack }) => {
+    vi.mocked(requireUser).mockResolvedValue({ id: "owner-1" } as never);
+    vi.mocked(currentTenantIdFor).mockResolvedValue("tenant-a");
+    db.notification.updateMany.mockResolvedValue({ count: 1 });
+
+    await markAllNotificationsReadAction(allWorkspaces, track);
+
+    expect(db.notification.updateMany).toHaveBeenCalledWith({
+      where: { userId: "owner-1", readAt: null, AND: [expectedScope, expectedTrack] },
+      data: { readAt: expect.any(Date) },
+    });
+    expect(requireUser).toHaveBeenCalledOnce();
+    if (allWorkspaces) expect(currentTenantIdFor).not.toHaveBeenCalled();
+    else expect(currentTenantIdFor).toHaveBeenCalledWith("owner-1");
+  });
+});
 
 /** A transaction double with every table the inbox routing reads. */
 function tx(overrides: Partial<Record<string, unknown>> = {}) {
@@ -105,7 +228,7 @@ describe("marking items read", () => {
     db.agentInboxItem.updateMany.mockResolvedValue({ count: 2 });
     expect(await markInboxRead({ agentId: "agent-bob" }, { ids: ["a", "b"] })).toBe(2);
     expect(db.agentInboxItem.updateMany).toHaveBeenCalledWith({
-      where: { agentId: "agent-bob", id: { in: ["a", "b"] }, readAt: null }, data: { readAt: expect.any(Date) },
+      where: { agentId: "agent-bob", id: { in: ["a", "b"] }, readAt: null, NOT: { eventType: "agent.steer" } }, data: { readAt: expect.any(Date) },
     });
   });
 
@@ -113,7 +236,7 @@ describe("marking items read", () => {
     db.agentInboxItem.findFirst.mockResolvedValueOnce({ id: "item-1", createdAt: item.createdAt }).mockResolvedValueOnce(null);
     db.agentInboxItem.updateMany.mockResolvedValue({ count: 3 });
     expect(await markInboxRead({ agentId: "agent-bob" }, { upTo: "item-1" })).toBe(3);
-    expect(db.agentInboxItem.updateMany.mock.calls[0][0].where).toEqual({ agentId: "agent-bob", readAt: null,
+    expect(db.agentInboxItem.updateMany.mock.calls[0][0].where).toEqual({ agentId: "agent-bob", readAt: null, NOT: { eventType: "agent.steer" },
       OR: [{ createdAt: { lt: item.createdAt } }, { createdAt: item.createdAt, id: { lte: "item-1" } }] });
     expect(await markInboxRead({ agentId: "agent-bob" }, { upTo: "other-agents-item" })).toBeNull();
   });

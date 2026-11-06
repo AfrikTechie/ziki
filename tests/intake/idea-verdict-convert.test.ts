@@ -1,5 +1,9 @@
+import { marketingIdeaFieldsSchema } from "@/lib/validations/marketing";
+import { reopenSubstatus, trackRules } from "@/lib/marketing/track";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "@/lib/agents/require-agent";
+import { resetWorkflowCache } from "@/lib/workflow";
+import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 
 /** Idea verdicts and conversion (#idea-table, #727): verdict weights, the score, the threshold, conversion to an issue at Requires confirmation, and rejecting a bad idea. */
 const db = vi.hoisted(() => ({
@@ -15,9 +19,11 @@ const db = vi.hoisted(() => ({
 }));
 const publish = vi.hoisted(() => vi.fn());
 const audit = vi.hoisted(() => vi.fn());
+const getProjectRewardConfig = vi.hoisted(() => vi.fn(async () => ({ reporter: 2.75 })));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
 vi.mock("@/lib/agents/audit", () => ({ audit }));
+vi.mock("@/lib/points/platform-rewards", () => ({ getProjectRewardConfig }));
 
 import { convertIdea, convertVettedIdea, giveIdeaVerdict, maxVotesFor, rejectIdea, verdictScore } from "@/lib/agent-api/idea-verdicts";
 
@@ -28,6 +34,7 @@ const idea = (overrides: Record<string, unknown> = {}) => ({
   tenantId: "t1",
   projectId: "p1",
   status: "open", substatus: "open",
+  track: "product",
   score: 3,
   reporterId: "ada",
   beneficiaryUserId: "ada",
@@ -52,6 +59,7 @@ const person = { tenantId: "t1", userId: "bob" };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetWorkflowCache();
   db.$transaction.mockImplementation((run: (tx: unknown) => unknown) => run(db));
   db.$queryRaw.mockResolvedValue([idea()]);
   db.ideaVerdict.findUnique.mockResolvedValue(null);
@@ -59,6 +67,7 @@ beforeEach(() => {
   db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 1 }]);
   db.pointEntry.createMany.mockResolvedValue({ count: 1 });
   db.projectWorkflow.findUnique.mockResolvedValue(null);
+  getProjectRewardConfig.mockResolvedValue({ reporter: 2.75 });
   db.idea.findUniqueOrThrow.mockResolvedValue(report);
   db.bug.create.mockResolvedValue({ id: "b9", number: 42 });
 });
@@ -113,6 +122,33 @@ describe("giveIdeaVerdict", () => {
     expect(result).toMatchObject({ replaced: true, pointsAwarded: 0 });
   });
 
+  it("takes a verdict from the idea's own reporter, and pays it (#owner-agents)", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ score: 0 })]);
+    const result = await giveIdeaVerdict({ tenantId: "t1", userId: "ada" }, "p1", "i1", input);
+    expect(result).toMatchObject({ replaced: false, pointsAwarded: 0.01 });
+    expect(db.ideaVerdict.upsert).toHaveBeenCalled();
+  });
+
+  it("refuses votes on marketing ideas already rejected or converted", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing", status: "rejected" })]);
+    await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 409, body: { error: "idea_rejected" } });
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing", status: "converted" })]);
+    await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
+    expect(db.ideaVerdict.upsert).not.toHaveBeenCalled();
+    expect(db.pointEntry.createMany).not.toHaveBeenCalled();
+  });
+
+  it("locks the idea inside its tenant and project before applying a verdict", async () => {
+    await giveIdeaVerdict(person, "p1", "7", input);
+    const [query, tenantId, projectId] = db.$queryRaw.mock.calls[0] as [TemplateStringsArray, string, string, ...unknown[]];
+    const sql = query.join("?");
+    expect(tenantId).toBe("t1");
+    expect(projectId).toBe("p1");
+    expect(sql).toContain('WHERE i."tenantId" = ?');
+    expect(sql).toContain('AND i."projectId" = ?');
+    expect(sql).toContain("FOR NO KEY UPDATE OF i");
+  });
+
   it("refuses another good verdict once the idea reached the threshold, and pays nothing (#727)", async () => {
     db.$queryRaw.mockResolvedValue([idea({ score: 3 })]);
     await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({
@@ -137,6 +173,99 @@ describe("giveIdeaVerdict", () => {
   it("refuses more votes than the giver may give", async () => {
     await expect(giveIdeaVerdict(person, "p1", "i1", { ...input, votes: 2 })).rejects.toMatchObject({ status: 422, body: { error: "too_many_votes", maxVotes: 1 } });
     expect(db.ideaVerdict.upsert).not.toHaveBeenCalled();
+  });
+
+  it("awards the existing idea-vote points for a marketing verdict", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing", score: 0 })]);
+
+    const result = await giveIdeaVerdict(person, "p1", "7", input);
+
+    expect(result).toMatchObject({ pointsAwarded: 0.01, replaced: false });
+    expect(db.pointEntry.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        userId: "bob",
+        role: "idea",
+        points: 0.01,
+        ideaId: "i1",
+        sourceKey: "idea:i1:bob",
+      })],
+      skipDuplicates: true,
+    });
+  });
+
+  it("opens a marketing idea on the verdict that reaches its threshold, with no agent converting it", async () => {
+    db.projectWorkflow.findUnique.mockResolvedValue(DEFAULT_PROJECT_WORKFLOW);
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing", score: 2 })]);
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 2 }, { opinion: "good", votes: 1 }]);
+
+    const result = await giveIdeaVerdict(person, "p1", "7", input);
+
+    expect(result).toMatchObject({ ideaScore: 3, convertible: false, decided: { outcome: "converted", issueId: "b9", issueNumber: 42 } });
+    expect(db.bug.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ track: "marketing", status: "open", substatus: "open" }),
+    }));
+  });
+
+  it("leaves a product idea at its threshold for an agent to convert", async () => {
+    db.projectWorkflow.findUnique.mockResolvedValue(DEFAULT_PROJECT_WORKFLOW);
+    db.$queryRaw.mockResolvedValue([idea({ track: "product", score: 2 })]);
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 2 }, { opinion: "good", votes: 1 }]);
+
+    const result = await giveIdeaVerdict(person, "p1", "7", input);
+
+    expect(result).toMatchObject({ ideaScore: 3, convertible: true, decided: null });
+    expect(db.bug.create).not.toHaveBeenCalled();
+  });
+
+  it("doesn't open a bad marketing idea at its threshold: a manager agent rejects it", async () => {
+    db.projectWorkflow.findUnique.mockResolvedValue(DEFAULT_PROJECT_WORKFLOW);
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing", score: 2 })]);
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 3 }, { opinion: "neutral", votes: 4 }]);
+
+    const result = await giveIdeaVerdict(person, "p1", "7", input);
+
+    expect(result).toMatchObject({ ideaScore: 3, decided: null });
+    expect(db.bug.create).not.toHaveBeenCalled();
+  });
+
+  it("converts a marketing idea to Open in the vote transaction under threshold-only governance", async () => {
+    db.projectWorkflow.findUnique.mockResolvedValue({ ...DEFAULT_PROJECT_WORKFLOW, governance: "threshold" });
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing", score: 2 })]);
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 2 }, { opinion: "good", votes: 1 }]);
+
+    const result = await giveIdeaVerdict(person, "p1", "7", input);
+
+    expect(result).toMatchObject({
+      ideaScore: 3,
+      convertible: false,
+      decided: { outcome: "converted", issueId: "b9", issueNumber: 42 },
+    });
+    expect(db.bug.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ track: "marketing", status: "open", substatus: "open" }),
+    }));
+    expect(db.pointEntry.createMany).toHaveBeenNthCalledWith(1, {
+      data: [expect.objectContaining({ userId: "bob", role: "idea", points: 0.01, ideaId: "i1" })],
+      skipDuplicates: true,
+    });
+    expect(db.pointEntry.createMany).toHaveBeenNthCalledWith(2, {
+      data: [expect.objectContaining({ userId: "ada", bugId: "b9", role: "reporter", points: 2.75, sourceKey: "reporter:b9:ada" })],
+      skipDuplicates: true,
+    });
+  });
+
+  it("rejects a bad marketing idea in the vote transaction under threshold-only governance", async () => {
+    db.projectWorkflow.findUnique.mockResolvedValue({ ...DEFAULT_PROJECT_WORKFLOW, governance: "threshold" });
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing", score: 1 })]);
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "bad", votes: 2 }, { opinion: "bad", votes: 1 }]);
+
+    const result = await giveIdeaVerdict(person, "p1", "7", { ...input, opinion: "bad" });
+
+    expect(result).toMatchObject({ ideaScore: -3, convertible: false, decided: { outcome: "rejected" } });
+    expect(db.idea.update).toHaveBeenCalledWith({
+      where: { id: "i1" },
+      data: { status: "rejected", rejectedAt: expect.any(Date), rejectedByAgentId: null },
+    });
+    expect(db.bug.create).not.toHaveBeenCalled();
   });
 
 });
@@ -173,6 +302,34 @@ describe("convertIdea", () => {
       payload: expect.objectContaining({ ideaId: "i1", issueId: "b9", issueNumber: 42 }),
     }));
     expect(audit).toHaveBeenCalledWith(expect.anything(), "idea.converted", "idea:i1", expect.objectContaining({ issueId: "b9" }), { bugId: "b9" });
+  });
+
+  it("converts marketing ideas straight to Open and pays the beneficiary from project reporter rewards", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ track: "marketing" })]);
+
+    const result = await convertIdea(agentOf("working"), "p1", "7");
+
+    expect(result).toMatchObject({ issueId: "b9", issueNumber: 42 });
+    expect(db.bug.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        track: "marketing",
+        status: "open",
+        substatus: "open",
+      }),
+    }));
+    expect(getProjectRewardConfig).toHaveBeenCalledWith(db, "p1");
+    expect(db.pointEntry.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        tenantId: "t1",
+        userId: "ada",
+        bugId: "b9",
+        role: "reporter",
+        points: 2.75,
+        sourceKey: "reporter:b9:ada",
+        agentId: "agent-ada",
+      })],
+      skipDuplicates: true,
+    });
   });
 
   it("needs an open idea and a score at the threshold", async () => {
@@ -252,4 +409,23 @@ describe("rejectIdea (#idea-rejected)", () => {
     expect(db.idea.update).not.toHaveBeenCalled();
   });
 
+});
+
+describe("the marketing track at conversion", () => {
+  it("skips confirmation for marketing and keeps it for product", () => {
+    expect(trackRules("marketing").convertsTo).toBe("open");
+    expect(trackRules("product").convertsTo).toBe("requires_confirmation");
+  });
+
+  it("reopens marketing work to Open, with no confirmation step to return to", () => {
+    expect(reopenSubstatus("marketing", false)).toBe("open");
+    expect(reopenSubstatus("product", false)).toBe("requires_confirmation");
+    expect(reopenSubstatus("product", true)).toBe("open");
+  });
+
+  it("refuses a marketing idea that doesn't say why it is worth doing", () => {
+    expect(marketingIdeaFieldsSchema.safeParse({ track: "marketing" }).success).toBe(false);
+    expect(marketingIdeaFieldsSchema.safeParse({ track: "marketing", rationale: "   " }).success).toBe(false);
+    expect(marketingIdeaFieldsSchema.safeParse({ track: "marketing", rationale: "People keep asking." }).success).toBe(true);
+  });
 });

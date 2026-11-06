@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { markAllNotificationsReadAction } from "@/app/actions/notifications";
 import { Button } from "@/components/ui/button";
+import type { WorkTrack } from "@prisma/client";
 
-export function MarkAllReadButton({ allWorkspaces = false }: { allWorkspaces?: boolean }) {
+export function MarkAllReadButton({ allWorkspaces = false, track = "all" }: { allWorkspaces?: boolean; track?: WorkTrack | "all" }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -12,7 +13,7 @@ export function MarkAllReadButton({ allWorkspaces = false }: { allWorkspaces?: b
     setError(null);
     startTransition(async () => {
       try {
-        const result = await markAllNotificationsReadAction(allWorkspaces);
+        const result = await markAllNotificationsReadAction(allWorkspaces, track);
         if (!result.ok) setError("Could not mark notifications as read. Please try again.");
       } catch {
         setError("Could not mark notifications as read. Please try again.");

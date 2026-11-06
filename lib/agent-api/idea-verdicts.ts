@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentLevel, IdeaOpinion, Prisma } from "@prisma/client";
+import type { AgentLevel, IdeaOpinion, Prisma, WorkTrack } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
@@ -7,7 +7,9 @@ import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { award } from "@/lib/points/award";
-import { IDEA_CONTRIBUTION_POINTS, ideaContributionSourceKey } from "@/lib/points/rules";
+import { IDEA_CONTRIBUTION_POINTS, ideaContributionSourceKey, pointSourceKey } from "@/lib/points/rules";
+import { calculateReporterPoints } from "@/lib/points/project-rewards";
+import { getProjectRewardConfig } from "@/lib/points/platform-rewards";
 import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { createdSummary } from "@/lib/activity-log";
@@ -21,6 +23,7 @@ import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision 
 export type VettedDecision = { via: "already_vetted"; decidedByUserId: string; decidedByAgentId: string; vettedNote: string };
 import { moveTo } from "@/lib/issue-substatus";
 import { moveIdeaStakesToIssue } from "@/lib/agent-api/stakes";
+import { trackRules } from "@/lib/marketing/track";
 
 /**
  * Idea verdicts and conversion (#idea-verdicts, #idea-table). Each person
@@ -32,8 +35,11 @@ import { moveIdeaStakesToIssue } from "@/lib/agent-api/stakes";
  * (lib/governance.ts). A newer verdict from the same person replaces theirs.
  *
  * When the score reaches the project's `ideaThreshold`, any agent may
- * convert the idea, which creates an issue. The verdicts stay with the idea:
- * the issue is then confirmed on its own. In a threshold-only project
+ * convert the idea, which creates an issue.
+ * Product issues then need confirmation. A marketing idea doesn't wait for an
+ * agent: the verdict that brings it to the threshold opens it, unless its votes
+ * make it a bad idea, which a manager agent rejects.
+ * The verdicts stay with the idea. In a threshold-only project
  * (#vote-governance) the verdict that makes the idea bad rejects it, and the
  * one that brings the score to the threshold converts it; a manager agent's
  * verdict there carries its full weight unless it asks for fewer votes.
@@ -82,6 +88,7 @@ type LockedIdea = {
   tenantId: string;
   projectId: string;
   status: string;
+  track: WorkTrack;
   score: number;
   reporterId: string;
   beneficiaryUserId: string;
@@ -96,7 +103,7 @@ async function lockedIdea(tx: Tx, scope: Scope, ref: string): Promise<LockedIdea
   const byNumber = parsed.kind === "number" ? parsed.number : null;
   const byId = parsed.kind === "id" ? parsed.id : null;
   const rows = await tx.$queryRaw<LockedIdea[]>`
-    SELECT i."id", i."number", i."tenantId", i."projectId", i."status"::text AS "status", i."score",
+    SELECT i."id", i."number", i."tenantId", i."projectId", i."status"::text AS "status", i."track"::text AS "track", i."score",
            i."reporterId", i."beneficiaryUserId", a."ownerUserId" AS "createdByOwnerId"
     FROM "Idea" i
     LEFT JOIN "Agent" a ON a."id" = i."createdByAgentId"
@@ -149,7 +156,8 @@ export type GivenVerdict = {
   pointsAwarded: number;
   /**
    * What this verdict did in a threshold-only project (#vote-governance): it
-   * converted the idea (with the new issue) or rejected it. Null otherwise.
+   * converted the idea (with the new issue) or rejected it. A marketing idea's
+   * deciding verdict converts it in any project. Null otherwise.
    */
   decided: { outcome: "converted"; issueId: string; issueNumber: number } | { outcome: "rejected" } | null;
 };
@@ -179,6 +187,7 @@ export async function giveIdeaVerdict(
     const idea = await lockedIdea(tx, { tenantId: giver.tenantId, projectId }, ideaRef);
     assertOpenIdea(idea);
     const ideaId = idea.id;
+    const { opensAtThreshold } = trackRules(idea.track);
     // One verdict per person per class: a manager agent's and a worker's (or the person's) are separate.
     const weightClass = allowed > 1 ? "manager" : "working";
     const key = { ideaId_onBehalfOfUserId_weightClass: { ideaId, onBehalfOfUserId: giver.userId, weightClass } };
@@ -188,7 +197,7 @@ export async function giveIdeaVerdict(
     // a person may still rewrite their own good verdict. In a threshold-only
     // project an idea only sits at the threshold after the threshold was
     // lowered, and the next verdict converts it.
-    if (!thresholdOnly && input.opinion === "good" && idea.score >= ideaThreshold && existing?.opinion !== "good") {
+    if (!thresholdOnly && !opensAtThreshold && input.opinion === "good" && idea.score >= ideaThreshold && existing?.opinion !== "good") {
       const message = `This idea already has the score it needs (${idea.score} of ${ideaThreshold}) and is waiting for an agent to convert it. Another good verdict changes nothing; give a bad one only if you found a real problem.`;
       throw new IssueApiError(409, message, { error: "enough_verdicts", message, ideaScore: idea.score, ideaThreshold });
     }
@@ -251,6 +260,15 @@ export async function giveIdeaVerdict(
         await rejectLocked(tx, scope, { ...idea, score: ideaScore }, by, tally, thresholdDecision(by, tally.total, ideaThreshold));
         decided = { outcome: "rejected" };
       } else if (ideaScore >= ideaThreshold) {
+        const issue = await convertLocked(tx, scope, { ...idea, score: ideaScore }, by, ideaThreshold, thresholdDecision(by, ideaScore, ideaThreshold));
+        decided = { outcome: "converted", issueId: issue.issueId, issueNumber: issue.issueNumber };
+      }
+    } else if (opensAtThreshold && ideaScore >= ideaThreshold) {
+      // A marketing idea opens on the vote that reaches its threshold. A bad one waits for a manager agent to reject it.
+      const by = { userId: giver.userId, agentId: giver.agent?.id ?? null };
+      const tally = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId }, select: { opinion: true, votes: true } }));
+      if (!isBadIdea(tally, ideaThreshold)) {
+        const scope = { tenantId: giver.tenantId, projectId };
         const issue = await convertLocked(tx, scope, { ...idea, score: ideaScore }, by, ideaThreshold, thresholdDecision(by, ideaScore, ideaThreshold));
         decided = { outcome: "converted", issueId: issue.issueId, issueNumber: issue.issueNumber };
       }
@@ -326,8 +344,9 @@ export async function listIdeaVerdicts(scope: Scope, ideaRef: string) {
 /**
  * Any agent converts an idea whose score reached the threshold, its owner's
  * own ideas included: the verdicts already came from other people.
- * Converting creates the issue from the idea's report and files; the issue
- * then needs confirming.
+ * Converting creates the issue from the idea's report and files. Product
+ * work then needs confirming; marketing work opens immediately and pays its
+ * reporter at conversion.
  */
 export async function convertIdea(agent: AgentContext, projectId: string, ideaRef: string) {
   const { ideaThreshold } = await workflowFor(projectId);
@@ -391,6 +410,7 @@ async function convertLocked(
     },
   });
   const at = new Date();
+  const rules = trackRules(locked.track);
   const issue = await tx.bug.create({
     data: {
       tenantId: scope.tenantId,
@@ -404,7 +424,8 @@ async function convertLocked(
       reporterId: idea.reporterId,
       beneficiaryUserId: idea.beneficiaryUserId,
       createdByAgentId: idea.createdByAgentId,
-      ...moveTo("requires_confirmation"),
+      track: locked.track,
+      ...moveTo(rules.convertsTo),
       watches: { create: { userId: idea.reporterId } },
       activities: {
         create: {
@@ -418,6 +439,19 @@ async function convertLocked(
     },
     select: { id: true, number: true },
   });
+  if (rules.reporterPaidOn === "conversion") {
+    const reporterId = idea.beneficiaryUserId ?? idea.reporterId;
+    const rewardConfig = await getProjectRewardConfig(tx, projectId);
+    await award(tx, {
+      tenantId: scope.tenantId,
+      userId: reporterId,
+      bugId: issue.id,
+      role: "reporter",
+      points: calculateReporterPoints(rewardConfig),
+      sourceKey: pointSourceKey("reporter", issue.id, reporterId),
+      agentId: idea.createdByAgentId,
+    });
+  }
   // The report's files come with it; they stay readable from the idea too.
   await tx.attachment.updateMany({ where: { ideaId: locked.id }, data: { bugId: issue.id } });
   await tx.idea.update({

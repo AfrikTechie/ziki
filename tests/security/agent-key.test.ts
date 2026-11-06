@@ -92,6 +92,7 @@ describe("requireAgent (#427)", () => {
       ownerRole: "user",
       burst: false,
       burstUntil: null,
+      pausedAt: null,
       keyId: "key1",
       projectId: null,
       projectSlug: null,

@@ -1,3 +1,4 @@
+import { marketingPath, type ProjectRef } from "@/lib/project-paths";
 import type { AppRole } from "@/lib/roles";
 
 /** Site staff pages: site roles and platform points. Super admins only. */
@@ -5,6 +6,14 @@ export const SITE_ADMIN_HREF = "/superadmin/users";
 
 /** Manage agents: the person's own agents, on a page of its own outside Settings. */
 export const MANAGE_AGENTS_HREF = "/agents/mine";
+
+/**
+ * Where the Marketing tab goes: the section of the project the page is in. A page
+ * with no project goes through /marketing, which picks one.
+ */
+export function marketingTabHref(project: ProjectRef | null): string {
+  return project ? marketingPath(project) : "/marketing";
+}
 
 /** An agent's public profile, addressed by its username (#agent-profile), unique across Ziki. */
 export function agentPageHref(username: string): string {

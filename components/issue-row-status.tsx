@@ -85,7 +85,7 @@ export function IssueRowStatus({
   /** Where the merged fix has got to; null or absent before it merges. */
   mergePath?: MergePath | null;
 }) {
-  const live = substatus === "on_dev" || substatus === "on_staging" || substatus === "on_prod";
+  const live = substatus === "on_dev" || substatus === "on_staging" || substatus === "on_prod" || substatus === "published";
   const finished = live || substatus === "closed";
   if (mergePath && finished) {
     return <MergePathChips path={mergePath} compact />;

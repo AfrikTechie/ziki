@@ -147,7 +147,8 @@ export async function submitTask(db: Db, userId: string, n: number, proofInput: 
   });
   const { count } = await db.earnTaskProgress.updateMany({
     where: { userId, taskKey: task.id, status: { in: ["started", "rejected"] } },
-    data: { status: "submitted", proof, submittedAt: new Date(), decidedAt: null, decidedById: null, note: null },
+    // Sending it again clears any agent verdict on the old proof (#earn-agent-review).
+    data: { status: "submitted", proof, submittedAt: new Date(), decidedAt: null, decidedById: null, note: null, agentVerdict: null, agentReason: null, agentConfidence: null, agentVerdictById: null, agentVerdictAt: null },
   });
   return count === 1 ? { ok: true } : { ok: false, error: "This task is already with us for checking." };
 }

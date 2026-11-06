@@ -25,6 +25,7 @@ import {
   parseMineFilter,
   defaultSortFor,
 } from "@/lib/mine-filter";
+import { TRACK_PARAM, parseTrackFilter } from "@/lib/my-work-filter";
 import { AREA_NONE, AREA_PARAM, parseProjectAreaFilter, type ProjectAreaOption } from "@/lib/project-area-filter";
 import { MILESTONE_NONE, MILESTONE_PARAM } from "@/lib/milestones";
 import {
@@ -80,6 +81,7 @@ const FILTER_PARAMS = [
   "status",
   AREA_PARAM,
   MILESTONE_PARAM,
+  TRACK_PARAM,
 ];
 
 /** The Ideas lists' names in the list logic (the issue list's IDEAS_STATUS and REJECTED_IDEAS_STATUS). */
@@ -409,6 +411,7 @@ export function IssueFilters({
   const currentArea = parseProjectAreaFilter(params.get(AREA_PARAM), areas) ?? "";
   const currentMine = parseMineFilter(params.get("mine")) ?? "";
   const currentMilestone = params.get(MILESTONE_PARAM) ?? "";
+  const currentTrack = parseTrackFilter(params.get(TRACK_PARAM));
 
   const currentStage = stageFilterValue(params.get(STAGE_PARAM));
 
@@ -419,6 +422,7 @@ export function IssueFilters({
     selectedNames.length > 0,
     Boolean(currentArea),
     Boolean(currentMilestone),
+    currentTrack !== "product",
   ].filter(Boolean).length;
 
   // Only worth offering when there is something to clear (#336).
@@ -640,6 +644,14 @@ export function IssueFilters({
                     </div>
                   ) : null}
                   <div>
+                    <label htmlFor="track" className={fieldLabelClass}>Track</label>
+                    <FilterSelect aria-label="Track" id="track" className={selectClass} value={currentTrack} onValueChange={(value) => update(TRACK_PARAM, value)}>
+                      <option value="product">Product</option>
+                      <option value="marketing">Marketing</option>
+                      <option value="all">All</option>
+                    </FilterSelect>
+                  </div>
+                  <div>
                     <label htmlFor="sort" className={fieldLabelClass}>Sort By</label>
                     <FilterSelect aria-label="Sort By" id="sort" className={selectClass} value={currentSort} onValueChange={(value) => update("sort", value)}>
                       {BUG_SORT_OPTIONS.map((option) => (<option key={option} value={option}>{bugSortLabels[option]}</option>))}
@@ -710,6 +722,12 @@ export function IssueFilters({
             <span className="inline-flex items-center gap-1 rounded-full border border-zk-border bg-zk-chip py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-text">
               Milestone: {currentMilestone === MILESTONE_NONE ? "No milestone" : milestones.find((milestone) => milestone.id === currentMilestone)?.title ?? currentMilestone}
               <button type="button" onClick={() => update(MILESTONE_PARAM, "")} aria-label="Remove milestone filter" className="ml-0.5 rounded-full p-0.5 text-zk-muted hover:bg-zk-divider">✕</button>
+            </span>
+          ) : null}
+          {currentTrack !== "product" ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-zk-border bg-zk-tint py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-accent">
+              Track: {currentTrack === "marketing" ? "Marketing" : "All"}
+              <button type="button" onClick={() => update(TRACK_PARAM, "")} aria-label="Remove track filter" className="ml-0.5 rounded-full p-0.5 hover:bg-zk-chip">✕</button>
             </span>
           ) : null}
           {currentMine ? (

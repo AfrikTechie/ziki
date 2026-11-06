@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { PRODUCT_STEP_ONLY_MESSAGE, trackRules } from "@/lib/marketing/track";
 import { audit } from "@/lib/agents/audit";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
@@ -231,6 +232,7 @@ export async function reportPullRequestStatus(
       projectId: true,
       status: true,
       substatus: true,
+      track: true,
       pullRequestUrl: true,
       pullRequestHeadSha: true,
       beneficiaryUserId: true,
@@ -241,6 +243,7 @@ export async function reportPullRequestStatus(
     },
   });
   if (!bug) return fail(404, "not_found", "No such issue in this project.");
+  if (!trackRules(bug.track).hasProductSteps) return fail(409, "wrong_track", PRODUCT_STEP_ONLY_MESSAGE);
   if (!bug.pullRequestUrl) return fail(409, "no_pull_request", "This issue has no linked pull request to report on.");
   if (body.pullRequestUrl !== bug.pullRequestUrl) {
     return fail(409, "pr_mismatch", `Report on the issue's linked pull request: ${bug.pullRequestUrl}.`, "pullRequestUrl");

@@ -12,6 +12,7 @@ import { ensureWatching } from "@/lib/watch";
 import { deliveryDeadline, deliveryWindowMinutes } from "@/lib/claim-deadline";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { moveTo } from "@/lib/issue-substatus";
+import { notifyLater } from "@/lib/notify";
 
 /**
  * Offers (#bids-only-offers). Only awarding a bid makes an offer: any agent
@@ -98,12 +99,15 @@ export async function sweepExpiredOffers(tenantId?: string, projectId?: string):
 }
 
 export async function acceptOffer(agent: AgentContext, claimId: string) {
+  if (agent.pausedAt) throw new IssueApiError(423, "This agent is paused by its owner.");
   try {
     const result = await prisma.$transaction(async (tx) => {
       const claim = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
       if (!claim || claim.bug.tenantId !== agent.tenantId) throw new IssueApiError(404, "Offer not found.");
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${claim.bugId} AND "tenantId" = ${agent.tenantId} FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Offer not found.");
+      const agents = await tx.$queryRaw<{ pausedAt: Date | null }[]>`SELECT "pausedAt" FROM "Agent" WHERE "id" = ${agent.agentId} FOR UPDATE`;
+      if (agents[0]?.pausedAt) throw new IssueApiError(423, "This agent is paused by its owner.");
       await tx.$queryRaw`SELECT "id" FROM "IssueClaim" WHERE "id" = ${claimId} FOR UPDATE`;
       const fresh = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
       if (!fresh || fresh.agentId !== agent.agentId) throw new IssueApiError(409, "This offer is no longer available to this agent.");
@@ -196,7 +200,8 @@ export const releaseSchema = z.object({
  *   a bid has enough votes any agent awards it.
  */
 export async function releaseClaim(agent: AgentContext, projectId: string, issueRef: string, reason?: string) {
-  return prisma.$transaction(async (tx) => {
+  let reopenedBug: { id: string; title: string; reporterId: string } | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     // #605: the path may be the readable number (`123`, `ZE-123`) or the id, as on reads.
     const ref = parseIssueRef(issueRef);
     const bugId = ref.kind === "id" ? ref.id : (await resolveIssueRef(tx, ref, { tenantId: agent.tenantId }))?.id;
@@ -214,7 +219,7 @@ export async function releaseClaim(agent: AgentContext, projectId: string, issue
 
     const bug = await tx.bug.findFirstOrThrow({
       where: { id: bugId },
-      select: { id: true, title: true, status: true, assigneeId: true, projectId: true, areaId: true, pullRequestUrl: true },
+      select: { id: true, title: true, reporterId: true, status: true, assigneeId: true, projectId: true, areaId: true, pullRequestUrl: true },
     });
     let reopened = false;
     if (claim.status === "active") {
@@ -227,6 +232,7 @@ export async function releaseClaim(agent: AgentContext, projectId: string, issue
           { bugId, actorId: claim.beneficiaryUserId, type: "status_changed", summary: statusChangedSummary("in_progress", "open"), metadata: { field: "status", from: "in_progress", to: "open" } },
         ] });
         reopened = true;
+        reopenedBug = { id: bugId, title: bug.title, reporterId: bug.reporterId };
       }
     }
     await publish(tx, { tenantId: agent.tenantId, type: "claim.released", actorAgentId: agent.agentId, bugId,
@@ -234,4 +240,9 @@ export async function releaseClaim(agent: AgentContext, projectId: string, issue
 
     return { claimId: claim.id, issueId: bugId, reason: releaseReason, reopened: claim.status === "active" ? reopened : false };
   }, { maxWait: 10000, timeout: 15000 });
+  if (reopenedBug) {
+    const { id, title, reporterId } = reopenedBug as { id: string; title: string; reporterId: string };
+    notifyLater({ kind: "status_changed", actorId: agent.ownerId, actorName: agent.name, bugId: id, bugTitle: title, reporterId, from: "in_progress", to: "open" });
+  }
+  return result;
 }

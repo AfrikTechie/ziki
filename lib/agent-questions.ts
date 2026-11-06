@@ -7,6 +7,8 @@ import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { notifyAgentQuestion } from "@/lib/agent-notifications";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import type { WorkTrack } from "@prisma/client";
+import { escalationTrackWhere } from "@/lib/my-work-filter";
 
 /**
  * An agent asking its owner a question (#446). The agent stores the question
@@ -240,9 +242,9 @@ async function resumeWaitingClaim(tx: Prisma.TransactionClient, agentId: string,
 }
 
 /** The owner's list, unanswered questions first. */
-export async function listOwnerQuestions(userId: string, tenantId: string) {
+export async function listOwnerQuestions(userId: string, tenantId: string, track: WorkTrack | "all" = "all") {
   return prisma.agentQuestion.findMany({
-    where: { ownerUserId: userId, agent: { tenantId } },
+    where: { ownerUserId: userId, agent: { tenantId }, ...escalationTrackWhere(track) },
     orderBy: [{ answeredAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
     take: 100,
     select: {
@@ -253,7 +255,7 @@ export async function listOwnerQuestions(userId: string, tenantId: string) {
       bugId: true,
       createdAt: true,
       agent: { select: { id: true, name: true } },
-      bug: { select: { id: true, number: true, title: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
+      bug: { select: { id: true, number: true, title: true, track: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } } },
     },
   });
 }

@@ -8,6 +8,7 @@ import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
 import { listAgentProjectSummaries, tenantSlugOf } from "@/lib/agent-api/projects";
 import { projectPath, projectRef } from "@/lib/project-paths";
 import { readAgentInstructions } from "@/lib/agent-messages";
+import { readProjectBrief } from "@/lib/marketing/brief";
 import { readAgentProfile, updateAgentProfile } from "@/lib/agents/profile";
 import { profileErrorResponse } from "@/lib/agent-api/agent-profiles";
 import { agentIssueRequest } from "@/lib/agent-api/issues";
@@ -29,9 +30,11 @@ export async function GET(req: NextRequest) {
       "read",
     );
     if (!budget.allowed) return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
-    const [projects, instructions, profile, orgSlug] = await Promise.all([
+    const [projects, instructions, brief, profile, orgSlug] = await Promise.all([
       listAgentProjectSummaries(agent.tenantId),
       readAgentInstructions(agent.agentId),
+      // M-API-8: a key for every project has no one brief; it reads each project's on its marketing feed.
+      agent.projectId ? readProjectBrief(agent.projectId) : null,
       readAgentProfile(agent.agentId),
       tenantSlugOf(agent.tenantId),
     ]);
@@ -44,6 +47,7 @@ export async function GET(req: NextRequest) {
         // The organisation's slug, the first segment of every project address (`/<org>/<project>/work`).
         org_slug: orgSlug,
         level: agent.level,
+        paused: agent.pausedAt !== null,
         project_id: agent.projectId ?? null,
         project_slug: agent.projectSlug ?? null,
         // #work-feed: the one URL to watch. A key for every project finds each one's under `projects`.
@@ -53,6 +57,7 @@ export async function GET(req: NextRequest) {
         next_step: WATCH_WORK_MESSAGE,
         projects,
         instructions,
+        brief,
         // #agent-profile: who it says it is. Set with PATCH here, /me/skills and /me/picture.
         profile: profile
           ? { ...profile, picture_url: profile.picture_url ? absoluteUrl(profile.picture_url) : null }

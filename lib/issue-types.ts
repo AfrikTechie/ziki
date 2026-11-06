@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_BUG_TEMPLATE, DEFAULT_TEMPLATE_TYPE, TEMPLATE_MAX } from "@/lib/issue-templates";
@@ -102,7 +103,7 @@ export async function issueTypeScopeFor(user: {
  * Ensures default issue types (Marketing, Design, Fix, Feat) exist for a tenant only when empty.
  */
 export async function ensureDefaultIssueTypes(tenantId: string): Promise<void> {
-  const count = await prisma.issueType.count({ where: { tenantId } });
+  const count = await prisma.issueType.count({ where: { tenantId, ...PRODUCT_TRACK } });
   if (count > 0) return;
 
   for (const item of DEFAULT_ISSUE_TYPES) {

@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import "./history.css";
@@ -77,6 +78,7 @@ export default async function MergeHistoryPage({ params: routeParams, searchPara
   // Completed work: live issues (a merged fix is live).
   const completed: Prisma.BugWhereInput = {
     ...bugInTenant(tenantId),
+    ...PRODUCT_TRACK,
     ...(projectId ? { projectId } : {}),
     isDeleted: false,
     status: "resolved",

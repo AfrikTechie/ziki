@@ -51,6 +51,27 @@ export async function attemptDelivery(params: {
 }
 
 /** Lease pending rows atomically so overlapping dispatchers cannot send the same attempt. */
+export function webhookBody(event: {
+  id: string;
+  type: string;
+  payload: unknown;
+  actorAgentId: string | null;
+  bugId: string | null;
+  createdAt: Date;
+}) {
+  const eventPayload = (event.payload && typeof event.payload === "object") ? (event.payload as Record<string, unknown>) : {};
+  const track = (eventPayload.track as string | undefined) ?? null;
+  return {
+    id: event.id,
+    type: event.type,
+    payload: event.payload,
+    actorAgentId: event.actorAgentId,
+    bugId: event.bugId,
+    createdAt: event.createdAt.toISOString(),
+    ...(track ? { track } : {}),
+  };
+}
+
 export async function processDelivery(deliveryId: string, now = new Date()): Promise<void> {
   const lease = new Date(now.getTime() + LEASE_MS);
   const claimed = await prisma.webhookDelivery.updateMany({
@@ -77,8 +98,7 @@ export async function processDelivery(deliveryId: string, now = new Date()): Pro
     result = address.ok ? await attemptDelivery({
       url: subscription.url, resolvedAddress: address.address,
       rawSecret: decryptSigningSecret(subscription.signingSecretEncrypted), eventId: event.id,
-      body: JSON.stringify({ id: event.id, type: event.type, payload: event.payload,
-        actorAgentId: event.actorAgentId, bugId: event.bugId, createdAt: event.createdAt.toISOString() }),
+      body: JSON.stringify(webhookBody(event)),
     }) : { ok: false, error: "Webhook address is no longer public." };
   } catch { result = { ok: false, error: "Webhook signing configuration is invalid." }; }
   const attempts = delivery.attemptCount + 1;

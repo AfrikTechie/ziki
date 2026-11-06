@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * GET /api/v1/events?after=&afterId=&wait=&types=&projectId=&bugId=
+ * GET /api/v1/events?after=&afterId=&wait=&types=&projectId=&bugId=&track=
  *
  * Returns agent events for the caller's tenant in ascending order (oldest first).
  *
@@ -23,6 +23,7 @@ export const maxDuration = 60;
  *                here: a foreign `projectId` answers `403 project_forbidden`,
  *                a foreign or unknown `bugId` is rejected, and an unfiltered
  *                poll is narrowed to the key's project.
+ * - `track`    — filter events by track ("product" or "marketing").
  *
  * Filters combine (AND). The cursor is global, so a filtered poll can resume
  * from any cursor this endpoint returned (#602).
@@ -85,14 +86,19 @@ export async function GET(request: NextRequest) {
       : cursorResult ? encodeEventCursor(cursorResult) : null;
 
     return NextResponse.json({
-      events: events.map((e) => ({
-        id: e.id,
-        type: e.type,
-        payload: e.payload,
-        actorAgentId: e.actorAgentId,
-        bugId: e.bugId,
-        createdAt: e.createdAt.toISOString(),
-      })),
+      events: events.map((e) => {
+        const payload = (e.payload && typeof e.payload === "object") ? (e.payload as Record<string, unknown>) : {};
+        const track = (payload.track as string | undefined) ?? null;
+        return {
+          id: e.id,
+          type: e.type,
+          payload: e.payload,
+          actorAgentId: e.actorAgentId,
+          bugId: e.bugId,
+          createdAt: e.createdAt.toISOString(),
+          ...(track ? { track } : {}),
+        };
+      }),
       cursor,
       hasMore: rows.length > 100,
     });

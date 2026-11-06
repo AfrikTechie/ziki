@@ -1,3 +1,5 @@
+import { parseTrackFilter } from "@/lib/marketing/track";
+import { parseIdeaTrack } from "@/lib/marketing/idea-track";
 import { NextResponse, type NextRequest } from "next/server";
 import { reportSummarySchema } from "@/lib/validations/report-summary";
 import { z } from "zod";
@@ -27,6 +29,7 @@ import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
 import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
+import { searchWorkItems } from "@/lib/search-index";
 import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 import { convertVettedIdea } from "@/lib/agent-api/idea-verdicts";
 
@@ -52,6 +55,9 @@ export const createIdeaSchema = createBugSchema
     // #494: no beneficiaryUserId. The reporter is always the agent's owner.
     projectId: idSchema.optional(),
     typeId: z.unknown().optional(),
+    // Product (the default) or marketing, and why a marketing idea is worth doing (parseIdeaTrack).
+    track: z.unknown().optional(),
+    rationale: z.unknown().optional(),
     acknowledgeSimilar: z.unknown().optional(),
     /** The owner says this idea was already vetted elsewhere: it becomes an issue at once (needs `vettedNote`). */
     alreadyVetted: z.boolean().optional(),
@@ -71,6 +77,8 @@ export const ideaSelect = {
   title: true,
   summary: true,
   description: true,
+  track: true,
+  rationale: true,
   status: true,
   score: true,
   typeId: true,
@@ -95,9 +103,11 @@ type IdeaRow = Prisma.IdeaGetPayload<{ select: typeof ideaSelect }>;
 
 /** The idea as the API shows it: the issue it became, and whether it can be converted now. */
 export function ideaJson(idea: IdeaRow, ideaThreshold: number) {
-  const { issue, ...rest } = idea;
+  const { issue, rationale, ...rest } = idea;
   return {
     ...rest,
+    // Only marketing ideas carry a rationale.
+    ...(idea.track === "marketing" ? { rationale } : {}),
     issueId: issue?.id ?? null,
     issueNumber: issue?.number ?? null,
     ideaThreshold,
@@ -105,8 +115,10 @@ export function ideaJson(idea: IdeaRow, ideaThreshold: number) {
   };
 }
 
-/** `?status=`, `?convertible=`, `?q=` and the shared cursor, newest first. */
+/** `?track=`, `?status=`, `?convertible=`, `?q=` and the shared cursor, newest first. */
 export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
+  const track = parseTrackFilter(params.get("track"));
+  if (!track.ok) throw new IssueApiError(400, track.message, { error: "invalid_request", field: "track" });
   const rawStatus = params.get("status");
   if (rawStatus && !(IDEA_STATUSES as readonly string[]).includes(rawStatus)) {
     throw new IssueApiError(400, `status must be one of ${IDEA_STATUSES.join(", ")}.`);
@@ -125,21 +137,51 @@ export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
   const term = q ? escapeSearchQuery(boundSearchTerm(q)) : null;
   const where: Prisma.IdeaWhereInput = {
     ...scope,
+    track: track.track,
     isDeleted: false,
     ...(rawStatus ? { status: rawStatus as IdeaStatus } : {}),
     ...(convertibleRaw === "true" ? { status: "open", score: { gte: ideaThreshold } } : {}),
     ...(convertibleRaw === "false" ? { NOT: { status: "open", score: { gte: ideaThreshold } } } : {}),
-    ...(term
-      ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" } }, { description: { contains: term, mode: "insensitive" } }] }] }
-      : {}),
-    ...(cursor ? ideaCursorWhere(cursor) : {}),
   };
-  const rows = await prisma.idea.findMany({
-    where,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: limit + 1,
-    select: ideaSelect,
-  });
+  let rows;
+  if (q && boundSearchTerm(q).length >= 3) {
+    try {
+      const filters = [
+        ...(rawStatus ? [`status:=${rawStatus}`] : []),
+        ...(convertibleRaw === "true" ? ["status:=open", `score:>=${ideaThreshold}`] : []),
+        ...(convertibleRaw === "false" ? [`(status:!=open || score:<${ideaThreshold})`] : []),
+        // Typesense supports numeric ranges, not string range filters. Fetch
+        // through the cursor timestamp, then apply the full (time, id) cursor
+        // predicate in PostgreSQL before counting the page.
+        ...(cursor ? [`createdAt:<=${cursor.createdAt.getTime()}`] : []),
+      ];
+      const batchSize = limit + 1;
+      const ids: string[] = [];
+      let pageNumber = 1;
+      let found = 0;
+      while (true) {
+        const batch = await searchWorkItems({ query: boundSearchTerm(q), kind: "idea", tenantId: scope.tenantId, projectId: scope.projectId, track: track.track, page: pageNumber, perPage: batchSize, sortBy: "createdAt:desc,sourceId:desc", queryBy: "title(infix:always),description(infix:always)", extraFilters: filters });
+        found = batch.found;
+        if (pageNumber === 1 && found === 0) throw new Error("Typesense returned no candidates; verifying with PostgreSQL.");
+        ids.push(...batch.hits.map((hit) => hit.id));
+        const currentRows = await prisma.idea.findMany({
+          where: { ...where, ...(cursor ? ideaCursorWhere(cursor) : {}), id: { in: ids } },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, select: ideaSelect,
+        });
+        const literalQuery = boundSearchTerm(q).toLocaleLowerCase();
+        rows = currentRows.filter((row) => row.title.toLocaleLowerCase().includes(literalQuery) || row.description.toLocaleLowerCase().includes(literalQuery));
+        if (rows.length > limit || pageNumber * batchSize >= found || batch.hits.length === 0) break;
+        pageNumber += 1;
+      }
+      const sourceCount = await prisma.idea.count({ where: { ...where, ...(term ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" as const } }, { description: { contains: term, mode: "insensitive" as const } }] }] } : {}), ...(cursor ? ideaCursorWhere(cursor) : {}) } });
+      if (rows.length < Math.min(limit + 1, sourceCount)) throw new Error("Typesense candidate page is incomplete; verifying with PostgreSQL.");
+    } catch (error) {
+      console.error("[agent-api/ideas] Typesense search failed; using PostgreSQL", error);
+      rows = await prisma.idea.findMany({ where: { ...where, ...(term ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" as const } }, { description: { contains: term, mode: "insensitive" as const } }] }] } : {}), ...(cursor ? ideaCursorWhere(cursor) : {}) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, select: ideaSelect });
+    }
+  } else {
+    rows = await prisma.idea.findMany({ where: { ...where, ...(term ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" as const } }, { description: { contains: term, mode: "insensitive" as const } }] }] } : {}), ...(cursor ? ideaCursorWhere(cursor) : {}) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, select: ideaSelect });
+  }
   const page = toPage(rows, limit);
   // #724: each idea's weighted good, bad and neutral votes, as the Ideas list shows them.
   const totals = await ideaVoteTotals(prisma, page.items.map((row) => row.id));
@@ -283,6 +325,11 @@ export async function createAgentIdea(agent: AgentContext, request: NextRequest)
 
 async function createIdeaFromBody(agent: AgentContext, request: NextRequest, body: unknown, uploaded: string[], digests: string[]) {
   const input = createIdeaSchema.parse(body);
+  const fields = parseIdeaTrack(input);
+  if (!fields.ok) {
+    throw new IssueApiError(400, fields.message, { error: "invalid_request", message: fields.message, field: fields.field });
+  }
+  const { track, rationale } = fields.value;
   assertVettedFields(input);
   const scope = await issueProject(agent, request.nextUrl.searchParams, input.projectId);
   const beneficiaryUserId = agent.ownerId;
@@ -296,6 +343,8 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
     proofLinks: input.proofLinks,
     typeId: input.typeId ?? null,
     acknowledgeSimilar: input.acknowledgeSimilar ?? null,
+    // Product requests hash as they always did, so their keys keep replaying.
+    ...(track === "marketing" ? { track, rationale } : {}),
     ...(input.alreadyVetted ? { alreadyVetted: true, vettedNote: input.vettedNote } : {}),
     // Files sent in this request hash by content, not by the ids they were just given (#722).
     ...(input.attachmentIds?.filter((id) => !uploaded.includes(id)).length
@@ -311,6 +360,7 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
     requestHash,
     title: input.title,
     typeId: input.typeId,
+    track,
     acknowledgeSimilar: input.acknowledgeSimilar,
     insert: async (tx, policy) => {
       const member = await tx.membership.findUnique({
@@ -332,6 +382,8 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
           title: input.title,
           summary: input.summary,
           description,
+          track,
+          rationale,
           areaId,
           proofLinks: input.proofLinks,
           reporterId: beneficiaryUserId,

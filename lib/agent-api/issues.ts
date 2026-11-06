@@ -1,3 +1,4 @@
+import { parseTrackFilter, trackFilter } from "@/lib/marketing/track";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import type { AgentLevel, Prisma } from "@prisma/client";
@@ -31,6 +32,7 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { latestPullRequestReport, pullRequestStateView } from "@/lib/agent-api/pull-request-report";
 import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 import { entrySummary } from "@/lib/agent-api/entry-fields";
+import { searchWorkItems } from "@/lib/search-index";
 
 export { IssueApiError };
 
@@ -70,6 +72,9 @@ export async function agentIssueRequest(
   try {
     agent = await requireAgent(request);
     requireLevel(agent, level === "read" ? "working" : level);
+    if (agent.pausedAt && action !== "claims.heartbeat" && (action === "work.read" || level !== "read" || options.budget === "write")) {
+      throw new IssueApiError(423, "This agent is paused by its owner.");
+    }
     if (options.budget === "none") {
       // Retired or non-working routes must not spend the caller's budget (#554).
       response = await run(agent);
@@ -142,7 +147,11 @@ export async function issueProject(agent: AgentContext, params: URLSearchParams,
 
 type Scope = { tenantId: string; projectId: string };
 export const issueSelect = {
-  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true,
+  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true, track: true,
+  // Marketing work: the revision rounds used so far (D4).
+  revisionCount: true,
+  // D6: the related product issue a marketing issue links to, or null.
+  linkedIssue: { select: { id: true, number: true, title: true } },
   // #close-reasons: why, on what evidence and when a closed issue was closed.
   closeReason: true, closeEvidence: true, closedAt: true,
   typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
@@ -174,6 +183,8 @@ export function requireKnownFilter(name: "area", raw: string | null, parsed: str
 }
 
 export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
+  const parsedTrack = parseTrackFilter(params.get("track"));
+  if (!parsedTrack.ok) throw new IssueApiError(400, parsedTrack.message, { error: "invalid_request", field: "track" });
   const status = enumFilter("status", params.get("status"), statusSchema.options);
   const substatus = enumFilter("substatus", params.get("substatus"), substatusSchema.options);
   const assignee = params.get("assignee");
@@ -203,15 +214,56 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
         { description: { contains: escapeSearchQuery(boundSearchTerm(q)), mode: "insensitive" } },
       ] }] }
     : {};
-  const filtered: Prisma.BugWhereInput = {
-    ...scope, isDeleted: false, ...search,
+  const baseFiltered: Prisma.BugWhereInput = {
+    ...scope, ...trackFilter(parsedTrack.track), isDeleted: false,
     ...(status ? { status } : {}),
     ...(substatus ? { substatus } : {}),
     ...(assigneeId !== undefined ? { assigneeId } : {}),
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
   };
-  const where: Prisma.BugWhereInput = { ...filtered, ...cursorWhere(cursor) };
-  const rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
+  let rows;
+  if (q && boundSearchTerm(q).length >= 3) {
+    try {
+      const selectedArea = requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas));
+      const filters = [
+        ...(status ? [`status:=${status}`] : []),
+        ...(substatus ? [`substatus:=${substatus}`] : []),
+        ...(assigneeId === null ? ["hasAssignee:=false"] : typeof assigneeId === "string" ? [`assigneeId:=${assigneeId}`] : []),
+        ...(selectedArea === "none" ? ["hasArea:=false"] : selectedArea ? [`areaId:=${selectedArea}`] : []),
+        // Typesense supports numeric ranges, not string range filters. Fetch
+        // through the cursor timestamp, then apply the full (time, id) cursor
+        // predicate in PostgreSQL before counting the page.
+        ...(cursor ? [`createdAt:<=${cursor.createdAt.getTime()}`] : []),
+      ];
+      const batchSize = limit + 1;
+      const ids: string[] = [];
+      let page = 1;
+      let found = 0;
+      while (true) {
+        const batch = await searchWorkItems({ query: boundSearchTerm(q), kind: "bug", tenantId: scope.tenantId, projectId: scope.projectId, track: parsedTrack.track, page, perPage: batchSize, sortBy: "createdAt:desc,sourceId:desc", queryBy: "title(infix:always),description(infix:always)", extraFilters: filters });
+        found = batch.found;
+        if (page === 1 && found === 0) throw new Error("Typesense returned no candidates; verifying with PostgreSQL.");
+        ids.push(...batch.hits.map((hit) => hit.id));
+        const currentRows = await prisma.bug.findMany({
+          where: { ...baseFiltered, ...cursorWhere(cursor), id: { in: ids } },
+          orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect,
+        });
+        const literalQuery = boundSearchTerm(q).toLocaleLowerCase();
+        rows = currentRows.filter((row) => row.title.toLocaleLowerCase().includes(literalQuery) || row.description.toLocaleLowerCase().includes(literalQuery));
+        if (rows.length > limit || page * batchSize >= found || batch.hits.length === 0) break;
+        page += 1;
+      }
+      const sourceCount = await prisma.bug.count({ where: { ...baseFiltered, ...search, ...cursorWhere(cursor) } });
+      if (rows.length < Math.min(limit + 1, sourceCount)) throw new Error("Typesense candidate page is incomplete; verifying with PostgreSQL.");
+    } catch (error) {
+      console.error("[agent-api/issues] Typesense search failed; using PostgreSQL", error);
+      const where: Prisma.BugWhereInput = { ...baseFiltered, ...search, ...cursorWhere(cursor) };
+      rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
+    }
+  } else {
+    const where: Prisma.BugWhereInput = { ...baseFiltered, ...search, ...cursorWhere(cursor) };
+    rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
+  }
   return toPage(rows.map(withImportance), limit);
 }
 
@@ -287,14 +339,17 @@ export async function readAgentIssue(scope: Scope, id: string) {
 
 /**
  * How many issues sit in each status, and ideas in each idea status, in one
- * project: the numbers the issue tabs show. Deleted ones are not counted.
+ * project and track: the numbers the issue tabs show. Deleted ones are not counted.
  * `all` is every issue.
  */
-export async function countAgentIssues(scope: Scope) {
+export async function countAgentIssues(scope: Scope, params: URLSearchParams) {
+  const parsedTrack = parseTrackFilter(params.get("track"));
+  if (!parsedTrack.ok) throw new IssueApiError(400, parsedTrack.message, { error: "invalid_request", field: "track" });
+  const selectedTrack = trackFilter(parsedTrack.track);
   const [issueRows, substatusRows, ideaRows] = await Promise.all([
-    prisma.bug.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
-    prisma.bug.groupBy({ by: ["substatus"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
-    prisma.idea.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
+    prisma.bug.groupBy({ by: ["status"], where: { ...scope, ...selectedTrack, isDeleted: false }, _count: { _all: true } }),
+    prisma.bug.groupBy({ by: ["substatus"], where: { ...scope, ...selectedTrack, isDeleted: false }, _count: { _all: true } }),
+    prisma.idea.groupBy({ by: ["status"], where: { ...scope, ...selectedTrack, isDeleted: false }, _count: { _all: true } }),
   ]);
   const issues = Object.fromEntries(statusSchema.options.map((status) => [status, 0])) as Record<(typeof statusSchema.options)[number], number>;
   for (const row of issueRows) issues[row.status] = row._count._all;

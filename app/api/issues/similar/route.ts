@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
@@ -30,12 +31,18 @@ async function trigramMatches(query: string, tenantId: string | null): Promise<S
            GREATEST(similarity("title", ${query}), word_similarity(${query}, "title")) AS "score"
     FROM "Bug"
     WHERE "isDeleted" = false
+      AND "track" = 'product'
       AND "tenantId" = ${tenantId}
       AND "status"::text = ANY(${SIMILAR_STATUSES as string[]})
       AND ("title" % ${query} OR ${query} <% "title")
     ORDER BY "score" DESC
     LIMIT ${CANDIDATES}`;
 }
+
+// Keep this retrieval in PostgreSQL: Typesense token/infix matches cannot
+// guarantee the recall of pg_trgm's `%` and `<%` operators. The established
+// score, 0.35 threshold, and vote-count ranking must remain exact until a
+// parity-tested candidate strategy is available.
 
 /** Without pg_trgm (the extension needs privileges some hosts lack). */
 async function plainMatches(query: string, tenantId: string | null): Promise<SimilarIssue[]> {
@@ -44,6 +51,7 @@ async function plainMatches(query: string, tenantId: string | null): Promise<Sim
   return prisma.bug.findMany({
     where: {
       ...bugInTenant(tenantId),
+      ...PRODUCT_TRACK,
       isDeleted: false,
       status: { in: [...SIMILAR_STATUSES] },
       AND: terms.map((t) => ({ title: { contains: t, mode: "insensitive" as const } })),

@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AppRole } from "@/lib/roles";
@@ -80,7 +81,7 @@ export async function loadMilestoneSummaries(
     }),
     prisma.bug.groupBy({
       by: ["milestoneId", "status"],
-      where: { isDeleted: false, milestoneId: { not: null }, ...(tenantId ? { tenantId } : {}) },
+      where: { ...PRODUCT_TRACK, isDeleted: false, milestoneId: { not: null }, ...(tenantId ? { tenantId } : {}) },
       _count: { _all: true },
     }),
   ]);

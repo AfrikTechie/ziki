@@ -1,4 +1,5 @@
-import type { AgentLevel, ConfirmationVerdict, Prisma, PrismaClient } from "@prisma/client";
+import type { AgentLevel, ConfirmationVerdict, Prisma, PrismaClient, WorkTrack } from "@prisma/client";
+import { PRODUCT_STEP_ONLY_MESSAGE, trackRules } from "@/lib/marketing/track";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
@@ -92,6 +93,13 @@ type Db = PrismaClient | Prisma.TransactionClient;
 type Scope = { tenantId: string; projectId: string };
 
 /** What the independence rule needs about the issue. */
+/** Marketing issues have no confirmation step (D2). */
+function refuseProductStep(track: WorkTrack): void {
+  if (!trackRules(track).hasProductSteps) {
+    throw new IssueApiError(409, PRODUCT_STEP_ONLY_MESSAGE, { error: "wrong_track", message: PRODUCT_STEP_ONLY_MESSAGE });
+  }
+}
+
 const bugSelect = {
   id: true,
   number: true,
@@ -99,6 +107,7 @@ const bugSelect = {
   projectId: true,
   status: true,
   substatus: true,
+  track: true,
   isDeleted: true,
   reporterId: true,
   beneficiaryUserId: true,
@@ -300,6 +309,7 @@ export async function giveConfirmation(
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${found.id} FOR UPDATE`;
     const bug = await tx.bug.findUnique({ where: { id: found.id }, select: bugSelect });
     if (!bug || bug.isDeleted) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
+    refuseProductStep(bug.track);
 
     const before = await confirmationStateOf(bug.id, tx);
     const wasConfirmed = before?.confirmed ?? false;
@@ -492,8 +502,9 @@ export async function openConfirmedIssue(
     });
     if (!found) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${found.id} FOR UPDATE`;
-    const bug = await tx.bug.findUnique({ where: { id: found.id }, select: { id: true, status: true, substatus: true, tenantId: true } });
+    const bug = await tx.bug.findUnique({ where: { id: found.id }, select: { id: true, status: true, substatus: true, tenantId: true, track: true } });
     if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
+    refuseProductStep(bug.track);
     if (bug.substatus !== "requires_confirmation") {
       const message = "This issue is not at Requires confirmation.";
       throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status, substatus: bug.substatus });

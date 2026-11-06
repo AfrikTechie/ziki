@@ -234,6 +234,8 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
       };
     case "on_prod":
       return { tone: "ok", title: "Live: on prod", detail: "Merged and deployed to production. Nothing left to do.", actor: null, action: null };
+    case "published":
+      return { tone: "ok", title: "Live: published", detail: "A manager accepted the work. Nothing left to do.", actor: null, action: null };
     case "closed":
       return {
         tone: "neutral",

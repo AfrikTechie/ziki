@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { pointsNumber } from "./rules";
 import { MULTIPLIER_KEY_PREFIX } from "./multiplier";
 
@@ -23,7 +23,13 @@ export type LeaderboardEntry = PointTotals & {
 export type LeaderboardOptions = {
   page?: number;
   limit?: number;
+  /** PointEntry period. Marketing and product rewards deliberately share it. */
+  period?: LeaderboardPeriod;
+  /** Clock override for deterministic callers and tests. */
+  now?: Date;
 };
+
+export type LeaderboardPeriod = "week" | "month" | "all";
 
 export type PaginatedLeaderboard = {
   entries: LeaderboardEntry[];
@@ -31,6 +37,8 @@ export type PaginatedLeaderboard = {
   page: number;
   limit: number;
   totalPages: number;
+  period: LeaderboardPeriod;
+  periodStart: string | null;
 };
 
 export const DEFAULT_LEADERBOARD_LIMIT = 50;
@@ -55,11 +63,22 @@ export function clearLeaderboardCache(tenantId?: string): void {
   }
 }
 
-const solvedWhere = (tenantId: string): Prisma.PointEntryWhereInput => ({
+/** UTC period boundary used by the existing shared leaderboard. */
+export function leaderboardPeriodStart(period: LeaderboardPeriod, now = new Date()): Date | null {
+  if (period === "all") return null;
+  if (period === "month") {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  }
+  const day = (now.getUTCDay() + 6) % 7;
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day));
+}
+
+const solvedWhere = (tenantId: string, periodStart: Date | null = null): Prisma.PointEntryWhereInput => ({
   tenantId,
   role: "solver",
   points: { gt: 0 },
   correctedAt: null,
+  ...(periodStart ? { createdAt: { gte: periodStart } } : {}),
   // A multiplier adjustment (scripts/points-multiplier.mjs) is not an issue solved.
   sourceKey: { not: { startsWith: MULTIPLIER_KEY_PREFIX } },
 });
@@ -102,8 +121,11 @@ export async function paginatedTenantLeaderboard(
   const page = Math.max(1, options.page ?? 1);
   const limit = Math.max(1, Math.min(100, options.limit ?? DEFAULT_LEADERBOARD_LIMIT));
   const offset = (page - 1) * limit;
+  const period = options.period ?? "all";
+  const periodStart = leaderboardPeriodStart(period, options.now);
+  const periodStartIso = periodStart?.toISOString() ?? null;
 
-  const cacheKey = `${tenantId}:${page}:${limit}`;
+  const cacheKey = `${tenantId}:${period}:${periodStartIso ?? "all"}:${page}:${limit}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
@@ -132,6 +154,7 @@ export async function paginatedTenantLeaderboard(
           FROM "User" u
           INNER JOIN "Membership" m ON m."userId" = u."id" AND m."tenantId" = ${tenantId}
           INNER JOIN "PointEntry" pe ON pe."userId" = u."id" AND pe."tenantId" = ${tenantId}
+            ${periodStart ? Prisma.sql`AND pe."createdAt" >= ${periodStart}` : Prisma.empty}
           GROUP BY u."id", u."name", u."image"
           ORDER BY "points" DESC, "solvedTasks" DESC, u."name" ASC
           LIMIT ${limit} OFFSET ${offset}
@@ -141,6 +164,7 @@ export async function paginatedTenantLeaderboard(
           FROM "PointEntry" pe
           INNER JOIN "Membership" m ON m."userId" = pe."userId" AND m."tenantId" = ${tenantId}
           WHERE pe."tenantId" = ${tenantId}
+            ${periodStart ? Prisma.sql`AND pe."createdAt" >= ${periodStart}` : Prisma.empty}
         `,
       ]);
 
@@ -155,7 +179,15 @@ export async function paginatedTenantLeaderboard(
 
       const entries = rankLeaderboard(rows, offset);
       const totalPages = Math.ceil(total / limit) || 1;
-      const result: PaginatedLeaderboard = { entries, total, page, limit, totalPages };
+      const result: PaginatedLeaderboard = {
+        entries,
+        total,
+        page,
+        limit,
+        totalPages,
+        period,
+        periodStart: periodStartIso,
+      };
 
       cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, data: result });
       return result;
@@ -166,21 +198,30 @@ export async function paginatedTenantLeaderboard(
 
   // Fallback path using Prisma query methods
   const memberOnly = { user: { memberships: { some: { tenantId } } } } satisfies Prisma.PointEntryWhereInput;
+  const periodWhere = periodStart ? { createdAt: { gte: periodStart } } : {};
   const [balances, solved] = await Promise.all([
     db.pointEntry.groupBy({
       by: ["userId"],
-      where: { tenantId, ...memberOnly },
+      where: { tenantId, ...memberOnly, ...periodWhere },
       _sum: { points: true },
     }),
     db.pointEntry.groupBy({
       by: ["userId"],
-      where: { ...solvedWhere(tenantId), ...memberOnly },
+      where: { ...solvedWhere(tenantId, periodStart), ...memberOnly },
       _count: { _all: true },
     }),
   ]);
 
   if (balances.length === 0) {
-    const emptyResult = { entries: [], total: 0, page, limit, totalPages: 1 };
+    const emptyResult: PaginatedLeaderboard = {
+      entries: [],
+      total: 0,
+      page,
+      limit,
+      totalPages: 1,
+      period,
+      periodStart: periodStartIso,
+    };
     cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, data: emptyResult });
     return emptyResult;
   }
@@ -208,7 +249,15 @@ export async function paginatedTenantLeaderboard(
   const entries = allRanked.slice(offset, offset + limit);
   const totalPages = Math.ceil(total / limit) || 1;
 
-  const result: PaginatedLeaderboard = { entries, total, page, limit, totalPages };
+  const result: PaginatedLeaderboard = {
+    entries,
+    total,
+    page,
+    limit,
+    totalPages,
+    period,
+    periodStart: periodStartIso,
+  };
   cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, data: result });
   return result;
 }

@@ -39,6 +39,8 @@ export function isPublicPath(
     pathWithoutBase === "/for-agents" ||
     pathWithoutBase === "/developers" ||
     pathWithoutBase === "/earn" ||
+    // A business's own link from an earner's email (#earn-outreach): opened by people who aren't signed in.
+    /^\/r\/[a-z0-9]{4,16}$/.test(pathWithoutBase) ||
     isAuthPage ||
     isPasswordResetPage ||
     isPublicAgentPath(pathWithoutBase) ||

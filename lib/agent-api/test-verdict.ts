@@ -65,9 +65,9 @@ export const testVerdictBodySchema = z.object({
   onBehalfOfUserId: z.string().trim().min(1).max(191).optional(),
   /**
    * The changed files you judged (#confirmation-files): [{ path, lines? }].
-   * Required. Other testers see them only once they have judged too.
+   * Required for product work. Other testers see them only once they have judged too.
    */
-  files: evidenceFilesSchema.min(1, "files: list the changed files you judged, as [{ path, lines? }]."),
+  files: evidenceFilesSchema.optional(),
   /**
    * The head commit the reviewer tested (#489). Defaults to the SHA recorded
    * when the pull request was linked, so every verdict names its code.
@@ -88,6 +88,8 @@ const reviewedBugSelect = {
   tenantId: true,
   status: true,
   substatus: true,
+  track: true,
+  revisionCount: true,
   pullRequestUrl: true,
   pullRequestHeadSha: true,
   beneficiaryUserId: true,
@@ -191,18 +193,42 @@ export async function submitTestVerdict(
   // #delivered-step: delivered work is judged at Done · Requires review, and a
   // judgement can still change at Done · Accepted (#529); before delivery, and
   // once a manager has accepted it, there is nothing to judge.
-  if (bug.status !== "done" || !bug.pullRequestUrl) {
-    return {
-      status: 409,
-      error: "not_delivered",
-      message:
-        "Judgements are given on delivered work: the issue must be Done · Requires review (or Done · Accepted, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
-    };
+  if (bug.track === "marketing") {
+    const delivery = await prisma.delivery.findFirst({
+      where: { bugId: bug.id },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: { id: true, updatedAt: true },
+    });
+    if (bug.status !== "done" || !delivery) {
+      return {
+        status: 409,
+        error: "not_delivered",
+        message:
+          "Judgements are given on delivered work: the issue must be Done · Requires review (or Done · Accepted, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
+      };
+    }
+  } else {
+    if (!body.files || body.files.length === 0) {
+      return {
+        status: 400,
+        error: "invalid_request",
+        message: "files: list the changed files you judged, as [{ path, lines? }].",
+        field: "files",
+      };
+    }
+    if (bug.status !== "done" || !bug.pullRequestUrl) {
+      return {
+        status: 409,
+        error: "not_delivered",
+        message:
+          "Judgements are given on delivered work: the issue must be Done · Requires review (or Done · Accepted, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
+      };
+    }
   }
-  const pullRequestUrl = bug.pullRequestUrl;
+  const pullRequestUrl = bug.track === "marketing" ? null : bug.pullRequestUrl;
   // #489: the verdict records the commit it tested. An agent that inspected
   // a newer commit says so; otherwise the SHA recorded when the PR was linked.
-  const headSha = body.headSha ?? bug.pullRequestHeadSha;
+  const headSha = bug.track === "marketing" ? null : (body.headSha ?? bug.pullRequestHeadSha);
 
   if (activeClaimAgent(bug) === agent.agentId) {
     return {
@@ -250,7 +276,7 @@ export async function submitTestVerdict(
   }
 
   // A tester only says "good to merge" about a pull request that is ready, as reported.
-  if (body.goodToMerge) {
+  if (body.goodToMerge && bug.track !== "marketing") {
     const block = readyBlock(bug, await latestPullRequestReport(bug.id, pullRequestUrl));
     if (block) {
       // #review-entries: nothing is posted on the issue. The caller gets the
@@ -298,7 +324,7 @@ export async function submitTestVerdict(
             onBehalfOfUserId,
             pullRequestUrl,
             headSha,
-            files: uniqueEvidenceFiles(body.files),
+            files: body.files ? uniqueEvidenceFiles(body.files) : [],
             changedAt: new Date(),
           },
           select: verdictSelect,
@@ -346,7 +372,7 @@ export async function submitTestVerdict(
           description: body.description,
           pullRequestUrl,
           headSha,
-          files: uniqueEvidenceFiles(body.files),
+          files: body.files ? uniqueEvidenceFiles(body.files) : [],
         },
         select: verdictSelect,
       });

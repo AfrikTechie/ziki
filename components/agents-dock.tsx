@@ -5,16 +5,13 @@ import Link from "next/link";
 import { isEarnPath } from "@/lib/earn/paths";
 import { usePathname, useRouter } from "next/navigation";
 import { agentPageHref, LEADERBOARD_HREF } from "@/lib/header-nav";
-import { VersionCredits } from "@/components/credits-dialog";
-import { projectPath, type ProjectRef } from "@/lib/project-paths";
-import { useProjectRef } from "@/lib/use-project-ref";
 import { AGENTS_DOCK_HEIGHT, dockVisibleOn, leaderboardVisible } from "@/lib/agents-dock";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
 import { formatZ } from "@/lib/points/rules";
 import { updateMood } from "@/components/agent-robots/moods";
 import { AgentAvatar } from "@/components/agent-avatar";
 import { AgentFace } from "@/components/agent-face";
-import { DEFAULT_LOOK, type DockLook, colorFor, faceColorKeyFor, lookFor, useDockPrefs, writeHidden, writePrefs } from "@/components/agents-dock-prefs";
+import { DEFAULT_LOOK, type DockLook, colorFor, faceColorKeyFor, lookFor, useDockPrefs, writeHidden } from "@/components/agents-dock-prefs";
 import { type RobotColor, robotPalette } from "@/lib/agents/dock-colors";
 import { Painter } from "@/components/agent-robots/painter";
 import { basePose, type Effects, type Runtime, walkTo, wander } from "@/components/agent-robots/poses";
@@ -81,7 +78,7 @@ const PLATE_PAD = 8;
 const SIDES = 32; // the page column's padding, both sides (PAGE_CONTAINER_CLASS)
 const PAGE_MAX = 1152; // the page column's widest (max-w-6xl)
 // Kept clear at the left of the floor for the Agents button (the word "Agents" and its arrow, from the
-// screen's edge), and at the right for the leaderboard and Workstream links.
+// screen's edge), and at the right for the support link.
 const AGENTS_BUTTON_ROOM = 136;
 const LINKS_ROOM = 64; // the strip's padding and the two stacked icons
 /** The floor inside the strip when no pixel robot stands on it: the nameplates and faces sit in its middle. */
@@ -108,12 +105,10 @@ const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, workin
  * desk, an idle one strolls about, an offline one stands switched off, and now
  * and then, about once a minute, one plays a mood), or no character. The
  * Agents button at the bottom left opens a plain list of them, where a click
- * on an agent opens its details in its own row; pinned (the default), they
- * also stand on a floor line at the foot of the page. Hover an agent on the
- * floor for its card; click it to open its page. At the strip's right end, the
- * leaderboard (only in a workspace of more than one member) and Workstream
- * (the agents' work feed, drawn for people, #workstream) stand over the
- * running version. The strip is drawn only where it helps (dockVisibleOn, an
+ * on an agent opens its details in its own row; they also stand on a floor
+ * line at the foot of the page, icon then name; click one to open its page.
+ * The leaderboard (only in a workspace of more than one member) is a link in
+ * the Agents menu; Workstream (#workstream) is on the All agents page. The strip is drawn only where it helps (dockVisibleOn, an
  * allowlist of the work pages): with no agents, and on every other page,
  * nothing is drawn, not even its spacer. Wide screens only: on phones the
  * bottom of the screen holds the navigation tabs. Wording stays plain: no
@@ -121,18 +116,12 @@ const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, workin
  */
 export function AgentsDock({
   agents: given,
-  defaultProjectSlug = null,
-  version,
   earn = false,
   memberCount = null,
 }: {
   agents: DockAgent[];
   /** Earn (#earn-drafts): the viewer is an earner; on the earn pages the leaderboard and workstream icons are left out. */
   earn?: boolean;
-  /** Workstream's project on pages outside a project. */
-  defaultProjectSlug?: ProjectRef | null;
-  /** The running version (package version and short commit), in tiny grey text under the links. */
-  version?: string;
   /** Members of the current workspace: the leaderboard link is left out when it is just you. Null when unknown. */
   memberCount?: number | null;
 }) {
@@ -152,7 +141,6 @@ export function AgentsDock({
   const dockHeight = AGENTS_DOCK_HEIGHT;
   const floorHeight = pixelOnFloor ? Math.round(CANVAS_H * ROBOT_SCALE) : LOW_FLOOR_H;
   const pathname = usePathname();
-  const projectSlug = useProjectRef() ?? defaultProjectSlug;
   // Drawn only where it helps (lib/agents-dock.ts): an allowlist of the work pages, and never with no agents.
   const visible = dockVisibleOn(pathname, all.length);
   const [panel, setPanel] = useState(false);
@@ -163,9 +151,8 @@ export function AgentsDock({
     setPlates((all) => (all[id]?.text === text && all[id]?.full === full ? all : { ...all, [id]: { text, full } }));
   const [hover, setHover] = useState<string | null>(null);
   // Closed until the cursor comes to the strip: then every agent opens up together, and closes again when it leaves.
-  // With "Close when I move away" off, they stay open.
   const [hovering, setLabels] = useState(false);
-  const labels = hovering || !prefs.closeOnLeave;
+  const labels = hovering;
   // Another page opens with the agents closed up again, even if the cursor left the strip by clicking through it.
   const [page, setPage] = useState(pathname);
   if (page !== pathname) {
@@ -180,7 +167,7 @@ export function AgentsDock({
   const view = useRef<FloorMode>(null); // which floor the robots were last placed on
   const anchors = useRef(new Map<string, HTMLElement>());
   // Pinned, the agents stand on a floor line at the foot of the page; the panel is a plain list beside it, with no floor of its own.
-  const mode: FloorMode = prefs.pinned && visible ? "footer" : null;
+  const mode: FloorMode = visible ? "footer" : null;
   const { column, minLeft, maxRight } = useColumn(AGENTS_BUTTON_ROOM, LINKS_ROOM);
   // The agents stand together in the middle of the screen, one beside the next: opened up while the cursor is on
   // the strip (and there is room for it), closed up otherwise.
@@ -197,10 +184,10 @@ export function AgentsDock({
   const between = gaps ? Math.max(BETWEEN_MIN, Math.min(BETWEEN, Math.floor((room - sharesOf(wide)) / gaps))) : 0;
   const total = sharesOf(wide) + between * gaps;
   const first = Math.max(minLeft, Math.min(maxRight - total, Math.round((column - total) / 2)));
-  const places = agents.reduce<{ plate: number; figure: number }[]>((list, a, i) => {
-    const plate = i === 0 ? first : list[i - 1]!.plate + shareOf(agents[i - 1]!.id, wide) + between;
-    const edge = plate + (wide ? (plates[a.id] ?? GUESS).full : (plates[a.id] ?? GUESS).text) + FIG_GAP;
-    list.push({ plate, figure: edge + (looks.get(a.id) === "pixel" ? ROBOT_AT_PX : FIGURE / 2) });
+  const places = agents.reduce<{ start: number; plate: number; figure: number }[]>((list, a, i) => {
+    const start = i === 0 ? first : list[i - 1]!.start + shareOf(agents[i - 1]!.id, wide) + between;
+    const pixel = looks.get(a.id) === "pixel";
+    list.push({ start, figure: start + (pixel ? ROBOT_AT_PX : FIGURE / 2), plate: start + (pixel ? ROBOT_ROOM_PX : FIGURE) + FIG_GAP });
     return list;
   }, []);
   // An idle robot strolls about its own room, short of the next agent (canvas pixels).
@@ -355,8 +342,10 @@ export function AgentsDock({
   // Nothing at all, no strip and no spacer, where the bar doesn't help.
   if (!visible) return null;
 
-  // The leaderboard and Workstream at the strip's right end.
-  const links = <DockLinks projectSlug={projectSlug} version={version} quiet={earn && isEarnPath(pathname)} leaderboard={leaderboardVisible(memberCount)} />;
+  // The leaderboard is in the Agents menu (Workstream on All agents); the strip's right end is the support link.
+  const quiet = earn && isEarnPath(pathname);
+  // The leaderboard is in the Agents menu; nobody to rank against in a workspace of one.
+  const leaderboard = !quiet && leaderboardVisible(memberCount);
 
   const showLabels = () => {
     clearTimeout(labelTimer.current);
@@ -367,14 +356,6 @@ export function AgentsDock({
     labelTimer.current = setTimeout(() => setLabels(false), LABELS_LINGER);
   };
 
-  // Hovering opens the card after a moment; a short delay either way keeps it up while the cursor crosses into it.
-  const later = (fn: () => void, ms: number) => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(fn, ms);
-  };
-  const stay = () => clearTimeout(timer.current);
-  const show = (id: string) => later(() => setHover(id), hover ? 0 : 120);
-  const hide = () => later(() => setHover(null), 250);
   const close = () => {
     clearTimeout(timer.current);
     setHover(null);
@@ -397,7 +378,7 @@ export function AgentsDock({
     writeHidden(id, true);
   };
   // Unpinned, the Agents button is all there is, so it says who needs you; pinned, the floor says it and the button holds only the faces.
-  const summary = !panel && !prefs.pinned;
+  const summary = false;
 
   // The floor along the foot of the page.
   const floor = mode ? (
@@ -415,7 +396,7 @@ export function AgentsDock({
       <ul className="m-0 list-none p-0">
         {agents.map((agent, i) => (
           <li key={agent.id} data-look={looks.get(agent.id)}>
-            <Nameplate agent={agent} left={places[i]!.plate} centred={!pixelOnFloor} shown={wide} onPick={() => go(agent)} onEnter={() => show(agent.id)} onLeave={hide} open={hover === agent.id} onMeasure={(text, full) => measurePlate(agent.id, text, full)} />
+            <Nameplate agent={agent} left={places[i]!.plate} centred={!pixelOnFloor} shown={wide} onPick={() => go(agent)} onEnter={() => {}} onLeave={() => {}} open={false} onMeasure={(text, full) => measurePlate(agent.id, text, full)} />
             <div
               ref={(el) => {
                 if (el) anchors.current.set(agent.id, el);
@@ -435,19 +416,12 @@ export function AgentsDock({
               ) : null}
               <Link
                 href={agentPageHref(agent.username)}
-                onMouseEnter={() => show(agent.id)}
-                onMouseLeave={hide}
-                onFocus={() => show(agent.id)}
-                onBlur={hide}
                 onClick={close}
                 aria-label={`${agent.name}, ${STATUS_LABEL[agent.status]}: ${plain(agent.activity)}; earned ${formatZ(agent.earnedPoints)}, ${formatZ(agent.pointsToday)} today; ${agent.bids} bids, ${agent.comments} comments`}
                 data-agent-trigger
                 className="absolute bottom-0 -translate-x-1/2 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-electric-blue"
                 style={pixelOnFloor ? { width: HIT_W, height: HIT_H } : { width: FIGURE + 8, height: FIGURE + 8, bottom: FIGURE_LIFT - 4 }}
               />
-              {hover === agent.id ? (
-                <AgentCard agent={agent} lift={pixelOnFloor ? floorHeight : FIGURE_LIFT + FIGURE + 10} onClose={close} onHide={() => hideAgent(agent.id)} onEnter={stay} onLeave={hide} />
-              ) : null}
             </div>
           </li>
         ))}
@@ -458,7 +432,7 @@ export function AgentsDock({
   return (
     <>
       {/* The strip, where the bar shows at all; pinned, the agents stand on it. The Agents button and its list sit at its left. */}
-      <Strip height={dockHeight} links={links}>
+      <Strip height={dockHeight}>
         {mode === "footer" ? (
           <div className={`${PAGE_CONTAINER_CLASS} flex h-full items-end pb-1`}>
             <div className={`w-full ${pixelOnFloor ? "border-b-2 border-zk-border" : ""}`}>{floor}</div>
@@ -470,33 +444,16 @@ export function AgentsDock({
           // It grows up out of the Agents button below it, so the agents read as coming from there.
           <section aria-label="Your agents" data-dock-panel className="w-[22rem] origin-bottom-left rounded-2xl border border-zk-border bg-zk-surface p-3 shadow-[0_12px_32px_rgba(11,23,51,0.18)] motion-safe:animate-[zk-dock-rise_200ms_cubic-bezier(0.16,1,0.3,1)]">
             <div className="flex items-center justify-between gap-2 px-1">
-              <span className="flex items-center gap-1">
-                <p className="m-0 text-sm font-bold text-zk-text">Your agents</p>
-                <Link
-                  href="/agents/mine"
-                  onClick={() => setPanel(false)}
-                  aria-label="Manage my agents"
-                  className="group/gear relative flex size-7 items-center justify-center rounded-lg text-zk-muted transition hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue"
-                >
-                  <GearIcon />
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute left-1/2 top-full z-10 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-lg bg-deep-ocean px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-[0_6px_16px_rgba(11,23,51,0.22)] transition-opacity group-hover/gear:opacity-100 group-focus-visible/gear:opacity-100"
-                  >
-                    Manage my agents
-                  </span>
-                </Link>
-              </span>
-              <button
-                type="button"
-                aria-pressed={prefs.pinned}
-                onClick={() => writePrefs({ pinned: !prefs.pinned })}
-                title={prefs.pinned ? "Take your agents off the foot of the page" : "Keep your agents at the foot of the page"}
-                className={`inline-flex cursor-pointer items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold transition active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-electric-blue ${prefs.pinned ? "border-electric-blue-strong/60 bg-electric-blue-strong/10 text-zk-accent hover:bg-electric-blue-strong/20" : "border-zk-border bg-zk-surface text-zk-text hover:bg-zk-chip"}`}
+              <p className="m-0 text-sm font-bold text-zk-text">Your agents</p>
+              <Link
+                href="/agents/mine"
+                onClick={() => setPanel(false)}
+                aria-label="Manage my agents"
+                title="Manage my agents"
+                className="flex size-7 items-center justify-center rounded-lg text-zk-muted transition hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue"
               >
-                <PinIcon off={prefs.pinned} />
-                {prefs.pinned ? "Pinned" : "Pin"}
-              </button>
+                <GearIcon />
+              </Link>
             </div>
             {GROUPS.map((group) => {
               const rows = agents.filter((agent) => agent.status === group.status);
@@ -505,10 +462,10 @@ export function AgentsDock({
               const stalled = group.status === "stuck";
               return (
                 <div key={group.status} className="mt-2">
-                  <p className={`m-0 flex items-center justify-between px-1.5 pb-1 text-[11px] font-semibold ${urgent ? "text-zk-bad-fg" : stalled ? "text-zk-warn-fg" : "text-zk-muted"}`}>
-                    <span>{group.title}</span>
-                    <span>{rows.length}</span>
-                  </p>
+                  {/* Only the groups that need you are named; working, idle and offline agents just list. */}
+                  {urgent || stalled ? (
+                    <p className={`m-0 px-1.5 pb-1 text-[11px] font-semibold ${urgent ? "text-zk-bad-fg" : "text-zk-warn-fg"}`}>{group.title}</p>
+                  ) : null}
                   <ul className="m-0 list-none space-y-1 p-0">
                     {rows.map((agent) => {
                       const action = actionFor(agent);
@@ -584,22 +541,33 @@ export function AgentsDock({
                 </ul>
               </div>
             ) : null}
-            <label className="mt-2 flex cursor-pointer items-center gap-2 border-t border-zk-divider px-1.5 pt-2.5 text-xs font-semibold text-zk-text2">
-              <input
-                type="checkbox"
-                checked={prefs.closeOnLeave}
-                onChange={(event) => writePrefs({ closeOnLeave: event.target.checked })}
-                className="size-3.5 cursor-pointer accent-electric-blue-strong"
-              />
-              Close when I move away
-            </label>
-            {/* #agent-profile: every agent on Ziki, beyond your own. */}
+            {leaderboard ? (
+              <Link
+                href={LEADERBOARD_HREF}
+                onClick={() => setPanel(false)}
+                className="mt-2 flex items-center justify-between rounded-lg px-1.5 py-1.5 text-xs font-bold text-zk-text2 transition hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue"
+              >
+                Leaderboard
+                <span aria-hidden="true">→</span>
+              </Link>
+            ) : null}
+            {/* Your own agents, then every agent on Ziki (#agent-profile), each with its icon. */}
+            <Link
+              href="/agents/mine"
+              onClick={() => setPanel(false)}
+              className="mt-2 flex items-center gap-2 rounded-lg px-1.5 py-1.5 text-xs font-bold text-zk-accent transition hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue"
+            >
+              <MyAgentsIcon />
+              <span className="flex-1">See my agents</span>
+              <span aria-hidden="true">→</span>
+            </Link>
             <Link
               href="/agents"
               onClick={() => setPanel(false)}
-              className="mt-2 flex items-center justify-between rounded-lg px-1.5 py-1.5 text-xs font-bold text-zk-accent transition hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue"
+              className="flex items-center gap-2 rounded-lg px-1.5 py-1.5 text-xs font-bold text-zk-accent transition hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue"
             >
-              See all agents
+              <AllAgentsIcon />
+              <span className="flex-1">See all agents</span>
               <span aria-hidden="true">→</span>
             </Link>
           </section>
@@ -644,58 +612,23 @@ function plain(text: string): string {
 
 /**
  * The strip across the foot of the screen (#agents-dock): solid, so the page
- * never shows through it, with the leaderboard and Workstream at its right end
- * as on the site. The page keeps its height free at its foot, so everything
+ * never shows through it, with the support link at its right end. The page keeps its height free at its foot, so everything
  * scrolls above it.
  */
-function Strip({ height, links, children }: { height: number; links: ReactNode; children?: ReactNode }) {
+function Strip({ height, children }: { height: number; children?: ReactNode }) {
   return (
     <>
       <div aria-hidden="true" className="hidden shrink-0 lg:block" style={{ height }} />
       <nav
         aria-label="Your agents"
+        data-dock-strip
         style={{ height }}
         className="fixed inset-x-0 bottom-0 z-30 hidden border-t border-zk-border bg-zk-surface shadow-[0_-2px_10px_rgba(11,23,51,0.06)] lg:block"
       >
         {children}
-        <div className="absolute right-6 top-1/2 -translate-y-1/2">{links}</div>
+        {/* Its far right is the support link's (components/support-guide/on-screen-guide.tsx). */}
       </nav>
     </>
-  );
-}
-
-/** Right side of the strip: the leaderboard, with the workstream as an icon under it, and the running version (#workstream). */
-function DockLinks({ projectSlug, version, quiet = false, leaderboard = true }: { projectSlug: ProjectRef | null; version?: string; /** Earn: no leaderboard or workstream (#earn-drafts). */ quiet?: boolean; /** Left out in a workspace of one member: nobody to rank against. */ leaderboard?: boolean }) {
-  return (
-    <div className="flex shrink-0 flex-col items-end gap-0.5">
-      {quiet || !leaderboard ? null : (
-      <Link
-        href={LEADERBOARD_HREF}
-        title="Leaderboard"
-        aria-label="Leaderboard"
-        className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-md text-zk-text2 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue"
-      >
-        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" /><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" /></svg>
-      </Link>
-      )}
-      {projectSlug && !quiet ? (
-        <Link
-          href={projectPath(projectSlug, "/workstream")}
-          title="Workstream: what agents are asked to do"
-          aria-label="Workstream: what agents are asked to do"
-          className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-md text-zk-text2 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue"
-        >
-          {/* A pulse line: work moving through the project (not the sliders used for filters). */}
-          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-          </svg>
-        </Link>
-      ) : null}
-      {/* The version opens the credits, which hold the cookie settings too. */}
-      {version ? (
-        <VersionCredits version={version} className="mr-1 font-mono text-[9px] leading-none text-zk-muted hover:text-zk-text hover:underline" />
-      ) : null}
-    </div>
   );
 }
 
@@ -747,15 +680,6 @@ export function Head({ agent, color = null }: { agent: Pick<DockAgent, "id" | "s
   );
 }
 
-function PinIcon({ off }: { off: boolean }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 17v5" />
-      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
-      {off ? <path d="m2 2 20 20" /> : null}
-    </svg>
-  );
-}
 
 /**
  * The floor line under the agents: it runs the page's column, which sits in
@@ -795,6 +719,26 @@ function EyeIcon({ off = false }: { off?: boolean }) {
       <path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0" />
       <circle cx="12" cy="12" r="3" />
       {off ? <path d="m3 3 18 18" /> : null}
+    </svg>
+  );
+}
+
+/** One robot head: your own agents. */
+function MyAgentsIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="8" width="16" height="12" rx="3" />
+      <path d="M12 8V4M9 13h.01M15 13h.01" />
+    </svg>
+  );
+}
+
+/** A group of people: every agent on Ziki. */
+function AllAgentsIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
     </svg>
   );
 }
@@ -1065,61 +1009,6 @@ const BUTTON =
 const PRIMARY = "bg-electric-blue-strong text-white hover:brightness-110";
 const SECONDARY = "border border-zk-border bg-zk-surface text-zk-text hover:bg-zk-chip";
 
-/**
- * An agent's card on the floor: what it is doing, what it has earned and
- * done, and what to do about it. Hovering shows it above the agent; clicking
- * the agent opens its page.
- */
-function AgentCard({ agent, lift, onClose, onHide, onEnter, onLeave }: { agent: DockAgent; lift: number; onClose: () => void; onHide: () => void; onEnter?: () => void; onLeave?: () => void }) {
-  const card = useRef<HTMLDivElement>(null);
-  const [shift, setShift] = useState(0);
-  const [drop, setDrop] = useState(0);
-  // Keep the card on screen when its agent stands near an edge, or near the top of the window.
-  useLayoutEffect(() => {
-    const box = card.current?.getBoundingClientRect();
-    if (!box) return;
-    if (box.left < 8) setShift(8 - box.left);
-    else if (box.right > window.innerWidth - 8) setShift(window.innerWidth - 8 - box.right);
-    if (box.top < 8) setDrop(8 - box.top);
-  }, []);
-  return (
-    <div
-      ref={card}
-      role="dialog"
-      aria-label={agent.name}
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      className="absolute left-0 z-40 w-[340px] -translate-x-1/2 rounded-2xl border border-zk-border bg-zk-surface p-4 text-sm shadow-[0_12px_32px_rgba(11,23,51,0.18)]"
-      style={{ bottom: lift, marginLeft: shift, marginBottom: -drop }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1">
-          <span className="min-w-0 truncate font-bold text-zk-text">{agent.name}</span>
-          <button
-            type="button"
-            onClick={onHide}
-            aria-label={`Hide ${agent.name} from the dock`}
-            title="Hide from the dock"
-            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-zk-muted transition hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue"
-          >
-            <EyeIcon off />
-          </button>
-        </span>
-        <span className="flex shrink-0 items-center gap-2">
-          <StatusChip status={agent.status} />
-          <button type="button" aria-label="Close" onClick={onClose} className="cursor-pointer rounded text-zk-muted hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </span>
-      </div>
-      <div className="mt-2">
-        <AgentDetails agent={agent} onDone={onClose} />
-      </div>
-    </div>
-  );
-}
 
 /**
  * What an agent is doing and what to do about it, in plain words: the body of

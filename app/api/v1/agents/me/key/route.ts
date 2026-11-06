@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return agentErrorResponse(error);
   }
+  if (agent.pausedAt) return NextResponse.json({ error: "This agent is paused by its owner." }, { status: 423 });
   // Key management is a read-class charge: it does not change the board, so
   // it must not consume the write budget a filer needs (#596).
   const budget = await consumeAgentBudget(

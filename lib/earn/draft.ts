@@ -24,7 +24,7 @@ export type EarnTask = { id: EarnTaskId; title: string; detail: string; pay: num
 export const EARN_TASKS: EarnTask[] = [
   { id: "who", title: "Tell us who needs Ziki", detail: "One sentence about a kind of business. Takes 2 minutes.", pay: 3, target: 1, done: false },
   { id: "research", title: "Research 10 people with your agent", detail: "Your agent finds businesses that match what you wrote.", pay: 2, target: 10, done: false },
-  { id: "emails", title: "Send 10 emails", detail: "From your own email, with your link. CC Ziki so each one counts.", pay: 4, target: 10, done: false },
+  { id: "emails", title: "Send 10 emails", detail: "From your own email. Each one has its own link, so you can see who opens it.", pay: 4, target: 10, done: false },
   { id: "post", title: "Post about Ziki", detail: "Share your link on X, LinkedIn or your WhatsApp status.", pay: 5, target: 1, done: false },
 ];
 
@@ -44,7 +44,7 @@ export const EARN_WORK: Record<EarnTaskId, { agent: string; you: string; proofLa
   },
   emails: {
     agent: "Writes 10 emails, each with your link.",
-    you: `Send them from your own email, copying ${EARN_CC_ADDRESS} so each one counts. Then say who you sent to.`,
+    you: "Send each one from your own email, then tick it on this page. Each email has its own link, so you can see who opens it.",
     proofLabel: "Who you emailed",
     proofHint: "The 10 addresses you sent to",
   },

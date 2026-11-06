@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import { ensureDefaultIssueTypes, issueTypeScopeFor } from "@/lib/issue-types";
 import { AdminIssueTypesManager } from "@/components/admin-issue-types-manager";
@@ -15,7 +16,7 @@ export default async function OrgTypesPage() {
   const scope = await issueTypeScopeFor(user);
   if (!scope.ok) {
     const types = await prisma.issueType.findMany({
-      where: { tenantId: org.id },
+      where: { tenantId: org.id, ...PRODUCT_TRACK },
       orderBy: { name: "asc" },
       select: { id: true, name: true, description: true, isActive: true },
     });
@@ -43,7 +44,7 @@ export default async function OrgTypesPage() {
 
   const [types, deletedRows] = await Promise.all([
     prisma.issueType.findMany({
-      where: { tenantId: scope.tenantId },
+      where: { tenantId: scope.tenantId, ...PRODUCT_TRACK },
       orderBy: { name: "asc" },
       include: {
         _count: {

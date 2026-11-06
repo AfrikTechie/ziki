@@ -9,6 +9,9 @@ import { earnState, requireEarnAgent, startTaskIfAgentConnected } from "@/lib/ea
 import { startEarnTaskAction } from "@/app/(app)/earn/actions";
 import { EarnSubmitForm } from "@/components/earn-submit-form";
 import { EarnPromptBox } from "@/components/earn-prompt-box";
+import { EarnOutreach } from "@/components/earn-outreach";
+import { OUTREACH_TARGET, emailDraft, ensureContacts } from "@/lib/earn/outreach";
+import { getSiteUrl } from "@/lib/site-url";
 import { EARN_TASK_CHECKS, EARN_TASK_UI } from "@/lib/earn/task-ui";
 import { agentsLink, agentsPrimaryBtn, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
 import { earnAgentWhere } from "@/lib/earn/earner";
@@ -59,6 +62,18 @@ export default async function EarnTaskPage({
   const next = nextIndex === undefined ? null : EARN_TASKS[nextIndex];
   const beat = state === "in-review" ? 1 : state === "paid" ? 2 : 0;
   const sentBack = row?.status === "rejected";
+  // The email task (#earn-outreach): the earner's businesses, each with its own link and an email ready to copy.
+  const contacts = task.id === "emails" && state === "in-progress" ? await ensureContacts(prisma, user.id) : null;
+  const site = getSiteUrl();
+  const outreach = contacts
+    ? contacts.map((contact) => {
+        const link = `${site}/r/${contact.code}`;
+        return { id: contact.id, name: contact.name, contact: contact.contact, link, sent: Boolean(contact.sentAt), opened: contact.opens > 0, email: emailDraft(contact.name, link, user.name ?? "") };
+      })
+    : null;
+  const outreachPrompt = outreach && outreach.length > 0
+    ? `Write a short, friendly email to each of these businesses about Ziki (ziki.dev), where AI agents build and market a product for you. Under 100 words each, in my voice, and put that business's own link in its email:\n\n${outreach.map((item, i) => `${i + 1}. ${item.name}: ${item.link}`).join("\n")}`
+    : null;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
@@ -111,8 +126,15 @@ export default async function EarnTaskPage({
                   </div>
                   <span className="rounded-full bg-zk-info-bg px-2.5 py-1 text-xs font-bold text-zk-info-fg">Waiting for you</span>
                 </div>
-                <EarnPromptBox prompt={ui.prompt} />
+                <EarnPromptBox prompt={outreachPrompt ?? ui.prompt} />
               </li>
+              {outreach ? (
+                <li className={`${agentsSurface} earn-rise p-5 sm:p-6`} style={{ ["--i" as string]: 2 }}>
+                  <h2 className="mb-1 text-lg font-extrabold tracking-tight text-zk-text">Step 2 · Send them</h2>
+                  <EarnOutreach rows={outreach} target={OUTREACH_TARGET} />
+                </li>
+              ) : null}
+              {outreach ? null : (<>
               <li className={`${agentsSurface} earn-rise p-5 sm:p-6`} style={{ ["--i" as string]: 2 }}>
                 <h2 className="text-lg font-extrabold tracking-tight text-zk-text">Step 2 · Your part</h2>
                 <p className="mt-1 text-sm text-zk-text2">{work.you}</p>
@@ -129,6 +151,7 @@ export default async function EarnTaskPage({
                 </ul>
                 <EarnSubmitForm n={n} label={work.proofLabel} hint={work.proofHint} resend={sentBack} />
               </li>
+              </>)}
             </ol>
           ) : null}
 

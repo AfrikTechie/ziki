@@ -1,3 +1,9 @@
+import { trackRules } from "@/lib/marketing/track";
+import {
+  clearLeaderboardCache,
+  leaderboardPeriodStart,
+  paginatedTenantLeaderboard,
+} from "@/lib/points/leaderboard";
 import { describe, expect, it, vi } from "vitest";
 
 // #pr-reports: whether a pull request was closed without merging is the latest
@@ -86,6 +92,53 @@ describe("points ledger (#428)", () => {
   });
 });
 
+describe("shared leaderboard periods (M-API-10)", () => {
+  it("uses UTC week and month boundaries, with no boundary for all time", () => {
+    const now = new Date("2026-11-05T18:30:00.000Z");
+    expect(leaderboardPeriodStart("week", now)?.toISOString()).toBe("2026-11-02T00:00:00.000Z");
+    expect(leaderboardPeriodStart("month", now)?.toISOString()).toBe("2026-11-01T00:00:00.000Z");
+    expect(leaderboardPeriodStart("all", now)).toBeNull();
+  });
+
+  it("ranks the shared PointEntry total for the selected period without separating marketing rewards", async () => {
+    clearLeaderboardCache();
+    const now = new Date("2026-11-05T18:30:00.000Z");
+    const periodStart = new Date("2026-11-02T00:00:00.000Z");
+    const groupBy = vi.fn(async ({ where }: { where: { role?: string } }) =>
+      where.role === "solver"
+        ? [{ userId: "worker", _count: { _all: 2 } }]
+        // PointEntry has no track split: this total can contain both product and marketing awards.
+        : [{ userId: "worker", _sum: { points: 12 } }],
+    );
+    const db = {
+      pointEntry: { groupBy },
+      user: {
+        findMany: vi.fn(async () => [{ id: "worker", name: "Worker", image: null }]),
+      },
+    } as never;
+
+    const result = await paginatedTenantLeaderboard(db, "tenant-zedu", {
+      period: "week",
+      now,
+    });
+
+    expect(result).toMatchObject({
+      period: "week",
+      periodStart: periodStart.toISOString(),
+      entries: [{ userId: "worker", points: 12, solvedTasks: 2, rank: 1 }],
+    });
+    expect(groupBy).toHaveBeenCalledTimes(2);
+    for (const [query] of groupBy.mock.calls) {
+      expect(query.where).toMatchObject({
+        tenantId: "tenant-zedu",
+        createdAt: { gte: periodStart },
+      });
+      expect(query.where).not.toHaveProperty("bug.track");
+      expect(query.where).not.toHaveProperty("track");
+    }
+  });
+});
+
 describe("point rules (#428)", () => {
   it("pays every later reviewer a little less, and never stops paying", () => {
     expect([0, 1, 2, 3, 4, 5].map((index) => reviewerPointsAt(index, 5))).toEqual([
@@ -154,5 +207,12 @@ describe("payouts wait for the work to be live (#live-payout)", () => {
     // Paid once: a later report pays nothing more.
     expect(await releasePayoutIfLive(db, "bug-1")).toBe(false);
     expect(rows).toHaveLength(2);
+  });
+});
+
+describe("when the reporter is paid", () => {
+  it("is at conversion for marketing, which has no confirmation, and at confirmation for product", () => {
+    expect(trackRules("marketing").reporterPaidOn).toBe("conversion");
+    expect(trackRules("product").reporterPaidOn).toBe("confirmation");
   });
 });

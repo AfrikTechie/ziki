@@ -1,4 +1,4 @@
-import type { Status } from "@prisma/client";
+import type { Status, WorkTrack } from "@prisma/client";
 
 /**
  * Title suggestions for the issues search box (#671).
@@ -23,6 +23,7 @@ export type IssueSuggestion = {
   number: number;
   title: string;
   status: Status;
+  track: WorkTrack;
   /** The issue's address, `/<org>/<project>/<number>`. */
   path: string;
 };

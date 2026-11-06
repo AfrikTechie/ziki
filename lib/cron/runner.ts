@@ -9,6 +9,7 @@ import { pruneAgentRows, type AgentRetentionCounts } from "@/lib/agent-retention
 import { sweepOrphanedAttachments } from "@/lib/attachment-retention";
 import { sweepOrphanedIssues } from "@/lib/orphaned-issues";
 import { sweepUndraftedIdeas } from "@/lib/cron/draft-structuring";
+import { processSearchOutbox, pruneProcessedSearchOutbox } from "@/lib/search-index";
 import { refreshMergeQueue } from "@/lib/github/sync";
 
 export const FAILURE_ALERT_THRESHOLD = 3;
@@ -64,6 +65,7 @@ export type PlatformSweepsResult = {
       pruned?: RetentionPruneCounts;
       error?: string;
     };
+    searchIndex: { status: "ok" | "error"; processed?: number; failed?: number; cleaned?: number; error?: string };
   };
 };
 
@@ -100,6 +102,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         githubStatus: { status: "ok" },
         deliveries: { status: "ok" },
         retention: { status: "ok" },
+        searchIndex: { status: "ok" },
       },
     };
 
@@ -213,6 +216,17 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
       result.sweeps.retention = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
+    // 6. Typesense indexing is asynchronous; PostgreSQL writes never wait on it.
+    try {
+      const indexed = await processSearchOutbox(100);
+      const cleaned = await pruneProcessedSearchOutbox();
+      recordSweepSuccess("searchIndex");
+      result.sweeps.searchIndex = { status: "ok", ...indexed, cleaned };
+    } catch (err) {
+      recordSweepFailure("searchIndex", err);
+      result.sweeps.searchIndex = { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+
     logger.info("[cron] Platform sweeps finished", {
       offers: result.sweeps.offers,
       jobReviewOffers: result.sweeps.jobReviewOffers,
@@ -221,6 +235,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
       draftStructuring: result.sweeps.draftStructuring,
       deliveries: result.sweeps.deliveries,
       retention: result.sweeps.retention,
+      searchIndex: result.sweeps.searchIndex,
     });
 
     return result;

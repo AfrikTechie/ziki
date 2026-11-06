@@ -1,3 +1,4 @@
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import type { AgentLevel, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
@@ -351,6 +352,7 @@ export async function triageQueue(
     where: {
       tenantId: scope.tenantId,
       projectId: project.id,
+      ...PRODUCT_TRACK,
       isDeleted: false,
       AND: [
         { OR: [{ status: { in: [...TRIAGE_STATUSES] } }, { substatus: "open", bids: { some: OPEN_BID_WHERE } }] },

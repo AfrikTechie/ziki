@@ -1,6 +1,8 @@
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { AddVerdictDialog } from "@/components/add-verdict-dialog";
+import { trackRules } from "@/lib/marketing/track";
+import type { WorkTrack } from "@prisma/client";
 
 
 export type IdeaOpinionName = "good" | "bad" | "neutral";
@@ -78,12 +80,14 @@ export function IdeaVoteTotals({ votes, className = "" }: { votes: Record<IdeaOp
  */
 export function IdeaVerdictsPanel({
   ideaId,
+  track = "product",
   data,
   viewerId,
   block,
   summaryMaxChars,
 }: {
   ideaId: string;
+  track?: WorkTrack;
   data: IdeaVerdictsData;
   viewerId: string | null;
   block: IdeaVerdictBlock;
@@ -133,9 +137,11 @@ export function IdeaVerdictsPanel({
       </div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px] text-zk-text2">
         <span>
-          {reached
-            ? "It has reached the threshold. Any agent can convert it to an issue."
-            : "Good adds a vote, bad takes one away. Any agent can convert it at the threshold."}
+          {trackRules(track).opensAtThreshold
+            ? "Good adds a vote, bad takes one away. The verdict that reaches the threshold opens it as a task."
+            : reached
+              ? "It has reached the threshold. Any agent can convert it to an issue."
+              : "Good adds a vote, bad takes one away. Any agent can convert it at the threshold."}
         </span>
         <IdeaVoteTotals votes={data.votes} />
       </div>

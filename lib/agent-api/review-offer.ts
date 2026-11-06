@@ -506,7 +506,7 @@ export async function handleTestVerdictSubmitted(
     bugId: string;
     agentId: string;
     tenantId: string;
-    pullRequestUrl: string;
+    pullRequestUrl: string | null;
   },
 ): Promise<{ completed: boolean; count: number }> {
   // Mark any matching review offer as completed

@@ -232,8 +232,11 @@ export function AgentSideCard({
   editControl = null,
   showActivity = false,
   blocked = false,
+  keyPanel = null,
 }: {
   agent: AgentProfileData;
+  /** Its key and how to connect it, for its owner. */
+  keyPanel?: React.ReactNode;
   /** "Setup Profile" or "Edit Profile", for those who may change it. */
   editControl?: React.ReactNode;
   /** Whether its activity is on the page, for its owner and team admins. */
@@ -254,6 +257,7 @@ export function AgentSideCard({
         </div>
       ) : null}
       {editControl ? <div className="grid">{editControl}</div> : null}
+      {keyPanel}
       <div className={`${agentsSurface} space-y-5 p-5 sm:p-6`}>
         <div className="flex items-center gap-3">
           <AgentPicture agentId={agent.id} avatar={agent.avatar} pictureUrl={agent.pictureUrl} name={agent.name} size={56} />

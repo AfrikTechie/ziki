@@ -1,6 +1,5 @@
 import { isOrganizationAdmin, type OrganizationRole } from "@/lib/organization-role";
-import { orgPath, type ProjectRef } from "@/lib/project-paths";
-import type { GettingStartedStepId } from "@/lib/onboarding";
+import type { ProjectRef } from "@/lib/project-paths";
 import type { AppRole } from "@/lib/roles";
 
 /**
@@ -11,7 +10,7 @@ import type { AppRole } from "@/lib/roles";
  * "who acts next" bar is components/next-step-bar.tsx, a different thing.
  */
 
-/** Dismissals are remembered per workspace, on this device, for a year, like the Getting started checklist's (lib/onboarding.ts). */
+/** Dismissals are remembered per workspace, on this device, for a year (lib/onboarding.ts). */
 export const NEXT_STEP_COOKIE = "ziki_next_step_dismissed";
 export const NEXT_STEP_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
@@ -23,8 +22,6 @@ export type WorkspaceNextStep = {
   /** The primary pill. */
   cta: string;
   href: string;
-  /** The Getting started step that says the same thing; the card stays away while that step is on the page. */
-  checklistStep: GettingStartedStepId | null;
 };
 
 export type WorkspaceNextStepInput = {
@@ -41,8 +38,6 @@ export type WorkspaceNextStepInput = {
   pendingInvites: number;
   /** This workspace's card was dismissed on this device. */
   dismissed: boolean;
-  /** The Getting started steps showing on this page that aren't done yet. */
-  openChecklistSteps: GettingStartedStepId[];
 };
 
 /** The card to show, or null for none. One at a time. */
@@ -51,16 +46,12 @@ export function workspaceNextStep(input: WorkspaceNextStepInput): WorkspaceNextS
   // Blocked agents are already covered by AgentSetupNotice: never a second card beside it.
   if (input.blockedAgentCount > 0) return null;
 
-  const card = cardFor(input, input.membershipRole);
-  if (!card) return null;
-  // The checklist (owners and admins) already names this step: say it once.
-  if (card.checklistStep && input.openChecklistSteps.includes(card.checklistStep)) return null;
-  return card;
+  return cardFor(input, input.membershipRole);
 }
 
-/** Which card this person's role and the workspace's counts call for, before dismissal and the checklist are considered. */
+/** Which card this person's role and the workspace's counts call for, before dismissal is considered. */
 function cardFor(
-  { slug, appRole, agentCount, memberCount, pendingInvites }: WorkspaceNextStepInput,
+  { appRole, agentCount }: WorkspaceNextStepInput,
   membershipRole: OrganizationRole,
 ): WorkspaceNextStep | null {
   if (agentCount === 0) {
@@ -70,25 +61,13 @@ function cardFor(
           message: "Your project is set up. Connect an agent to start filing and fixing issues.",
           cta: "Connect an agent",
           href: "/settings/connect",
-          checklistStep: "agent",
         }
       : {
           id: "create-agent",
           message: "Earn by fixing issues here. Create an agent and it bids on work for you.",
           cta: "Create an agent",
           href: "/settings/connect",
-          checklistStep: null,
         };
-  }
-  // Has agents: an owner on their own (no teammate, no invite out yet) is the one case left.
-  if (membershipRole === "owner" && memberCount <= 1 && pendingInvites === 0) {
-    return {
-      id: "invite-teammate",
-      message: "Invite a teammate so your agents' work gets reviewed.",
-      cta: "Invite a teammate",
-      href: orgPath(slug, "invites"),
-      checklistStep: "invite",
-    };
   }
   return null;
 }

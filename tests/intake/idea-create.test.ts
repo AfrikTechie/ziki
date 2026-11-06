@@ -9,15 +9,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
   idempotencyKey: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
   issueType: { findUnique: vi.fn() },
-  bug: { findMany: vi.fn() },
-  idea: { findMany: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn() },
+  bug: { findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), findFirst: vi.fn() },
+  idea: { findMany: vi.fn(), count: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), groupBy: vi.fn() },
   ideaVerdict: { groupBy: vi.fn(async () => []) },
+  category: { findMany: vi.fn() },
+  projectArea: { findMany: vi.fn() },
+  project: { findFirst: vi.fn() },
   projectWorkflow: { findUnique: vi.fn() },
   agentAuditEvent: { count: vi.fn() },
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));
+const indexedSearch = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
+vi.mock("@/lib/search-index", () => ({ searchWorkItems: indexedSearch }));
+
+const sessionUser = vi.hoisted(() => ({ resolve: vi.fn() }));
+vi.mock("@/lib/session-user", () => ({ resolveSessionUserId: sessionUser.resolve }));
+const currentTenant = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantIdFor: currentTenant.get,
+  bugInTenant: (tenantId: string) => ({ tenantId }),
+}));
+const activeProject = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock("@/lib/project-context", () => ({ activeProjectIdFor: activeProject.get }));
+const rateLimit = vi.hoisted(() => ({ consume: vi.fn() }));
+vi.mock("@/lib/rate-limit", () => ({
+  consumeRateLimit: rateLimit.consume,
+  RATE_LIMIT_MESSAGE: "Please wait before searching again.",
+}));
 
 // Claude, for structuring an idea as it is submitted (#idea-intake). No network in tests.
 const claude = vi.hoisted(() => ({ parse: vi.fn() }));
@@ -37,9 +57,13 @@ vi.mock("@anthropic-ai/sdk", () => {
 });
 vi.mock("@anthropic-ai/sdk/helpers/zod", () => ({ zodOutputFormat: (schema: unknown) => schema }));
 
-import { createIdeaWithPolicy, type CreatePolicyInput } from "@/lib/agent-api/create-policy";
+import { createIdeaWithPolicy, encodeCursor, type CreatePolicyInput } from "@/lib/agent-api/create-policy";
 import { assertVettedCap, assertVettedFields, createIdeaSchema, listAgentIdeas, readAgentIdea, VETTED_IDEAS_PER_DAY } from "@/lib/agent-api/ideas";
+import { countAgentIssues, issueProject, listAgentIssues } from "@/lib/agent-api/issues";
+import { GET as suggestIssues } from "@/app/api/issues/suggest/route";
+import { NextRequest } from "next/server";
 import { structureIdea } from "@/lib/idea-structuring";
+import { parseIdeaTrack } from "@/lib/marketing/idea-track";
 
 const NOW = new Date("2026-10-19T12:00:00Z");
 const agent = { agentId: "agent1", tenantId: "tenant_zedu" };
@@ -58,11 +82,61 @@ const input = (overrides: Partial<CreatePolicyInput> = {}): CreatePolicyInput =>
 const similarRow = { id: "b1", number: 12, title: "Login button does nothing in Safari", status: "open", voteCount: 3, score: 0.8 };
 const idea = {
   id: "i1", number: 12, title: "Export activity as CSV", summary: "People want a CSV.", description: "People want their data.",
-  status: "open" as const, score: 3, typeId: null, areaId: null, proofLinks: [], projectId: "p1",
+  track: "product" as const, rationale: null as string | null, status: "open" as const, score: 3, typeId: null, areaId: null, proofLinks: [], projectId: "p1",
   reporterId: "ada", beneficiaryUserId: "ada", createdByAgentId: null, convertedAt: null, archiveReason: null,
   archiveEvidence: null, archiveDuplicateOf: null, archivedAt: null, archivedByAgentId: null,
   createdAt: new Date("2026-10-20T10:00:00Z"), updatedAt: new Date("2026-10-20T10:00:00Z"), area: null, issue: null,
 };
+
+const listedIssues = [
+  {
+    id: "product-local", number: 10, title: "Product search marker", summary: "Product summary.", description: "Search phrase.",
+    status: "open", substatus: "open", track: "product", tenantId: "t1", projectId: "p1", isDeleted: false,
+    voteCount: 1, category: null, reward: 1, rewardEstimateCount: 0, rewardFixedAt: null,
+    createdAt: new Date("2026-10-20T10:00:00Z"), updatedAt: new Date("2026-10-20T10:00:00Z"),
+  },
+  {
+    id: "marketing-local", number: 11, title: "Marketing campaign", summary: "Marketing summary.", description: "Search phrase.",
+    status: "resolved", substatus: "published", track: "marketing", tenantId: "t1", projectId: "p1", isDeleted: false,
+    voteCount: 2, category: null, reward: 2, rewardEstimateCount: 0, rewardFixedAt: null,
+    createdAt: new Date("2026-10-20T09:00:00Z"), updatedAt: new Date("2026-10-20T09:00:00Z"),
+  },
+  {
+    id: "other-project", number: 12, title: "Product other project", summary: "Other project.", description: "Search phrase.",
+    status: "open", substatus: "open", track: "product", tenantId: "t1", projectId: "p2", isDeleted: false,
+    voteCount: 3, category: null, reward: 3, rewardEstimateCount: 0, rewardFixedAt: null,
+    createdAt: new Date("2026-10-20T08:00:00Z"), updatedAt: new Date("2026-10-20T08:00:00Z"),
+  },
+  {
+    id: "other-tenant", number: 13, title: "Marketing other tenant", summary: "Other tenant.", description: "Search phrase.",
+    status: "open", substatus: "open", track: "marketing", tenantId: "t2", projectId: "p1", isDeleted: false,
+    voteCount: 4, category: null, reward: 4, rewardEstimateCount: 0, rewardFixedAt: null,
+    createdAt: new Date("2026-10-20T07:00:00Z"), updatedAt: new Date("2026-10-20T07:00:00Z"),
+  },
+] as const;
+
+const countedBugs = [
+  { tenantId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open", substatus: "open" },
+  { tenantId: "t1", projectId: "p1", track: "marketing", isDeleted: false, status: "resolved", substatus: "published" },
+] as const;
+const countedIdeas = [
+  { tenantId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open" },
+  { tenantId: "t1", projectId: "p1", track: "marketing", isDeleted: false, status: "rejected" },
+] as const;
+
+function filterIssueRows(where: Record<string, unknown>) {
+  const and = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+  const textSearch = and.find((condition) => typeof condition === "object" && condition !== null && "OR" in condition) as
+    | { OR?: Array<{ title?: { contains?: string }; description?: { contains?: string } }> }
+    | undefined;
+  return listedIssues.filter((row) => {
+    if (row.tenantId !== where.tenantId || row.projectId !== where.projectId || row.track !== where.track) return false;
+    return !textSearch?.OR || textSearch.OR.some((condition) =>
+      (condition.title?.contains && row.title.toLowerCase().includes(condition.title.contains.toLowerCase()))
+      || (condition.description?.contains && row.description.toLowerCase().includes(condition.description.contains.toLowerCase())),
+    );
+  });
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -71,9 +145,18 @@ beforeEach(() => {
   db.idempotencyKey.create.mockResolvedValue({ id: "ik1" });
   db.$queryRaw.mockResolvedValue([]);
   db.projectWorkflow.findUnique.mockResolvedValue(null);
+  db.category.findMany.mockResolvedValue([]);
+  db.projectArea.findMany.mockResolvedValue([]);
+  sessionUser.resolve.mockResolvedValue({ userId: "user-1" });
+  currentTenant.get.mockResolvedValue("t1");
+  activeProject.get.mockResolvedValue("p1");
+  rateLimit.consume.mockResolvedValue({ allowed: true });
   db.idea.findMany.mockResolvedValue([idea]);
+  db.idea.count.mockResolvedValue(1);
   db.idea.findFirst.mockResolvedValue({ id: "i1" });
   db.idea.findUniqueOrThrow.mockResolvedValue({ ...idea, attachments: [] });
+  db.bug.count.mockResolvedValue(1);
+  indexedSearch.mockRejectedValue(new Error("Typesense is unavailable in this test."));
   insert.mockResolvedValue({ id: "new-idea" });
 });
 
@@ -106,6 +189,44 @@ describe("creating an idea", () => {
   });
 });
 
+describe("proposing a marketing task", () => {
+  it("is product work by default; a marketing idea needs a rationale and a product idea takes none", () => {
+    expect(parseIdeaTrack({})).toEqual({ ok: true, value: { track: "product", rationale: null } });
+    expect(parseIdeaTrack({ track: "marketing", rationale: "  People keep asking what changed.  " })).toEqual({
+      ok: true,
+      value: { track: "marketing", rationale: "People keep asking what changed." },
+    });
+    expect(parseIdeaTrack({ track: "marketing" })).toMatchObject({ ok: false, field: "rationale" });
+    expect(parseIdeaTrack({ track: "marketing", rationale: "x".repeat(2001) })).toMatchObject({ ok: false, field: "rationale" });
+    expect(parseIdeaTrack({ rationale: "Why not." })).toMatchObject({ ok: false, field: "rationale" });
+    expect(parseIdeaTrack({ track: "sales" })).toMatchObject({ ok: false, field: "track" });
+  });
+
+  it("takes only a type on its own track, and writes nothing otherwise", async () => {
+    db.issueType.findUnique.mockResolvedValue({ isActive: true, track: "product" });
+    expect(await createIdeaWithPolicy(input({ track: "marketing", typeId: "type_bug" }))).toMatchObject({ status: 422, error: "wrong_track" });
+    db.issueType.findUnique.mockResolvedValue({ isActive: true, track: "marketing" });
+    expect(await createIdeaWithPolicy(input({ typeId: "type_blog" }))).toMatchObject({ status: 422, error: "wrong_track" });
+    expect(insert).not.toHaveBeenCalled();
+    expect(await createIdeaWithPolicy(input({ track: "marketing", typeId: "type_blog" }))).toMatchObject({ status: 201 });
+    expect(insert).toHaveBeenCalledWith(db, { typeId: "type_blog" });
+  });
+
+  it("compares a marketing idea only with marketing work when looking for duplicates", async () => {
+    await createIdeaWithPolicy(input({ track: "marketing" }));
+    expect((db.$queryRaw.mock.calls[0] as unknown[]).slice(1)).toContain("marketing");
+  });
+
+  it("shows a marketing idea's rationale, and no rationale on a product idea", async () => {
+    db.idea.findUniqueOrThrow.mockResolvedValue({ ...idea, track: "marketing", rationale: "A post answers everyone at once.", attachments: [] });
+    expect(await readAgentIdea(scope, "12")).toMatchObject({ track: "marketing", rationale: "A post answers everyone at once." });
+    db.idea.findUniqueOrThrow.mockResolvedValue({ ...idea, attachments: [] });
+    const product = await readAgentIdea(scope, "12");
+    expect(product).toMatchObject({ track: "product" });
+    expect(product).not.toHaveProperty("rationale");
+  });
+});
+
 describe("seeing an idea", () => {
   it("reads it only inside its own project, and is a 404 elsewhere", async () => {
     await readAgentIdea(scope, "12");
@@ -116,9 +237,231 @@ describe("seeing an idea", () => {
 
   it("lists the project's ideas and names a bad filter", async () => {
     const page = await listAgentIdeas(scope, new URLSearchParams("status=open"));
-    expect(db.idea.findMany.mock.calls[0][0].where).toMatchObject({ tenantId: "t1", projectId: "p1", isDeleted: false, status: "open" });
+    expect(db.idea.findMany.mock.calls[0][0].where).toMatchObject({ tenantId: "t1", projectId: "p1", track: "product", isDeleted: false, status: "open" });
     expect(page.items[0]).toMatchObject({ id: "i1", convertible: true });
     await expect(listAgentIdeas(scope, new URLSearchParams("status=idea"))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("lists rejected marketing ideas with their track and rationale, scoped to the project", async () => {
+    db.idea.findMany.mockResolvedValue([{ ...idea, track: "marketing", rationale: "Supports the launch focus.", status: "rejected" }]);
+
+    const page = await listAgentIdeas(scope, new URLSearchParams("track=marketing&status=rejected"));
+
+    expect(db.idea.findMany.mock.calls.at(-1)?.[0].where).toMatchObject({
+      tenantId: "t1",
+      projectId: "p1",
+      track: "marketing",
+      status: "rejected",
+      isDeleted: false,
+    });
+    expect(page.items[0]).toMatchObject({ track: "marketing", rationale: "Supports the launch focus.", status: "rejected" });
+    await expect(listAgentIdeas(scope, new URLSearchParams("track=web"))).rejects.toMatchObject({ status: 400, body: { field: "track" } });
+  });
+
+  it("uses the Typesense match set, then applies the authenticated project scope and cursor order in PostgreSQL", async () => {
+    indexedSearch.mockResolvedValue({ found: 1, hits: [{ id: "i1", kind: "idea", score: 10 }] });
+    const result = await listAgentIdeas(scope, new URLSearchParams("q=Export%20activity%20as%20CSV&limit=1"));
+    expect(result.items).toHaveLength(1);
+    const query = db.idea.findMany.mock.calls.at(-1)![0];
+    expect(query.where.id).toEqual({ in: ["i1"] });
+    expect(query.where).toMatchObject({ tenantId: "t1", projectId: "p1", track: "product", isDeleted: false });
+    expect(query.where).not.toHaveProperty("AND");
+    expect(query.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "idea", tenantId: "t1", projectId: "p1", track: "product",
+      sortBy: "createdAt:desc,sourceId:desc", perPage: 2,
+    }));
+  });
+
+  it("falls back to the track and project scoped PostgreSQL idea search when Typesense is unavailable", async () => {
+    const page = await listAgentIdeas(scope, new URLSearchParams("track=marketing&q=Export%20activity%20as%20CSV"));
+    expect(page.items).toHaveLength(1);
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({ kind: "idea", track: "marketing" }));
+    expect(db.idea.findMany.mock.calls.at(-1)![0].where).toMatchObject({
+      tenantId: "t1", projectId: "p1", track: "marketing", isDeleted: false,
+    });
+    expect(db.idea.findMany.mock.calls.at(-1)![0].where).toHaveProperty("AND");
+  });
+
+  it("uses only the numeric timestamp in Typesense cursor filters, then keeps the full cursor predicate in PostgreSQL", async () => {
+    indexedSearch.mockResolvedValue({ found: 1, hits: [{ id: "i1", kind: "idea", score: 10 }] });
+    const cursor = encodeCursor({ createdAt: idea.createdAt, id: "idea-cursor" });
+    await listAgentIdeas(scope, new URLSearchParams(`q=Export&limit=1&cursor=${cursor}`));
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({
+      extraFilters: expect.arrayContaining([`createdAt:<=${idea.createdAt.getTime()}`]),
+    }));
+    expect(db.idea.findMany.mock.calls.at(-1)![0].where).toHaveProperty("OR");
+  });
+});
+
+describe("listing issues by track", () => {
+  beforeEach(() => {
+    db.bug.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => filterIssueRows(where));
+  });
+
+  it("defaults to product, preserving the existing list while excluding other projects and tenants", async () => {
+    const page = await listAgentIssues(scope, new URLSearchParams());
+    const blankTrack = await listAgentIssues(scope, new URLSearchParams("track="));
+
+    expect(db.bug.findMany.mock.calls[0][0].where).toMatchObject({
+      tenantId: "t1",
+      projectId: "p1",
+      track: "product",
+    });
+    expect(page.items.map(({ id, track }) => ({ id, track }))).toEqual([{ id: "product-local", track: "product" }]);
+    expect(blankTrack.items.map(({ id, track }) => ({ id, track }))).toEqual([{ id: "product-local", track: "product" }]);
+  });
+
+  it("returns only marketing issues and includes track on each item", async () => {
+    const page = await listAgentIssues(scope, new URLSearchParams("track=marketing"));
+
+    expect(db.bug.findMany.mock.calls[0][0].where).toMatchObject({
+      tenantId: "t1",
+      projectId: "p1",
+      track: "marketing",
+    });
+    expect(page.items.map(({ id, track }) => ({ id, track }))).toEqual([{ id: "marketing-local", track: "marketing" }]);
+  });
+
+  it("combines q with track without returning matching product issues", async () => {
+    const page = await listAgentIssues(scope, new URLSearchParams("track=marketing&q=search%20phrase"));
+
+    expect(db.bug.findMany.mock.calls[0][0].where).toMatchObject({
+      tenantId: "t1",
+      projectId: "p1",
+      track: "marketing",
+    });
+    expect(page.items.map(({ id, track }) => ({ id, track }))).toEqual([{ id: "marketing-local", track: "marketing" }]);
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({ kind: "bug", track: "marketing" }));
+  });
+
+  it("rejects an invalid track with the ideas endpoint's 400 contract", async () => {
+    await expect(listAgentIssues(scope, new URLSearchParams("track=sales"))).rejects.toMatchObject({
+      status: 400,
+      body: { error: "invalid_request", field: "track" },
+    });
+    expect(db.bug.findMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps a project-limited key inside its project and tenant", async () => {
+    const limitedAgent = {
+      agentId: "agent-1",
+      name: "Agent",
+      ownerId: "owner-1",
+      tenantId: "t1",
+      level: "working",
+      burst: false,
+      keyId: "key-1",
+      projectId: "p1",
+      projectSlug: "allowed-project",
+    } as const;
+    db.project.findFirst.mockResolvedValue({ id: "p2" });
+    await expect(issueProject(limitedAgent, new URLSearchParams("projectId=p2"))).rejects.toMatchObject({
+      name: "AgentProjectError",
+    });
+
+    db.project.findFirst.mockResolvedValue(null);
+    await expect(issueProject(
+      { ...limitedAgent, projectId: null },
+      new URLSearchParams("projectId=another-tenant-project"),
+    )).rejects.toMatchObject({ status: 404 });
+    expect(db.project.findFirst.mock.calls.map(([args]) => args.where)).toEqual([
+      { id: "p2", tenantId: "t1" },
+      { id: "another-tenant-project", tenantId: "t1" },
+    ]);
+    expect(db.bug.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("counting issues by track", () => {
+  const groupedCounts = <T extends { tenantId: string; projectId: string; track: string; isDeleted: boolean }>(
+    rows: readonly T[],
+    key: string,
+    where: Record<string, unknown>,
+  ) => {
+    const values = new Map<string, number>();
+    for (const row of rows) {
+      if (row.tenantId !== where.tenantId || row.projectId !== where.projectId || row.track !== where.track || row.isDeleted) continue;
+      const value = String((row as T & Record<string, unknown>)[key]);
+      values.set(value, (values.get(value) ?? 0) + 1);
+    }
+    return [...values].map(([value, count]) => ({ [key]: value, _count: { _all: count } }));
+  };
+
+  it("defaults to product and counts only the selected track's issues and ideas", async () => {
+    db.bug.groupBy.mockImplementation(async ({ by, where }: { by: string[]; where: Record<string, unknown> }) =>
+      groupedCounts(countedBugs, by[0], where));
+    db.idea.groupBy.mockImplementation(async ({ by, where }: { by: string[]; where: Record<string, unknown> }) =>
+      groupedCounts(countedIdeas, by[0], where));
+
+    const product = await countAgentIssues(scope, new URLSearchParams());
+    const marketing = await countAgentIssues(scope, new URLSearchParams("track=marketing"));
+
+    expect(product.issues).toMatchObject({ open: 1, all: 1 });
+    expect(product.ideas).toMatchObject({ open: 1, rejected: 0 });
+    expect(marketing.issues).toMatchObject({ resolved: 1, all: 1 });
+    expect(marketing.substatuses.published).toBe(1);
+    expect(marketing.ideas).toMatchObject({ open: 0, rejected: 1 });
+    expect(db.bug.groupBy.mock.calls.map(([args]) => args.where.track)).toEqual(["product", "product", "marketing", "marketing"]);
+    expect(db.idea.groupBy.mock.calls.map(([args]) => args.where.track)).toEqual(["product", "marketing"]);
+  });
+
+  it("rejects an invalid track before counting", async () => {
+    await expect(countAgentIssues(scope, new URLSearchParams("track=sales"))).rejects.toMatchObject({
+      status: 400,
+      body: { error: "invalid_request", field: "track" },
+    });
+    expect(db.bug.groupBy).not.toHaveBeenCalled();
+    expect(db.idea.groupBy).not.toHaveBeenCalled();
+  });
+});
+
+describe("issue suggestions by track", () => {
+  const suggestionIssues = [
+    { id: "product-42", number: 42, title: "Product issue 42", status: "open", track: "product", tenantId: "t1", projectId: "p1", isDeleted: false, project: { slug: "acme", tenant: { slug: "acme" } } },
+    { id: "marketing-43", number: 43, title: "Marketing issue 43", status: "open", track: "marketing", tenantId: "t1", projectId: "p1", isDeleted: false, project: { slug: "acme", tenant: { slug: "acme" } } },
+  ];
+
+  beforeEach(() => {
+    db.bug.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      const matches = (where.OR as Array<{ number?: number; title?: { contains?: string } }> | undefined) ?? [];
+      const ids = typeof where.id === "object" && where.id && "in" in where.id ? (where.id as { in: string[] }).in : null;
+      return suggestionIssues.filter((row) =>
+        row.tenantId === where.tenantId
+        && row.projectId === where.projectId
+        && row.track === where.track
+        && !row.isDeleted
+        && (!ids || ids.includes(row.id))
+        && (!matches.length || matches.some((match) => match.number === row.number
+          || Boolean(match.title?.contains && row.title.toLowerCase().includes(match.title.contains.toLowerCase())))),
+      );
+    });
+  });
+
+  it("defaults to product, filters numeric lookup by track, and returns each item's track", async () => {
+    const product = await suggestIssues(new NextRequest("https://ziki.test/api/issues/suggest?q=42"));
+    const marketing = await suggestIssues(new NextRequest("https://ziki.test/api/issues/suggest?q=43&track=marketing"));
+    const noProductLeak = await suggestIssues(new NextRequest("https://ziki.test/api/issues/suggest?q=42&track=marketing"));
+    const marketingText = await suggestIssues(new NextRequest("https://ziki.test/api/issues/suggest?q=Marketing&track=marketing"));
+
+    expect(product.status).toBe(200);
+    await expect(product.json()).resolves.toMatchObject({ issues: [{ id: "product-42", number: 42, track: "product" }] });
+    expect(marketing.status).toBe(200);
+    await expect(marketing.json()).resolves.toMatchObject({ issues: [{ id: "marketing-43", number: 43, track: "marketing" }] });
+    await expect(noProductLeak.json()).resolves.toEqual({ issues: [] });
+    await expect(marketingText.json()).resolves.toMatchObject({ issues: [{ id: "marketing-43", track: "marketing" }] });
+    const requestedTracks = db.bug.findMany.mock.calls.map(([args]) => args.where.track);
+    expect(requestedTracks).toContain("product");
+    expect(requestedTracks).toContain("marketing");
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({ kind: "bug", track: "marketing" }));
+  });
+
+  it("rejects an invalid track", async () => {
+    const response = await suggestIssues(new NextRequest("https://ziki.test/api/issues/suggest?q=42&track=sales"));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_request", field: "track" });
+    expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 });
 

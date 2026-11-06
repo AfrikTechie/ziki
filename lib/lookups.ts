@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { TAGS } from "@/lib/cache-tags";
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import { currentTenantIdFor, notificationInTenant } from "@/lib/tenant-context";
 import { ensureDefaultIssueTypes } from "@/lib/issue-types";
@@ -62,7 +63,7 @@ function missingColumn(error: unknown, column: string): boolean {
 async function readIssueTypes(tenantId: string): Promise<IssueTypeLookup[]> {
   try {
     return await prisma.issueType.findMany({
-      where: { tenantId },
+      where: { tenantId, ...PRODUCT_TRACK },
       select: { id: true, name: true, description: true, template: true, isActive: true },
       orderBy: { name: "asc" },
     });
@@ -72,7 +73,7 @@ async function readIssueTypes(tenantId: string): Promise<IssueTypeLookup[]> {
     if (!missingColumn(error, "template")) throw error;
     console.error("[lookups] IssueType.template is missing; reading types without it", error);
     const rows = await prisma.issueType.findMany({
-      where: { tenantId },
+      where: { tenantId, ...PRODUCT_TRACK },
       select: { id: true, name: true, description: true, isActive: true },
       orderBy: { name: "asc" },
     });

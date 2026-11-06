@@ -191,11 +191,42 @@ export async function publish(
     projectId?: string | null;
   },
 ): Promise<{ id: string }> {
+  // Ensure payload carries track for issue and idea events if not already set (#M-API-9)
+  let payload = params.payload;
+  if (payload && typeof payload === "object" && !("track" in payload)) {
+    let track: string | null = null;
+    if (params.bugId) {
+      try {
+        const bug = await db.bug.findUnique({
+          where: { id: params.bugId },
+          select: { track: true },
+        });
+        if (bug) track = bug.track;
+      } catch {
+        // In mock environments or tests without bug model, ignore lookup error
+      }
+    } else if ("ideaId" in (payload as Record<string, unknown>)) {
+      try {
+        const ideaId = String((payload as Record<string, unknown>).ideaId);
+        const idea = await db.idea.findUnique({
+          where: { id: ideaId },
+          select: { track: true },
+        });
+        if (idea) track = idea.track;
+      } catch {
+        // In mock environments or tests without idea model, ignore lookup error
+      }
+    }
+    if (track) {
+      payload = { ...(payload as Record<string, unknown>), track } as Prisma.InputJsonObject;
+    }
+  }
+
   const event = await db.agentEvent.create({
     data: {
       tenantId: params.tenantId,
       type: params.type,
-      payload: params.payload,
+      payload,
       actorAgentId: params.actorAgentId ?? null,
       bugId: params.bugId ?? null,
       ...(params.projectId ? { projectId: params.projectId } : {}),
@@ -214,12 +245,12 @@ export async function publish(
     skipDuplicates: true,
   });
   // #601: what this event addresses to one agent goes to its inbox too.
-  await writeInbox(db, { id: event.id, ...params });
+  await writeInbox(db, { id: event.id, ...params, payload });
   // #524: the event reaches subscribers only once its row is committed.
   void broadcastWhenCommitted({
     id: event.id,
     type: params.type,
-    payload: params.payload as unknown,
+    payload: payload as unknown,
     actorAgentId: params.actorAgentId ?? null,
     bugId: params.bugId ?? null,
     projectId: params.projectId ?? null,
@@ -350,6 +381,7 @@ export type EventFilters = {
   typePrefixes?: string[];
   projectId?: string;
   bugId?: string;
+  track?: "product" | "marketing";
 };
 
 export type EventFilterError = { error: string; validTypes?: readonly string[] };
@@ -360,7 +392,7 @@ function validId(value: string): boolean {
 }
 
 /**
- * Parse `?types=&projectId=&bugId=`. `types` is a comma list of event types
+ * Parse `?types=&projectId=&bugId=&track=`. `types` is a comma list of event types
  * or `prefix.*` patterns; an unknown entry is an error that lists the valid
  * types so the caller can return a 400.
  */
@@ -393,6 +425,14 @@ export function parseEventFilters(params: URLSearchParams): EventFilters | Event
     if (value === null) continue;
     if (!validId(value)) return { error: `Invalid ${key}.` };
     filters[key] = value;
+  }
+
+  const trackRaw = params.get("track");
+  if (trackRaw !== null && trackRaw !== "") {
+    if (trackRaw !== "product" && trackRaw !== "marketing") {
+      return { error: "track must be product or marketing." };
+    }
+    filters.track = trackRaw;
   }
 
   return filters;
@@ -527,6 +567,7 @@ export async function listEvents(
     tenantId: agent.tenantId,
     ...(filters.projectId ? { projectId: filters.projectId } : {}),
     ...(filters.bugId ? { bugId: filters.bugId } : {}),
+    ...(filters.track ? { payload: { path: ["track"], equals: filters.track } } : {}),
     ...(typeMatches.length ? { AND: [typeMatches.length === 1 ? typeMatches[0]! : { OR: typeMatches }] } : {}),
     txid: { lt: await settledBefore() },
     ...(cursor ? afterCursor(cursor) : {}),

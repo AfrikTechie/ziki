@@ -33,6 +33,16 @@ const db = vi.hoisted(() => ({
   issueConfirmation: { findUnique: vi.fn(), upsert: vi.fn(), findMany: vi.fn() },
   pointEntry: { createMany: vi.fn() },
   confirmationPenalty: { findMany: vi.fn(async () => []) },
+  closeSuggestion: {
+    findUnique: vi.fn(async () => null),
+    upsert: vi.fn(async () => ({})),
+    aggregate: vi.fn(),
+    count: vi.fn(async () => 2),
+    findMany: vi.fn(async () => [{ onBehalfOfUserId: "cara" }, { onBehalfOfUserId: "bob" }]),
+  },
+  comment: { create: vi.fn(async () => ({ id: "comment1" })) },
+  user: { findUnique: vi.fn(async () => ({ name: "Ada" })) },
+  issueClaim: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));
@@ -42,8 +52,11 @@ vi.mock("@/lib/agent-api/events", () => ({ publish }));
 const audit = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/agents/audit", () => ({ audit }));
 vi.mock("@/lib/workflow", () => ({ workflowFor: vi.fn(async () => ({ confirmationsNeeded: 2 })) }));
+const notifyLater = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/notify", () => ({ notifyLater }));
 
 import { giveConfirmation, isConfirmed, openConfirmedIssue } from "@/lib/agent-api/confirmations";
+import { agreeWithClose, respondToClose, suggestClose } from "@/lib/agent-api/close-suggestions";
 import { workflowFor } from "@/lib/workflow";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { DUPLICATE_ERRORS, duplicateLinkProblem } from "@/lib/duplicates";
@@ -218,6 +231,17 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     expect(state.entries.filter((e) => e.onBehalfOfUserId === "bob")).toHaveLength(2);
   });
 
+  it("refuses a marketing issue, which has no confirmation step, and writes and pays nothing", async () => {
+    state.bug = bugRow({ track: "marketing", substatus: "open" });
+    const refused = await rejection(giveConfirmation(person("bob"), scope, "bug1", body("confirm")));
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({ error: "wrong_track" });
+    expect(db.issueConfirmation.upsert).not.toHaveBeenCalled();
+    expect(state.points).toEqual([]);
+    const opener = { agentId: "agent-eli", ownerId: "eli", tenantId: "t1" };
+    expect((await rejection(openConfirmedIssue(opener, scope, "bug1"))).body).toMatchObject({ error: "wrong_track" });
+  });
+
   it("moves a confirmed issue to Open for any agent, and refuses below the threshold (#confirmation-weights)", async () => {
     const opener = { agentId: "agent-eli", ownerId: "eli", tenantId: "t1" };
     await giveConfirmation(person("bob"), scope, "bug1", body("confirm"));
@@ -326,5 +350,82 @@ describe("duplicate links (#285)", () => {
   it("refuses chains: a target that is a duplicate, or an issue that has duplicates", () => {
     expect(duplicateLinkProblem(a, side("b", 2, { duplicateOfId: "c" }), 0, { number: 3 })).not.toBeNull();
     expect(duplicateLinkProblem(a, b, 2)).not.toBeNull();
+  });
+});
+
+describe("telling the owner about a close by votes (#your-decisions)", () => {
+  const voter = { agentId: "agent-cara", name: "Docker", ownerId: "cara", tenantId: "t1", level: "working" as const, burst: false, keyId: "k1" };
+  const notPlanned = { reason: "not_planned" as const, evidence: "The roadmap drops this screen in December.", summary: "We decided not to build this." };
+
+  beforeEach(() => {
+    state.bug = bugRow({ status: "open", substatus: "open", title: "Add a dark theme to the old settings screen" });
+  });
+
+  it("notifies the owner when the vote that reaches the threshold closes their issue, with the reason and evidence", async () => {
+    vi.mocked(workflowFor).mockResolvedValueOnce({ governance: "threshold", closeThreshold: 3, managerVoteWeight: 2 } as never);
+    db.closeSuggestion.aggregate.mockResolvedValueOnce({ _sum: { votes: 3 } });
+    const result = await suggestClose(voter, "p1", "7", notPlanned);
+    expect(result.closed).toBe(true);
+    expect(notifyLater).toHaveBeenCalledTimes(1);
+    const notice = notifyLater.mock.calls[0]![0];
+    expect(notice).toMatchObject({ kind: "status_changed", reporterId: "ada", actorId: "cara", from: "open", to: "closed" });
+    expect(notice.note).toContain("by 3 of 3 votes");
+    expect(notice.note).toContain(notPlanned.evidence);
+  });
+
+  it("tells nobody when the owner's own votes closed it: there is no decision by others to show", async () => {
+    vi.mocked(workflowFor).mockResolvedValueOnce({ governance: "threshold", closeThreshold: 3, managerVoteWeight: 2 } as never);
+    db.closeSuggestion.aggregate.mockResolvedValueOnce({ _sum: { votes: 3 } });
+    db.closeSuggestion.count.mockResolvedValueOnce(0);
+    const result = await suggestClose(voter, "p1", "7", notPlanned);
+    expect(result.closed).toBe(true);
+    expect(db.closeSuggestion.count).toHaveBeenCalledWith({ where: { bugId: "bug1", reason: "not_planned", onBehalfOfUserId: { notIn: ["ada", "ada"] } } });
+    expect(notifyLater).not.toHaveBeenCalled();
+  });
+
+  it("tells nobody while the votes are still below the threshold", async () => {
+    vi.mocked(workflowFor).mockResolvedValueOnce({ governance: "threshold", closeThreshold: 3, managerVoteWeight: 2 } as never);
+    db.closeSuggestion.aggregate.mockResolvedValueOnce({ _sum: { votes: 1 } });
+    const result = await suggestClose(voter, "p1", "7", notPlanned);
+    expect(result.closed).toBe(false);
+    expect(notifyLater).not.toHaveBeenCalled();
+  });
+});
+
+describe("the owner's answer to a close by votes (#your-decisions)", () => {
+  const ada = { tenantId: "t1", userId: "ada" };
+  const reply = { evidence: "#3 is about the desktop app; this is the mobile page, with its own screenshot." };
+
+  beforeEach(() => {
+    state.bug = bugRow({
+      status: "closed", substatus: "closed", title: "Tabs are empty on mobile",
+      closeReason: "duplicate", closeEvidence: "Same as #3.", duplicateOfId: "bug0", closedAt: new Date(),
+    });
+  });
+
+  it("posts the owner's reply and tells the voters, leaving the close as it is", async () => {
+    await respondToClose(ada, "p1", "7", reply);
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ authorId: "ada", body: reply.evidence }) }));
+    expect(notifyLater).toHaveBeenCalledWith(expect.objectContaining({ kind: "comment_added", actorId: "ada", recipientIds: ["cara", "bob"] }));
+    expect(state.bug).toMatchObject({ status: "closed", closeReason: "duplicate", duplicateOfId: "bug0" });
+    expect(db.bug.update).not.toHaveBeenCalled();
+  });
+
+  it("records the owner's agreement, and refuses anyone else, an open issue or a withdrawal", async () => {
+    await agreeWithClose(ada, "p1", "7");
+    expect(state.bug.closeAgreedAt).toBeInstanceOf(Date);
+    expect((await rejection(respondToClose({ tenantId: "t1", userId: "bob" }, "p1", "7", reply))).status).toBe(403);
+    state.bug = { ...state.bug, status: "open", substatus: "open", closeReason: null };
+    expect((await rejection(agreeWithClose(ada, "p1", "7"))).status).toBe(409);
+    state.bug = { ...state.bug, status: "closed", substatus: "closed", closeReason: "withdrawn" };
+    expect((await rejection(respondToClose(ada, "p1", "7", reply))).status).toBe(409);
+    expect(db.comment.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a reply when nobody but the owner voted for the reason it closed with", async () => {
+    db.closeSuggestion.count.mockResolvedValueOnce(0);
+    expect((await rejection(respondToClose(ada, "p1", "7", reply))).status).toBe(409);
+    expect(db.closeSuggestion.count).toHaveBeenCalledWith({ where: { bugId: "bug1", reason: "duplicate", onBehalfOfUserId: { not: "ada" } } });
+    expect(db.comment.create).not.toHaveBeenCalled();
   });
 });

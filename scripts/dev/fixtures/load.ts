@@ -3,7 +3,8 @@
  * the local database: a "Demo" workspace with 220 issues over every status and
  * substatus, 250 ideas, and their confirmations, bids, votes, claims,
  * deliveries, judgements, merge reviews, pull request reports, comments,
- * importance marks and history.
+ * importance marks and history. Marketing ideas and issues come on top, in every
+ * marketing state, with their task types.
  *
  *   pnpm db:fixtures   (scripts/dev/fixtures/run.ts)
  *
@@ -34,13 +35,14 @@ type Row = Record<string, unknown>;
 type Fixtures = {
   tenant: { slug: string; name: string };
   project: { slug: string; name: string; repoUrl: string };
+  brief: { product: string; audience: string; website: string; currentFocus: string; outOfScope: string };
   login: { email: string; password: string };
 } & Record<string, Row[]>;
 
 const TENANT_ID = "fx-tenant";
 const PROJECT_ID = "fx-project";
 /** Dates are stored as minutes before the load, so the data always looks recent. */
-const DATE_FIELDS = ["convertedAt", "rejectedAt", "archivedAt", "closedAt", "awardedAt", "offeredAt", "claimedAt", "lastHeartbeatAt", "deliverBy", "releasedAt"];
+const DATE_FIELDS = ["convertedAt", "rejectedAt", "archivedAt", "closedAt", "awardedAt", "offeredAt", "claimedAt", "lastHeartbeatAt", "deliverBy", "releasedAt", "updatedAt"];
 
 export function assertLocalDatabase(url: string | undefined): void {
   if (!url) throw new Error("DATABASE_URL is not set.");
@@ -108,16 +110,19 @@ export async function loadFixtures(options: { db?: PrismaClient; addExistingUser
       // so they start at 1 and the rows go in in number order.
       data: { id: TENANT_ID, slug: fx.tenant.slug, name: fx.tenant.name, description: "Local fixtures: issues in every state, from scripts/dev/fixtures.", nextIssueNumber: 1, nextIdeaNumber: 1 },
     });
-    await db.project.create({ data: { id: PROJECT_ID, tenantId: TENANT_ID, slug: fx.project.slug, name: fx.project.name, repoUrl: fx.project.repoUrl, workflow: { create: {} } } });
+    await db.project.create({ data: { id: PROJECT_ID, tenantId: TENANT_ID, slug: fx.project.slug, name: fx.project.name, repoUrl: fx.project.repoUrl, workflow: { create: {} }, brief: { create: fx.brief } } });
     await db.projectArea.createMany({ data: fx.areas.map((a) => ({ id: String(a.id), projectId: PROJECT_ID, name: String(a.name), slug: String(a.id).replace(/^fx-area-/, "") })) });
     await db.membership.createMany({ data: fx.memberships.map((m) => withUsers({ ...m, tenantId: TENANT_ID })) as never });
     await db.agent.createMany({ data: fx.agents.map((a) => withUsers({ ...a, tenantId: TENANT_ID, createdAt: new Date(now - 60 * 24 * 60_000) })) as never });
 
+    await db.issueType.createMany({ data: fx.issueTypes.map((t) => ({ ...t, tenantId: TENANT_ID })) as never });
+
     const scoped = { tenantId: TENANT_ID, projectId: PROJECT_ID };
-    // Issues first (ideas point at them), without duplicate links until every issue exists.
+    // Issues first (ideas point at them), without links to other issues until every issue exists.
     const bugs = [...fx.bugs].sort((a, b) => Number(a.number) - Number(b.number)).map((b) => withUsers(dated(b, now, scoped)));
-    await db.bug.createMany({ data: bugs.map((b) => ({ ...b, duplicateOfId: null })) as never });
+    await db.bug.createMany({ data: bugs.map((b) => ({ ...b, duplicateOfId: null, linkedIssueId: null })) as never });
     for (const b of bugs.filter((x) => x.duplicateOfId)) await db.bug.update({ where: { id: String(b.id) }, data: { duplicateOfId: String(b.duplicateOfId) } });
+    for (const b of bugs.filter((x) => x.linkedIssueId)) await db.bug.update({ where: { id: String(b.id) }, data: { linkedIssueId: String(b.linkedIssueId) } });
     await db.idea.createMany({ data: [...fx.ideas].sort((a, b) => Number(a.number) - Number(b.number)).map((i) => withUsers(dated(i, now, scoped))) as never });
 
     const table = async (name: string, rows: Row[]) => {

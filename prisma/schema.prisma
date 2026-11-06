@@ -14,7 +14,7 @@ datasource db {
 /// - in_progress: in_progress (a claim holds it)
 /// - done: requires_review (delivered, being judged), accepted (judged good to merge, waiting for a manager's review)
 /// - merge: ready_to_merge (a manager accepted it), error (its pull request can't merge as reported)
-/// - resolved (Live): on_dev, on_staging, on_prod (where agents report it is deployed)
+/// - resolved (Live): on_dev, on_staging, on_prod (where agents report it is deployed), published (marketing work a manager accepted)
 /// - closed: closed
 enum Status {
   open
@@ -38,7 +38,16 @@ enum Substatus {
   on_dev
   on_staging
   on_prod
+  published
   closed
+}
+
+/// Which kind of work an idea or issue is, and which rules it follows
+/// (docs/marketing-migration-plan.md). Everything is `product` unless it was
+/// proposed in a project's Marketing section.
+enum WorkTrack {
+  product
+  marketing
 }
 
 /// Application roles for RBAC.
@@ -269,6 +278,7 @@ model User {
   redesignsApproved         RedesignProposal[]      @relation("RedesignApprover")
   pointEntries              PointEntry[]
   earnTasks                 EarnTaskProgress[]
+  earnContacts              EarnContact[]
   pointDisputes             PointDispute[]          @relation("DisputeOpener")
   pointDisputesResolved     PointDispute[]          @relation("DisputeResolver")
   auditActions              AgentAuditEvent[]       @relation("AuditActorUser")
@@ -308,16 +318,18 @@ model PasswordResetToken {
 }
 
 model IssueType {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name        String
   description String?
   /// Markdown that pre-fills the report form's description (#307). Null: none.
   template    String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean   @default(true)
+  /// Marketing types show only in the Marketing section.
+  track       WorkTrack @default(product)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   bugs        Bug[]
   ideas       Idea[]
 
@@ -347,6 +359,8 @@ model Bug {
   closeEvidence             String?
   /// When it was last closed (#close-reasons); null while it is not closed.
   closedAt                  DateTime?
+  /// When the issue's owner said they agree with the close other members voted for (#your-decisions).
+  closeAgreedAt             DateTime?
   typeId                    String?
   type                      IssueType?              @relation(fields: [typeId], references: [id], onDelete: SetNull)
   /// The issue's importance (#importance): its marks, a manager or merger agent's counting as 5.
@@ -366,6 +380,16 @@ model Bug {
   duplicateOfId             String?
   duplicateOf               Bug?                    @relation("BugDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates                Bug[]                   @relation("BugDuplicates")
+  /// Product or marketing work (`WorkTrack`).
+  track                     WorkTrack               @default(product)
+  /// How many times this marketing work has been sent back for changes on the
+  /// same claim, up to `ProjectWorkflow.revisionLimit`. Not the edit history (`revisions`).
+  revisionCount             Int                     @default(0)
+  /// The product issue this marketing issue goes with, if any. Optional: a
+  /// marketing issue can stand alone. Same project, enforced where it is set.
+  linkedIssueId             String?
+  linkedIssue               Bug?                    @relation("BugLinkedIssue", fields: [linkedIssueId], references: [id], onDelete: SetNull)
+  linkedMarketingIssues     Bug[]                   @relation("BugLinkedIssue")
   /// #423: every issue belongs to a tenant and one of its projects.
   tenantId                  String
   tenant                    Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -438,6 +462,8 @@ model Bug {
   @@unique([tenantId, number])
   @@index([tenantId, projectId])
   @@index([tenantId, projectId, substatus])
+  @@index([projectId, track, status])
+  @@index([linkedIssueId])
   @@index([projectId, areaId])
   @@index([beneficiaryUserId])
   @@index([createdByAgentId])
@@ -766,6 +792,7 @@ model Project {
   workflow              ProjectWorkflow?
   mistakes              AgentMistake[]
   notes                 ProjectNotes?
+  brief                 ProjectBrief?
   noteRevisions         ProjectNoteRevision[]
   noteComments          ProjectNoteComment[]
 
@@ -804,6 +831,8 @@ model ProjectWorkflow {
   stakeLimit             Int               @default(2)
   /// No new stake while the person holds this many issues In progress (#stakes).
   stakeInProgressLimit   Int               @default(2)
+  /// Times marketing work can be sent back to the same claim before it reopens for bids.
+  revisionLimit          Int               @default(2)
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
   project                Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -975,6 +1004,8 @@ model Agent {
   /// next request; no cleanup job flips `burst` off.
   burstUntil           DateTime?
   revokedAt            DateTime?
+  /// Owner has paused this agent; active claim clocks are frozen until resumed.
+  pausedAt             DateTime?
   /// Set when this is the person's personal agent for that project.
   /// Created automatically so they can copy a key without registering one.
   defaultProjectId     String?
@@ -1339,7 +1370,12 @@ model Delivery {
   summary           String
   /// What changed, how it was checked, and anything left open.
   description       String
-  pullRequestUrl    String
+  /// The pull request delivered. Null on marketing work, which has none.
+  pullRequestUrl    String?
+  /// Links to the finished work, on marketing work.
+  deliverableUrls   String[]  @default([])
+  /// The finished work itself as Markdown, on marketing work. Shown as a file.
+  deliverableText   String?
   /// The pull request's head commit when it was delivered, when GitHub said.
   headSha           String?
   /// Links to screenshots of the fix.
@@ -1394,6 +1430,10 @@ model Idea {
   /// Required when an agent files a report; null on reports filed before it existed.
   summary            String?
   description        String
+  /// Why it is worth doing. Required on marketing ideas, by validation.
+  rationale          String?
+  /// Product or marketing work (`WorkTrack`). Converting copies it to the issue.
+  track              WorkTrack        @default(product)
   status             IdeaStatus       @default(open)
   /// Good minus bad votes from its verdicts.
   score              Int              @default(0)
@@ -1450,6 +1490,7 @@ model Idea {
   @@unique([tenantId, number])
   @@unique([tenantId, legacyBugNumber])
   @@index([tenantId, projectId, status])
+  @@index([projectId, track, status])
   @@index([reporterId])
   @@index([createdByAgentId])
 }
@@ -1482,6 +1523,36 @@ model IdeaVerdict {
 
   @@unique([ideaId, onBehalfOfUserId, weightClass])
   @@index([ideaId])
+}
+
+/// Durable work-item changes waiting to be applied to the Typesense index.
+/// No foreign key: hard deletes must leave a searchable tombstone event.
+model SearchIndexOutbox {
+  id          BigInt    @id @default(autoincrement())
+  kind        String
+  sourceId    String
+  action      String
+  tenantId    String?
+  projectId   String?
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  availableAt DateTime  @default(now())
+  claimedAt   DateTime?
+  processedAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([status, availableAt, id])
+  @@index([status, processedAt, id])
+  @@index([kind, sourceId, status, id])
+}
+
+/// Prevents the outbox worker from racing a full Typesense backfill/rebuild.
+model SearchIndexControl {
+  id              Int       @id
+  indexingEnabled Boolean   @default(false)
+  leaseOwner      String?
+  leaseUntil      DateTime?
 }
 
 /// One person's confirmation entry on an issue at Requires confirmation
@@ -1704,8 +1775,8 @@ model MergeReview {
   summary          String
   /// The full reasoning; for a reject, the feedback the fix's author acts on.
   description      String
-  /// The pull request it reviewed.
-  pullRequestUrl   String
+  /// The pull request it reviewed. Null on marketing work, which has none.
+  pullRequestUrl   String?
   /// The head commit it reviewed, when known.
   headSha          String?
   createdAt        DateTime           @default(now())
@@ -1984,6 +2055,38 @@ enum EarnTaskStatus {
   rejected
 }
 
+/// A manager agent's advice on a submitted earn task (#earn-agent-review). A person still confirms or sends it back.
+enum EarnAgentVerdict {
+  ready
+  send_back
+}
+
+/// A business an earner emails for Ziki (#earn-outreach): from their research, with its own link so the earner can
+/// see who opened it. `code` is the link's id: ziki.dev/r/<code>.
+model EarnContact {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  /// An email address or website: how the earner reaches them.
+  contact   String?
+  code      String    @unique
+  /// When the earner ticked it sent.
+  sentAt    DateTime?
+  /// The first and latest time someone opened the link, and how often.
+  openedAt  DateTime?
+  lastOpenAt DateTime?
+  opens     Int       @default(0)
+  /// The Ziki account the business made after opening the link (one account counts for one business), and when.
+  signedUpUserId String?   @unique
+  signedUpAt     DateTime?
+  /// When that account started its first project of its own.
+  startedAt      DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
 model EarnTaskProgress {
   id          String         @id @default(cuid())
   userId      String
@@ -1999,6 +2102,14 @@ model EarnTaskProgress {
   decidedById String?
   /// Why it was rejected, or a note on a confirmation.
   note        String?
+  /// A manager agent's verdict on what was sent in, for the person who decides. Cleared when it is sent again.
+  agentVerdict     EarnAgentVerdict?
+  /// The agent's reason: what it checked and, for a send-back, what to fix.
+  agentReason      String?
+  /// How sure the agent is, 0 to 100. Self-reported, not proof.
+  agentConfidence  Int?
+  agentVerdictById String?
+  agentVerdictAt   DateTime?
   user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, taskKey])
@@ -2281,6 +2392,20 @@ enum MistakeCategory {
 }
 
 /// Official guidance, separate from agent discussion. Version 0 means absent.
+/// The marketing brief agents read before proposing or delivering (M-API-8).
+/// Returned on `GET /api/v1/agents/me` and the marketing work feed.
+model ProjectBrief {
+  projectId    String   @id
+  product      String?
+  audience     String?
+  /// No longer read or written: the project's siteUrl is the site. Drop it in a later migration.
+  website      String?
+  currentFocus String?
+  outOfScope   String?
+  updatedAt    DateTime @updatedAt
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
 model ProjectNotes {
   projectId     String   @id
   body          String

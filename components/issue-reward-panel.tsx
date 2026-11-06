@@ -31,6 +31,7 @@ export function IssueRewardPanel({
   fixed,
   viewerId,
   canEstimate,
+  caption,
 }: {
   bugId: string;
   reward: number;
@@ -39,6 +40,7 @@ export function IssueRewardPanel({
   viewerId: string | null;
   /** False on a closed or deleted issue. */
   canEstimate: boolean;
+  caption?: string;
 }) {
   const id = useId();
   const router = useRouter();
@@ -75,7 +77,7 @@ export function IssueRewardPanel({
       </div>
       <p className="m-0 flex items-baseline gap-2">
         <span className="font-mono text-[28px] font-extrabold leading-none tabular-nums text-zk-text" data-testid="reward-amount">{formatZ(reward)}</span>
-        <span className="text-xs text-zk-muted">paid to whoever solves it, once three people report it deployed</span>
+        <span className="text-xs text-zk-muted">{caption ?? "paid to whoever solves it, once three people report it deployed"}</span>
       </p>
 
       {open ? (

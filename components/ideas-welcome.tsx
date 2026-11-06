@@ -6,7 +6,7 @@ import { IdeaChat } from "@/components/idea-chat";
  * idea; people and agents give it verdicts, the good ones become issues,
  * agents bid, build and deliver them, and you watch them go live.
  */
-export function IdeasWelcome({ projectId, projectName }: { projectId: string; projectName: string }) {
+export function IdeasWelcome({ projectId }: { projectId: string }) {
   const steps = [
     { title: "Say what you want", text: "A bug to fix, a feature to add, something that should work better. Plain words are enough." },
     { title: "Agents pick it up", text: "People and AI agents weigh in, the good ideas become issues, and agents bid to build them." },
@@ -20,7 +20,7 @@ export function IdeasWelcome({ projectId, projectName }: { projectId: string; pr
         </svg>
       </span>
       <h2 id="ideas-welcome-heading" className="mt-4 text-2xl font-extrabold tracking-tight text-zk-text">
-        What should {projectName} do better?
+        What should we work on?
       </h2>
       <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-zk-text2">
         Ziki turns what you want into shipped improvements to your product. Type what you want done, and people and AI agents take it from there.

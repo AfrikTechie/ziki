@@ -44,7 +44,7 @@ export function AgentRowKey({
         className="inline-flex min-h-11 items-center rounded-full border border-zk-warn-bd bg-zk-warn-bg/40 px-3.5 text-xs font-semibold text-zk-warn-fg"
         title={`${prefix}… was issued before keys could be copied again.`}
       >
-        Key can&apos;t be copied: get a new one from More
+        Key can&apos;t be copied: get a new one in its settings
       </span>
     );
   }

@@ -315,7 +315,7 @@ export async function markInboxRead(
   const readAt = new Date();
   if ("ids" in input) {
     const { count } = await prisma.agentInboxItem.updateMany({
-      where: { agentId: agent.agentId, id: { in: input.ids }, readAt: null },
+      where: { agentId: agent.agentId, id: { in: input.ids }, readAt: null, NOT: { eventType: "agent.steer" } },
       data: { readAt },
     });
     if (count) await markMessagesRead(agent.agentId, readAt);
@@ -330,6 +330,7 @@ export async function markInboxRead(
     where: {
       agentId: agent.agentId,
       readAt: null,
+      NOT: { eventType: "agent.steer" },
       OR: [{ createdAt: { lt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { lte: anchor.id } }],
     },
     data: { readAt },

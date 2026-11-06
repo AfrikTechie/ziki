@@ -196,10 +196,12 @@ export async function deliverNotifications(event: NotificationEvent): Promise<vo
 
 /**
  * Queue notifications to go out after the response, so a slow or failing
- * mail server never delays or breaks the action that triggered them.
+ * mail server never delays or breaks the action that triggered them. The
+ * in-process cron has no response to wait for and `after` throws there, so
+ * outside a request they go out straight away.
  */
 export function notifyLater(...events: NotificationEvent[]): void {
-  after(async () => {
+  const deliver = async () => {
     for (const event of events) {
       try {
         await deliverNotifications(event);
@@ -207,5 +209,10 @@ export function notifyLater(...events: NotificationEvent[]): void {
         logger.error("[notify] delivery failed", error);
       }
     }
-  });
+  };
+  try {
+    after(deliver);
+  } catch {
+    void deliver();
+  }
 }

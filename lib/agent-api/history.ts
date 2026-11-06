@@ -214,9 +214,9 @@ export type HistoryItem =
   | (ItemBase & { kind: "idea_verdict"; summary: string; description: string; verdict: string; votes: number; idea: HistoryIssueRef })
   | (EntryBase & { kind: "confirmation"; verdict: string; duplicateOfId: string | null })
   | (EntryBase & { kind: "bid"; status: BidState })
-  | (EntryBase & { kind: "delivery"; pullRequestUrl: string })
+  | (EntryBase & { kind: "delivery"; pullRequestUrl: string | null })
   | (EntryBase & { kind: "test_verdict"; goodToMerge: boolean; pullRequestUrl: string | null; headSha: string | null })
-  | (EntryBase & { kind: "merge_review"; verdict: string; pullRequestUrl: string })
+  | (EntryBase & { kind: "merge_review"; verdict: string; pullRequestUrl: string | null })
   | (ItemBase & { kind: "comment"; body: string; parentId: string | null; editedAt: Date | null; issue: HistoryIssueRef });
 
 const issueRef = (issue: IssueRow): HistoryIssueRef => ({

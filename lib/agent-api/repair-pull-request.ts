@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { PRODUCT_STEP_ONLY_MESSAGE, trackRules } from "@/lib/marketing/track";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { hasLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
@@ -48,7 +49,8 @@ export type RepairError =
   | "no_repo"
   | "wrong_repository"
   | "already_current"
-  | "status_changed";
+  | "status_changed"
+  | "wrong_track";
 
 export type RepairResult =
   | {
@@ -89,6 +91,7 @@ export async function repairPullRequestLink(
     select: {
       id: true,
       status: true,
+      track: true,
       pullRequestUrl: true,
       pullRequestHeadSha: true,
       reporterId: true,
@@ -102,6 +105,7 @@ export async function repairPullRequestLink(
     },
   });
   if (!bug) return fail(404, "not_found", "No such issue in this project.");
+  if (!trackRules(bug.track).hasProductSteps) return fail(409, "wrong_track", PRODUCT_STEP_ONLY_MESSAGE);
 
   const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug);
   if (conflict) return fail(403, "not_independent", new ReviewerNotIndependentError(conflict).message);

@@ -11,10 +11,12 @@ const db = vi.hoisted(() => ({
   $transaction: vi.fn(),
   issueClaim: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), count: vi.fn() },
   issueBid: { findFirst: vi.fn(), updateMany: vi.fn() },
-  bug: { update: vi.fn() },
+  bug: { update: vi.fn(), findFirstOrThrow: vi.fn() },
   bugActivity: { createMany: vi.fn() },
 }));
 const publish = vi.hoisted(() => vi.fn());
+const notifyLater = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/notify", () => ({ notifyLater }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
 vi.mock("@/lib/watch", () => ({ ensureWatching: vi.fn(async () => undefined) }));
@@ -24,7 +26,7 @@ vi.mock("@/lib/workflow", async (original) => {
   return { ...await original<typeof import("@/lib/workflow")>(), workflowFor: vi.fn(async () => ({ ...DEFAULT_PROJECT_WORKFLOW })) };
 });
 
-import { acceptOffer, isOfferExpired, OFFER_TTL_MS } from "@/lib/agent-api/offer";
+import { acceptOffer, isOfferExpired, OFFER_TTL_MS, releaseClaim } from "@/lib/agent-api/offer";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { yourWorkWhere } from "@/lib/my-work-filter";
@@ -57,6 +59,19 @@ beforeEach(() => {
 });
 
 describe("accepting an offer", () => {
+  it("refuses a paused agent before accepting or changing the offer", async () => {
+    await expect(acceptOffer({ ...agent, pausedAt: new Date() }, "claim-1")).rejects.toMatchObject({ status: 423 });
+    expect(db.issueClaim.update).not.toHaveBeenCalled();
+    expect(db.bug.update).not.toHaveBeenCalled();
+  });
+
+  it("rechecks pause under the agent lock when the owner pauses after authentication", async () => {
+    db.$queryRaw.mockResolvedValueOnce([{ id: "bug-1" }]).mockResolvedValueOnce([{ pausedAt: new Date() }]);
+    await expect(acceptOffer(agent, "claim-1")).rejects.toMatchObject({ status: 423 });
+    expect(db.issueClaim.update).not.toHaveBeenCalled();
+    expect(db.bug.update).not.toHaveBeenCalled();
+  });
+
   it("starts the claim, moves the issue In progress and withdraws the other bids", async () => {
     db.issueBid.findFirst.mockResolvedValue({ id: "bid-1" });
     const result = await acceptOffer(agent, "claim-1");
@@ -125,5 +140,27 @@ describe("your work", () => {
     expect(whatsNext("in_progress", [{ status: "active", deliverBy: new Date(now + 3_600_000 * 5) }], false, now)).toMatchObject({ tag: "Assigned to you", yours: true });
     expect(whatsNext("in_progress", [{ status: "active", deliverBy: new Date(now - 1) }], false, now)).toMatchObject({ tag: "Overdue", late: true });
     expect(whatsNext("error", [{ status: "active" }], false, now)).toMatchObject({ tag: "Can't merge", yours: true });
+  });
+});
+
+describe("releasing a claim", () => {
+  const issueId = "clreleaseissue0000000000000";
+  const release = (status: string, pullRequestUrl: string | null = null) => {
+    db.$queryRaw.mockResolvedValue([{ id: issueId }]);
+    db.issueClaim.findFirst.mockResolvedValue(offered({ bugId: issueId, status }));
+    db.issueClaim.count.mockResolvedValue(0);
+    db.bug.findFirstOrThrow.mockResolvedValue({ id: issueId, title: "Bug 1", reporterId: "reporter", status: "in_progress", assigneeId: "ada", projectId: "p1", areaId: null, pullRequestUrl });
+    return releaseClaim(agent, "p1", issueId);
+  };
+
+  it("alerts watchers when letting go of active work reopens bidding", async () => {
+    await expect(release("active")).resolves.toMatchObject({ reopened: true });
+    expect(notifyLater).toHaveBeenCalledWith({ kind: "status_changed", actorId: "ada", actorName: agent.name, bugId: issueId, bugTitle: "Bug 1", reporterId: "reporter", from: "in_progress", to: "open" });
+  });
+
+  it("sends no alert when bidding does not reopen", async () => {
+    await expect(release("offered")).resolves.toMatchObject({ reopened: false });
+    await expect(release("active", "https://github.com/emerjent/ziki/pull/1")).resolves.toMatchObject({ reopened: false });
+    expect(notifyLater).not.toHaveBeenCalled();
   });
 });

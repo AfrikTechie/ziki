@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { agentIssueRequest, issueProject } from "@/lib/agent-api/issues";
 import { createAgentIdea, listAgentIdeas } from "@/lib/agent-api/ideas";
 
-/** GET ?projectId=&status=open|converted|closed&convertible=true|false&q=&cursor=&limit= — ideas, newest first. */
+/** GET ?projectId=&track=product|marketing&status=open|converted|rejected|archived&convertible=true|false&q=&cursor=&limit= — ideas, newest first. */
 export async function GET(request: NextRequest) {
   return agentIssueRequest(request, "ideas.list", "read", null, async (agent) => {
     const scope = await issueProject(agent, request.nextUrl.searchParams);

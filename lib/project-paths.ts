@@ -31,7 +31,7 @@ export function orgHomePath(orgSlug: string, query?: URLSearchParams | string): 
  * issue number. A project may not take one of these names, so
  * `/<a>/<b>/...` with such a `b` is always an old project-first address.
  */
-const PROJECT_PAGES = new Set(["ideas", "issues", "notes", "org", "projects", "tasks", "workstream", "work"]);
+const PROJECT_PAGES = new Set(["ideas", "issues", "marketing", "notes", "org", "projects", "tasks", "workstream", "work"]);
 
 export function isProjectFirstPath(path: string): boolean {
   const [first, second] = path.split("?")[0].split("/").filter(Boolean);
@@ -91,6 +91,11 @@ export function ideaPath(slug: ProjectRef, number: number): string {
 /** The organization admin area under a project: `/<org>/<project>/org`, `.../org/members`. */
 export function orgPath(slug: ProjectRef, section = ""): string {
   return projectPath(slug, section ? `/org/${section}` : "/org");
+}
+
+/** `/<slug>/marketing`, or one of its sub-tabs. */
+export function marketingPath(slug: ProjectRef, section = ""): string {
+  return projectPath(slug, section ? `/marketing/${section}` : "/marketing");
 }
 
 /** Filing a new report (it starts as an idea). */

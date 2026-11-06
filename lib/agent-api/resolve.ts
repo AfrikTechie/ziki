@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { PRODUCT_STEP_ONLY_MESSAGE, trackRules } from "@/lib/marketing/track";
 import { issueIdFor } from "@/lib/issue-ref";
 import { audit } from "@/lib/agents/audit";
 import type { AgentContext } from "@/lib/agents/require-agent";
@@ -55,7 +56,7 @@ export async function resolveMergedFix(
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, ...scope, isDeleted: false },
     select: {
-      id: true, status: true, substatus: true, assigneeId: true, reporterId: true, pullRequestUrl: true, pullRequestHeadSha: true, isBoosted: true,
+      id: true, status: true, substatus: true, track: true, assigneeId: true, reporterId: true, pullRequestUrl: true, pullRequestHeadSha: true, isBoosted: true,
       project: { select: { repoUrl: true } },
       claims: {
         where: { status: "active", releasedAt: null },
@@ -64,6 +65,7 @@ export async function resolveMergedFix(
     },
   });
   if (!bug) return fail(404, "not_found", "No such issue in this project.");
+  if (!trackRules(bug.track).hasProductSteps) return fail(409, "wrong_track", PRODUCT_STEP_ONLY_MESSAGE);
   if (bug.status === "resolved" || bug.status === "closed") {
     return fail(409, "already_resolved", `This issue is already ${bug.status}.`);
   }

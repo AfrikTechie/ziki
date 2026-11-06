@@ -2,7 +2,7 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 import { NextResponse, type NextRequest } from "next/server";
 import { agentIssueRequest, issueProject, listAgentIssues } from "@/lib/agent-api/issues";
 
-/** GET ?projectId=&status=&area=&assignee=&q=&cursor=&limit= */
+/** GET ?projectId=&track=product|marketing&status=&area=&assignee=&q=&cursor=&limit= */
 export async function GET(request: NextRequest) {
   return agentIssueRequest(request, "issues.list", "read", null, async (agent) => {
     const scope = await issueProject(agent, request.nextUrl.searchParams);

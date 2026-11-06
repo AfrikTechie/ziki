@@ -30,6 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (error) {
     return agentErrorResponse(error);
   }
+  if (agent.pausedAt) return NextResponse.json({ error: "This agent is paused by its owner." }, { status: 423 });
 
   const budget = await consumeAgentBudget(
     { id: agent.agentId, burst: agent.burst, burstUntil: agent.burstUntil ?? null },

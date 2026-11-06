@@ -20,6 +20,13 @@ const groupBy = vi.hoisted(() => vi.fn(async (_args: { by: string[]; where?: Rec
   void _args;
   return [];
 }));
+const indexedSearch = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/search-index", () => ({
+  searchWorkItems: indexedSearch,
+  bugSearchSort: () => "createdAt:desc,sourceId:desc",
+  ideaSearchSort: () => "score:desc,createdAt:desc,sourceId:desc",
+  typesenseFilter: (field: string, value: unknown) => value === undefined ? null : `${field}:=${String(value)}`,
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
@@ -91,6 +98,9 @@ import { answerFrom, topShare, urgencyOf, yardsticksFor, type UrgencySignals } f
 import { currentTenantAccess } from "@/lib/tenant-access";
 import { addCommentAction } from "@/app/actions/issues";
 import { answerYourCallAction } from "@/app/actions/your-call";
+import { TasksBoard } from "@/components/marketing/tasks/tasks-board";
+import { taskTab, type TaskRow, type TasksBoardData } from "@/components/marketing/tasks/model";
+import { projectRef } from "@/lib/project-paths";
 
 const BUG = {
   id: "bug-1",
@@ -155,6 +165,7 @@ beforeEach(() => {
   ideaCount.mockResolvedValue(4);
   ideaFindMany.mockResolvedValue([IDEA]);
   ideaVerdictGroupBy.mockResolvedValue([]);
+  indexedSearch.mockRejectedValue(new Error("Typesense is unavailable in this test."));
 });
 
 describe("issue list layout", () => {
@@ -217,6 +228,66 @@ describe("issue list layout", () => {
     expect(current(stages(html))).toEqual([]);
   });
 
+  it("uses Typesense for issue text hits and rechecks the current tenant-scoped rows in PostgreSQL", async () => {
+    indexedSearch.mockResolvedValue({ found: 1, hits: [{ id: "bug-1", kind: "bug", score: 10 }] });
+    await renderList({ q: "login", status: "all" });
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "bug", tenantId: "tenant-acme", projectId: "project-acme", track: "product",
+      extraFilters: expect.arrayContaining(["isDeleted:=false"]),
+    }));
+    const rowQuery = findMany.mock.calls.at(-1)![0];
+    expect(rowQuery.where.id).toEqual({ in: ["bug-1"] });
+    expect(rowQuery.where).not.toHaveProperty("OR");
+    expect(rowQuery.where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme", track: "product", isDeleted: false });
+  });
+
+  it("uses Typesense for Idea text hits while retaining project and track predicates", async () => {
+    ideaCount.mockResolvedValue(1);
+    indexedSearch.mockResolvedValue({ found: 1, hits: [{ id: "idea-1", kind: "idea", score: 10 }] });
+    await renderList({ q: "export", status: "ideas" });
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "idea", tenantId: "tenant-acme", projectId: "project-acme", track: "product",
+    }));
+    const rowQuery = ideaFindMany.mock.calls.at(-1)![0];
+    expect(rowQuery.where.id).toEqual({ in: ["idea-1"] });
+    expect(rowQuery.where).not.toHaveProperty("OR");
+    expect(rowQuery.where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme", track: "product", isDeleted: false });
+  });
+
+  it("falls back to PostgreSQL for issue text search when Typesense is unavailable", async () => {
+    const html = await renderList({ q: "login", status: "all" });
+    expect(html).toContain("Issues");
+    expect(indexedSearch).toHaveBeenCalled();
+    const rowQuery = findMany.mock.calls.at(-1)![0];
+    expect(rowQuery.where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme", track: "product" });
+    expect(rowQuery.where).toHaveProperty("OR");
+  });
+
+  it("falls back to PostgreSQL for idea text search and keeps its source-of-truth count", async () => {
+    const html = await renderList({ q: "export", status: "ideas" });
+    expect(html).toContain("Export activity as CSV");
+    expect(indexedSearch).toHaveBeenCalled();
+    const rowQuery = ideaFindMany.mock.calls.at(-1)![0];
+    expect(rowQuery.where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme", track: "product" });
+    expect(rowQuery.where).toHaveProperty("OR");
+    expect(ideaCount).toHaveBeenCalled();
+  });
+
+  it("refills a stale Typesense page from PostgreSQL instead of returning a short page", async () => {
+    indexedSearch.mockResolvedValue({ found: 1, hits: [{ id: "deleted-or-missing", kind: "bug", score: 10 }] });
+    findMany.mockImplementation(async (args: { where?: Record<string, unknown> }) => args.where?.id ? [] : [BUG]);
+    await renderList({ q: "login", status: "all" });
+    expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("id");
+    expect(findMany.mock.calls.at(-1)![0].where).toHaveProperty("OR");
+  });
+
+  it("uses PostgreSQL rows when the indexed total disagrees with the exact database count", async () => {
+    indexedSearch.mockResolvedValue({ found: 99, hits: [{ id: "bug-1", kind: "bug", score: 10 }] });
+    await renderList({ q: "login", status: "all" });
+    expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("id");
+    expect(findMany.mock.calls.at(-1)![0].where).toHaveProperty("OR");
+  });
+
   it("lists each tab by its main status (Ziki #713, #substatus)", async () => {
     for (const status of ["in_progress", "done", "merge", "resolved"]) {
       await renderList({ status });
@@ -272,35 +343,34 @@ describe("agents dock settings", () => {
     return import("@/components/agents-dock-prefs");
   }
 
-  it("starts with the face and the bar closing when the cursor leaves", async () => {
+  it("starts with the face look", async () => {
     fakeStorage(null);
     const { readPrefs, lookFor } = await load();
-    expect(readPrefs().closeOnLeave).toBe(true);
     expect(lookFor(readPrefs(), "agent-1")).toBe("face");
     vi.unstubAllGlobals();
   });
 
-  it("keeps the checkbox's choice across a page load, and ignores anything it can't read", async () => {
+  it("keeps a hidden agent across a page load, and ignores anything it can't read", async () => {
     const store = fakeStorage(null);
-    (await load()).writePrefs({ closeOnLeave: false });
-    expect(JSON.parse(store.get("ziki-agents-dock")!).closeOnLeave).toBe(false);
-    expect((await load()).readPrefs().closeOnLeave).toBe(false);
-    fakeStorage(JSON.stringify({ closeOnLeave: "no", pinned: 1, looks: { a: "nonsense", b: "pixel" } }));
+    (await load()).writeHidden("agent-1", true);
+    expect(JSON.parse(store.get("ziki-agents-dock")!).hidden).toEqual(["agent-1"]);
+    expect((await load()).readPrefs().hidden).toEqual(["agent-1"]);
+    fakeStorage(JSON.stringify({ hidden: "no", looks: { a: "nonsense", b: "pixel" } }));
     const junk = (await load()).readPrefs();
-    expect(junk).toMatchObject({ closeOnLeave: true, pinned: true, looks: { b: "pixel" } });
+    expect(junk).toMatchObject({ hidden: [], looks: { b: "pixel" } });
     expect(junk.looks.a).toBeUndefined();
     fakeStorage("not json");
-    expect((await load()).readPrefs().closeOnLeave).toBe(true);
+    expect((await load()).readPrefs().hidden).toEqual([]);
     vi.unstubAllGlobals();
   });
 
   it("still works when the browser blocks storage: the choice holds until the page reloads", async () => {
     fakeStorage(null, true);
-    const { readPrefs, writePrefs } = await load();
-    expect(readPrefs().closeOnLeave).toBe(true);
-    writePrefs({ closeOnLeave: false });
-    expect(readPrefs().closeOnLeave).toBe(false);
-    expect((await load()).readPrefs().closeOnLeave).toBe(true);
+    const { readPrefs, writeHidden } = await load();
+    expect(readPrefs().hidden).toEqual([]);
+    writeHidden("agent-1", true);
+    expect(readPrefs().hidden).toEqual(["agent-1"]);
+    expect((await load()).readPrefs().hidden).toEqual([]);
     vi.unstubAllGlobals();
   });
 });
@@ -461,5 +531,107 @@ describe("Your call list", () => {
     expect(early!.answer).toBeNull();
     const [answered] = await load([issue({ comments: [decision("dave", 20)] })]);
     expect(answered!.answer).toBe("yes");
+  });
+});
+
+describe("the marketing tasks board", () => {
+  const ROW = {
+    id: "task-1", number: 41, title: "Write the launch post", href: "/acme/41", status: "open", substatus: "open", closeReason: null,
+    importance: 0, reward: 4, rewardEstimates: 2, rewardFixed: false, typeName: "Blog post", agentName: null, work: null, offeredTo: null,
+    revision: null, bids: 2, comments: 0, updatedAt: new Date("2026-11-01T10:00:00Z"),
+  } satisfies TaskRow;
+  
+  function renderBoard(board: Partial<TasksBoardData> = {}) {
+    return clean(renderToStaticMarkup(
+      <TasksBoard slug={projectRef("acme", "acme")} board={{
+        tab: taskTab("open"),
+        counts: { ideas: 2, open: 1, "in-progress": 4, closed: 1, done: 3, live: 2 },
+        sortParam: null,
+        list: { kind: "tasks", rows: [ROW], sort: "importance" },
+        pagination: { page: 1, totalPages: 1, totalCount: 1, from: 1, to: 1 },
+        ...board,
+      }} />,
+    ));
+  }
+
+  it("opens each task on the shared issue route, ready for bids with no confirmation step", () => {
+    const html = renderBoard();
+    expect(html).toContain('href="/acme/41"');
+    expect(html).toContain("2 bids");
+    expect(html).not.toContain("Awaiting Confirmation");
+  });
+
+  it("shows the three stages across the top, each counting its own steps, with Merge left out", () => {
+    const nav = stages(renderBoard());
+    expect(counted(nav)).toEqual({ Ideas: 2, "In Progress": 6, Delivered: 5 });
+    expect(current(nav)).toEqual(["In Progress"]);
+  });
+
+  it("lists a stage's lifecycle steps down the left", () => {
+    const inProgress = statusList(renderBoard());
+    expect(links(inProgress).map(labelOf)).toEqual(["Open", "In progress", "Closed"]);
+    expect(current(inProgress)).toEqual(["Open"]);
+    const delivered = statusList(renderBoard({ tab: taskTab("live") }));
+    expect(links(delivered).map(labelOf)).toEqual(["Done", "Live"]);
+    expect(current(delivered)).toEqual(["Live"]);
+  });
+
+  it("has no lifecycle steps under Ideas", () => {
+    const html = renderBoard({ tab: taskTab("ideas"), list: { kind: "proposals", sort: "score", ideas: [] } });
+    expect(statusList(html)).toBe("");
+    expect(current(stages(html))).toEqual(["Ideas"]);
+  });
+
+  it("lists proposals as ideas, each opening its idea page", () => {
+    const html = renderBoard({
+      tab: taskTab("ideas"),
+      list: { kind: "proposals", sort: "score", ideas: [{
+        id: "idea-1", number: 12, title: "A launch post", score: 2, threshold: 3, createdAt: new Date("2026-11-01T10:00:00Z"),
+        reporterName: "Rita", verdicts: 2, good: 3, badVotes: 1,
+      }] },
+    });
+    expect(html).toContain('href="/acme/acme/ideas/12"');
+  });
+
+  it("says why a tab is empty instead of showing an empty list", () => {
+    expect(renderBoard({ list: { kind: "tasks", rows: [], sort: "importance" }, pagination: { page: 1, totalPages: 1, totalCount: 0, from: 0, to: 0 } })).toContain("No open tasks.");
+  });
+
+  it("keeps the tab and sort when paging", () => {
+    const html = renderBoard({ sortParam: "reward", pagination: { page: 1, totalPages: 2, totalCount: 30, from: 1, to: 25 } }).replaceAll("&amp;", "&");
+    expect(html).toContain("/acme/acme/marketing?status=open&sort=reward&page=2");
+  });
+});
+
+describe("the issue list's track filter (M-UI-8)", () => {
+  it("lists, and searches, only marketing issues when asked", async () => {
+    indexedSearch.mockResolvedValue({ found: 1, hits: [{ id: "bug-1", kind: "bug", score: 10 }] });
+    await renderList({ q: "launch", status: "all", track: "marketing" });
+    expect(indexedSearch).toHaveBeenCalledWith(expect.objectContaining({ kind: "bug", track: "marketing" }));
+    // The first query lists the rows; a later one only reads their descriptions by id.
+    expect(findMany.mock.calls[0]![0].where.track).toBe("marketing");
+  });
+
+  it("names no track when asked for all work", async () => {
+    indexedSearch.mockResolvedValue({ found: 1, hits: [{ id: "bug-1", kind: "bug", score: 10 }] });
+    await renderList({ q: "launch", status: "all", track: "all" });
+    expect(indexedSearch.mock.calls.at(-1)![0]).not.toHaveProperty("track");
+    expect(findMany.mock.calls[0]![0].where.tenantId).toBe("tenant-acme");
+    expect(findMany.mock.calls[0]![0].where).not.toHaveProperty("track");
+  });
+});
+
+describe("keeping marketing work out of the product list", () => {
+  it("lists and counts only product issues", async () => {
+    await renderList({ status: "open" });
+    expect(findMany.mock.calls.at(-1)![0].where.track).toBe("product");
+    const statusTabs = groupBy.mock.calls.find(([args]) => args.by.includes("status"));
+    expect(statusTabs![0].where).toMatchObject({ track: "product" });
+  });
+
+  it("lists and counts only product ideas", async () => {
+    await renderList();
+    expect(ideaFindMany.mock.calls.at(-1)![0].where.track).toBe("product");
+    expect(ideaCount.mock.calls.at(-1)![0].where.track).toBe("product");
   });
 });

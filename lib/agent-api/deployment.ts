@@ -7,6 +7,7 @@ import { publish } from "@/lib/agent-api/events";
 import { statusChangedSummary } from "@/lib/activity-log";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { ENVIRONMENTS, LIVE_SUBSTATUS, moveTo } from "@/lib/issue-substatus";
+import { PRODUCT_STEP_ONLY_MESSAGE, trackRules } from "@/lib/marketing/track";
 import { LIVE_REPORTS_NEEDED, liveReporters, releasePayoutIfLive } from "@/lib/points/payout";
 import { prodReporters } from "@/lib/live-confirm-data";
 
@@ -51,9 +52,12 @@ export async function reportDeployment(
   return prisma.$transaction(async (tx) => {
     const bug = await tx.bug.findFirst({
       where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
-      select: { id: true, tenantId: true, status: true, substatus: true, assigneeId: true },
+      select: { id: true, tenantId: true, status: true, substatus: true, assigneeId: true, track: true },
     });
     if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
+    if (!trackRules(bug.track).hasProductSteps) {
+      throw new IssueApiError(409, PRODUCT_STEP_ONLY_MESSAGE, { error: "wrong_track", message: PRODUCT_STEP_ONLY_MESSAGE });
+    }
     if (bug.status !== "resolved") {
       const message = "Deployments are reported on Live issues: resolve the merged work first.";
       throw new IssueApiError(409, message, { error: "not_live", message, status: bug.status, substatus: bug.substatus });

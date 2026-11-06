@@ -64,6 +64,7 @@ export function agentInstructionsFor(input: AgentInstructionsInput): string {
       `This fix is on staging. Once it reaches production, report it: POST ${api(`${issue}/deployment`)} with { "environment": "prod", "note": "<what you checked>" }.`,
     ],
     on_prod: ["This fix is live on production. Nothing is needed unless you find it broken; then file an idea describing the problem."],
+    published: ["This marketing work is accepted and published. Nothing is needed."],
     closed: ["This issue is closed. Nothing is needed."],
   };
 

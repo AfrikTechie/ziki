@@ -44,7 +44,7 @@ const FIRST_CLOSE = Prisma.sql`
   SELECT a."bugId" AS bug_id, MIN(a."createdAt") AS closed_at
   FROM "BugActivity" a
   WHERE a.type = 'status_changed'
-    AND a.metadata ->> 'to' IN ('resolved', 'on_dev', 'on_staging', 'on_prod', 'closed')
+    AND a.metadata ->> 'to' IN ('resolved', 'on_dev', 'on_staging', 'on_prod', 'published', 'closed')
   GROUP BY a."bugId"
 `;
 
@@ -56,7 +56,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
       prisma.$queryRaw<{ status: string; count: bigint }[]>`
         SELECT b.status::text AS status, COUNT(*) AS count
         FROM "Bug" b
-        WHERE b."isDeleted" = false
+        WHERE b."isDeleted" = false AND b."track" = 'product'
           AND b."tenantId" = ${tenantId}
           AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
         GROUP BY b.status
@@ -76,7 +76,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
         opened AS (
           SELECT date_trunc('week', b."createdAt") AS week, COUNT(*) AS n
           FROM "Bug" b
-          WHERE b."isDeleted" = false
+          WHERE b."isDeleted" = false AND b."track" = 'product'
             AND b."tenantId" = ${tenantId}
             AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
           GROUP BY 1
@@ -84,7 +84,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
         closed AS (
           SELECT date_trunc('week', fc.closed_at) AS week, COUNT(*) AS n
           FROM (${FIRST_CLOSE}) fc
-          JOIN "Bug" b ON b.id = fc.bug_id AND b."isDeleted" = false AND b."tenantId" = ${tenantId}
+          JOIN "Bug" b ON b.id = fc.bug_id AND b."isDeleted" = false AND b."track" = 'product' AND b."tenantId" = ${tenantId}
           WHERE fc.closed_at >= ${from} AND fc.closed_at < ${to}
           GROUP BY 1
         )
@@ -116,7 +116,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
              ORDER BY EXTRACT(EPOCH FROM (fr.replied_at - b."createdAt"))
            )
            FROM first_reply fr
-           JOIN "Bug" b ON b.id = fr.bug_id AND b."isDeleted" = false
+           JOIN "Bug" b ON b.id = fr.bug_id AND b."isDeleted" = false AND b."track" = 'product'
            WHERE b."tenantId" = ${tenantId}
              AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
           ) AS first_response,
@@ -124,7 +124,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
              ORDER BY EXTRACT(EPOCH FROM (fc.closed_at - b."createdAt"))
            )
            FROM (${FIRST_CLOSE}) fc
-           JOIN "Bug" b ON b.id = fc.bug_id AND b."isDeleted" = false
+           JOIN "Bug" b ON b.id = fc.bug_id AND b."isDeleted" = false AND b."track" = 'product'
            WHERE b."tenantId" = ${tenantId}
              AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
           ) AS resolution
@@ -134,7 +134,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
         SELECT p.name AS label, COUNT(*) AS count
         FROM "Bug" b
         JOIN "Project" p ON p.id = b."projectId"
-        WHERE b."isDeleted" = false
+        WHERE b."isDeleted" = false AND b."track" = 'product'
           AND b."tenantId" = ${tenantId}
           AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
         GROUP BY 1
@@ -145,7 +145,7 @@ export async function fetchDashboard(tenantId: string, range: DateRange): Promis
         SELECT COALESCE(t.name, 'No type') AS label, COUNT(*) AS count
         FROM "Bug" b
         LEFT JOIN "IssueType" t ON t.id = b."typeId"
-        WHERE b."isDeleted" = false
+        WHERE b."isDeleted" = false AND b."track" = 'product'
           AND b."tenantId" = ${tenantId}
           AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
         GROUP BY 1

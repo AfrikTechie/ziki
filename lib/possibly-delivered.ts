@@ -75,7 +75,7 @@ export async function deliverySignals(db: Db, bugIds: string[]): Promise<Map<str
     const delivery = bug.deliveries[0];
     if (delivery) {
       reasons.push("Work was delivered before");
-      links.add(delivery.pullRequestUrl);
+      if (delivery.pullRequestUrl) links.add(delivery.pullRequestUrl);
     }
     const mentioning = bug.comments.find((c) => MERGE_WORDS.some((word) => c.body.toLowerCase().includes(word)));
     if (mentioning) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   clearDuplicateAction,
@@ -54,13 +54,33 @@ export function MarkDuplicateButton({
     };
   }, [bugId, open, query]);
 
-  const close = () => {
+  const close = useCallback((restoreFocus = false) => {
     setOpen(false);
     setQuery("");
     setResults([]);
     setError(null);
-    wrapperRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-  };
+    if (restoreFocus) {
+      wrapperRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        close(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close(true);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [close, open]);
 
   const choose = (ref: string) => {
     setError(null);
@@ -71,7 +91,7 @@ export function MarkDuplicateButton({
         return;
       }
       toast("Marked as a duplicate. It's now hidden from the issues list.");
-      close();
+      close(true);
       router.refresh();
     });
   };
@@ -83,7 +103,7 @@ export function MarkDuplicateButton({
       <Button
         type="button"
         variant="secondary"
-        className="px-2.5 py-1.5 text-xs"
+        className="cursor-pointer px-2.5 py-1.5 text-xs"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => (open ? close() : setOpen(true))}
@@ -140,7 +160,7 @@ export function MarkDuplicateButton({
                   type="button"
                   disabled={pending}
                   onClick={() => choose(issue.id)}
-                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-zk-chip focus-visible:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong disabled:opacity-50"
+                  className="w-full cursor-pointer rounded-lg px-2 py-1.5 text-left text-sm hover:bg-zk-chip focus-visible:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="text-zk-muted tabular-nums">{formatIssueNumber(issue.number)}</span>{" "}
                   <span className="text-zk-text">{issue.title}</span>
@@ -172,7 +192,7 @@ export function ClearDuplicateButton({ bugId }: { bugId: string }) {
     <Button
       type="button"
       variant="ghost"
-      className="px-2.5 py-1 text-xs"
+      className="cursor-pointer px-2.5 py-1 text-xs"
       disabled={pending}
       onClick={() =>
         startTransition(async () => {

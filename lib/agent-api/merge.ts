@@ -1,5 +1,5 @@
 import { refreshIssueRatings } from "@/lib/agents/profile";
-import { Prisma } from "@prisma/client";
+import { Prisma, type WorkTrack } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
@@ -10,13 +10,11 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { countedMergeVerdicts, deliveredClaim, MANAGER_VERDICT_WEIGHT } from "@/lib/agent-api/merge-verdicts";
-import type { PointAward } from "@/lib/points/award";
+import { afterSendBack, judgementCounts, trackRules } from "@/lib/marketing/track";
+import { award, type PointAward } from "@/lib/points/award";
 import { holdPayout } from "@/lib/points/payout";
-import { solverReward } from "@/lib/points/project-rewards";
+import { calculateReporterPoints, calculateReviewerPoints, solverReward } from "@/lib/points/project-rewards";
 import { pointSourceKey, reviewerPointsAt } from "@/lib/points/rules";
-import {
-  calculateReviewerPoints,
-} from "@/lib/points/project-rewards";
 import { getPlatformRewardConfig, getProjectRewardConfig } from "@/lib/points/platform-rewards";
 import { assertRedesignOpen } from "@/lib/redesigns";
 import { statusChangedSummary } from "@/lib/activity-log";
@@ -60,6 +58,11 @@ import { moveTo } from "@/lib/issue-substatus";
  * an independent agent then reports it merged, and resolving it
  * (`POST /issues/{id}/resolve`, lib/agent-api/reconcile-merged.ts) makes the
  * issue Live and pays the points (`finalizeResolved`).
+ *
+ * Marketing work (#M-API-5) has no pull request, merge or deploy (D1): a
+ * manager's accept moves it from Done · Accepted straight to Live · Published
+ * and pays the solver, poster, dispatcher and reviewers at once, each award
+ * once by its source key.
  */
 
 export const mergeBugSelect = {
@@ -71,6 +74,8 @@ export const mergeBugSelect = {
   pullRequestHeadSha: true,
   status: true,
   substatus: true,
+  track: true,
+  revisionCount: true,
   assigneeId: true,
   beneficiaryUserId: true,
   reporterId: true,
@@ -79,6 +84,7 @@ export const mergeBugSelect = {
   project: { select: { repoUrl: true } },
   claims: {
     select: {
+      id: true,
       status: true,
       claimedAt: true,
       releasedAt: true,
@@ -104,7 +110,7 @@ export type StoredMergeReview = {
   summary: string;
   description: string;
   onBehalfOfUserId: string;
-  pullRequestUrl: string;
+  pullRequestUrl: string | null;
   headSha: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -115,6 +121,8 @@ export type AcceptFixResult =
       status: 200;
       accepted: boolean;
       readyToMerge?: boolean;
+      /** Marketing work (#M-API-5): the accept published it instead of readying a merge. */
+      published?: boolean;
       solverUserId?: string | null;
       rewardedReviewerUserIds?: string[];
       /** The manager's merge review this call recorded (#review-entries). */
@@ -221,7 +229,7 @@ async function saveMergeReview(
   agent: AgentContext,
   bug: { id: string },
   review: MergeReviewInput,
-  pullRequestUrl: string,
+  pullRequestUrl: string | null,
   headSha: string | null,
 ): Promise<{ review: StoredMergeReview; replaced: boolean }> {
   const data = {
@@ -277,13 +285,20 @@ async function reviewFix(
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
 
+  // Marketing work (#M-API-5) skips Merge (D1), so its accept is always a
+  // manager's review: there is no merge step for a threshold-only vote to
+  // decide.
+  const marketing = bug.track === "marketing";
+
   // #vote-governance: a merge review is a manager's decision, or in a
   // threshold-only project one weighted vote among any independent agents'.
   const workflow = await workflowFor(bug.projectId);
-  const voting: Voting | null = isThresholdOnly(workflow)
-    ? { threshold: workflow.acceptThreshold, managerVoteWeight: workflow.managerVoteWeight }
-    : null;
-  if (!voting && !hasLevel(agent.level, "manager")) {
+  const voting: Voting | null =
+    !marketing && isThresholdOnly(workflow)
+      ? { threshold: workflow.acceptThreshold, managerVoteWeight: workflow.managerVoteWeight }
+      : null;
+  const canReview = marketing ? hasLevel(agent.level, "manager") : Boolean(voting) || hasLevel(agent.level, "manager");
+  if (!canReview) {
     return { status: 403, error: "insufficient_level", message: "Only manager or merger agents can accept a fix." };
   }
 
@@ -294,6 +309,15 @@ async function reviewFix(
   const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug);
   if (conflict) {
     return { status: 403, error: "not_independent", message: new ReviewerNotIndependentError(conflict).message };
+  }
+
+  if (marketing && bug.substatus !== "accepted") {
+    return {
+      status: 409,
+      error: "not_ready",
+      missing: "verdicts",
+      message: "Marketing work can be reviewed once its reviewers approve it (Done · Accepted).",
+    };
   }
 
   if (review.verdict === "reject") return rejectFix(agent, bug, review, voting);
@@ -317,6 +341,57 @@ async function reviewFix(
       message: "This issue needs a claim or a delivery of its fix before the fix can be accepted.",
     };
   }
+  if (marketing) {
+    // D1: a manager accepts Done · Accepted marketing work straight to Live ·
+    // Published. No confirmation, redesign or pull request gate, and no
+    // deployment reports to wait for, so the points are paid here.
+    if (bug.substatus !== "accepted") {
+      return {
+        status: 409,
+        error: "not_ready",
+        missing: "verdicts",
+        message: "Marketing work can be accepted once its reviewers approve it (Done · Accepted).",
+      };
+    }
+    const { reviewers, weight } = await countedMarketingReviewers(bug, claim, credited);
+    const { verdictsNeeded } = workflow;
+    if (weight < verdictsNeeded) {
+      return {
+        status: 409,
+        error: "not_ready",
+        missing: "verdicts",
+        message: `This needs good-to-merge judgements weighing ${verdictsNeeded} (a manager's counts ${MANAGER_VERDICT_WEIGHT}, a working agent's 1); ${weight} so far.`,
+      };
+    }
+    const solverUserId = claim?.beneficiaryUserId ?? credited[0] ?? bug.assigneeId;
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+      const current = await tx.bug.findFirst({
+        where: { id: bug.id, tenantId: agent.tenantId, isDeleted: false },
+        select: { status: true, substatus: true },
+      });
+      if (!current || current.status === "resolved") {
+        return {
+          status: 409,
+          error: "not_ready",
+          missing: "already_accepted",
+          message: "This issue's fix has already been accepted.",
+        };
+      }
+      if (current.substatus !== "accepted") {
+        return {
+          status: 409,
+          error: "not_ready",
+          missing: "verdicts",
+          message: "Marketing work can be accepted once its reviewers approve it (Done · Accepted).",
+        };
+      }
+      // Marketing work has no pull request, so its review names neither one nor a head commit.
+      const saved = await saveMergeReview(tx, agent, bug, review, null, null);
+      return acceptMarketing(tx, agent, bug, claim, solverUserId, reviewers, saved);
+    });
+  }
+
   if (!bug.pullRequestUrl) {
     return {
       status: 409,
@@ -502,12 +577,14 @@ export function acceptBlock(gate: PrGate, conflictTodo?: string): AcceptBlock | 
  * the claim's side. Empty when a claim does.
  */
 export async function creditedDeliveryUsers(
-  bug: { id: string; pullRequestUrl: string | null },
+  bug: { id: string; pullRequestUrl: string | null; track?: WorkTrack },
   claim: MergeClaim,
 ): Promise<string[]> {
   if (claim) return [];
   const deliveries = await prisma.delivery.findMany({
-    where: { bugId: bug.id, pullRequestUrl: bug.pullRequestUrl ?? "" },
+    // Marketing deliveries carry no pull request (#M-API-3), so they match on
+    // the empty link rather than the issue's null one.
+    where: { bugId: bug.id, pullRequestUrl: bug.track === "marketing" ? null : bug.pullRequestUrl ?? "" },
     select: { beneficiaryUserId: true },
   });
   return deliveries.map((delivery) => delivery.beneficiaryUserId);
@@ -538,6 +615,213 @@ export async function countedReviewers(
     ? verdicts
     : verdicts.filter((v) => !credited.includes(v.agent.ownerUserId) && !credited.includes(v.onBehalfOfUserId));
   return countedMergeVerdicts(countable, claim, bug, bug.pullRequestHeadSha ?? null);
+}
+
+/**
+ * The reviewers whose good-to-merge verdicts count on marketing work
+ * (#M-API-5). Marketing has no pull request, so only judgements given since
+ * the latest delivery count (D4), and there is no head commit to bind.
+ */
+export async function countedMarketingReviewers(
+  bug: ReviewedBug & { id: string; track: WorkTrack },
+  claim: MergeClaim,
+  credited: readonly string[],
+): Promise<{ reviewers: string[]; weight: number }> {
+  const verdicts = await prisma.testVerdict.findMany({
+    where: { bugId: bug.id, goodToMerge: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      headSha: true,
+      pullRequestUrl: true,
+      updatedAt: true,
+      onBehalfOfUserId: true,
+      agent: { select: { id: true, ownerUserId: true, level: true } },
+    },
+  });
+  const delivery = await prisma.delivery.findFirst({
+    where: { bugId: bug.id },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    select: { updatedAt: true, pullRequestUrl: true },
+  });
+  const current = delivery ? verdicts.filter((verdict) => judgementCounts(bug.track, verdict, delivery)) : verdicts;
+  // With no claim, nothing from or for the credited person counts, as in
+  // tested-status.ts countJudgements.
+  const countable = claim
+    ? current
+    : current.filter((v) => !credited.includes(v.agent.ownerUserId) && !credited.includes(v.onBehalfOfUserId));
+  const { reviewers, weight } = countedMergeVerdicts(countable, claim, bug);
+  return { reviewers, weight };
+}
+
+/** What a marketing accept pays, read from the issue and its claim. */
+export type MarketingAcceptAwardsInput = {
+  bug: { id: string; tenantId: string; reporterId: string };
+  claim: MergeClaim;
+  solverUserId: string | null;
+  rewardedReviewerUserIds: readonly string[];
+  /** The issue's reward, in $ (#rewards). */
+  reward: number | { toNumber(): number } | null;
+  reporterPoints: number;
+  reviewerPoints: number;
+  dispatcherPoints: number;
+  /** The agent that gave each reviewer's good-to-merge judgement. */
+  judgingAgent?: ReadonlyMap<string, string>;
+};
+
+/**
+ * The awards a marketing accept writes (#M-API-5, D7): the solver the issue's
+ * reward, the poster their share, the dispatcher theirs, and each counted
+ * reviewer their review points. Every award has its own `sourceKey`, so
+ * accepting again can never pay anyone twice.
+ */
+export function marketingAcceptAwards(input: MarketingAcceptAwardsInput): PointAward[] {
+  const { bug, claim, solverUserId, rewardedReviewerUserIds } = input;
+  const awards: PointAward[] = [];
+  if (solverUserId) {
+    awards.push({
+      tenantId: bug.tenantId,
+      userId: solverUserId,
+      bugId: bug.id,
+      role: "solver",
+      points: solverReward(input.reward),
+      sourceKey: pointSourceKey("solver", bug.id, solverUserId),
+      agentId: claim?.agentId ?? null,
+    });
+  }
+  if (bug.reporterId) {
+    awards.push({
+      tenantId: bug.tenantId,
+      userId: bug.reporterId,
+      bugId: bug.id,
+      role: "reporter",
+      points: input.reporterPoints,
+      sourceKey: pointSourceKey("reporter", bug.id, bug.reporterId),
+    });
+  }
+  if (claim?.dispatcherUserId) {
+    awards.push({
+      tenantId: bug.tenantId,
+      bugId: bug.id,
+      userId: claim.dispatcherUserId,
+      role: "dispatcher",
+      points: input.dispatcherPoints,
+      sourceKey: `dispatcher:${bug.id}`,
+    });
+  }
+  for (const [index, userId] of rewardedReviewerUserIds.entries()) {
+    awards.push({
+      tenantId: bug.tenantId,
+      userId,
+      bugId: bug.id,
+      role: "reviewer",
+      points: reviewerPointsAt(index, input.reviewerPoints),
+      sourceKey: pointSourceKey("reviewer", bug.id, userId),
+      agentId: input.judgingAgent?.get(userId) ?? null,
+    });
+  }
+  return awards;
+}
+
+/**
+ * Finishes a marketing accept in the caller's transaction (#M-API-5, D1): the
+ * issue moves to Live · Published, its claim is released, and the solver,
+ * poster, dispatcher and reviewers are paid directly — marketing work has no
+ * deployment reports for a held payout to wait on. The audit row and the
+ * `issue.accepted` event record it.
+ */
+async function acceptMarketing(
+  tx: Prisma.TransactionClient,
+  agent: AgentContext,
+  bug: MergeBug,
+  claim: MergeClaim,
+  solverUserId: string | null,
+  rewardedReviewerUserIds: readonly string[],
+  saved: { review: StoredMergeReview; replaced: boolean },
+): Promise<AcceptFixResult> {
+  const moved = moveTo(trackRules(bug.track).acceptMovesTo);
+  await tx.bug.update({ where: { id: bug.id }, data: moved });
+  await tx.bugActivity.create({
+    data: {
+      bugId: bug.id,
+      actorId: agent.ownerId,
+      type: "status_changed",
+      summary: "Marketing work accepted by a manager agent and published",
+      metadata: {
+        field: "status",
+        from: bug.substatus,
+        ...moved,
+        published: true,
+        mergeReviewId: saved.review.id,
+        solverUserId,
+        rewardedReviewerUserIds: [...rewardedReviewerUserIds],
+      },
+    },
+  });
+  await tx.issueClaim.updateMany({
+    where: { bugId: bug.id, status: "active", releasedAt: null },
+    data: { status: "released", releasedAt: new Date(), releaseReason: "accepted" },
+  });
+
+  const rewardConfig = await getProjectRewardConfig(tx, bug.projectId);
+  const platform = await getPlatformRewardConfig(tx);
+  const { reward, reporterId } = await tx.bug.findUniqueOrThrow({
+    where: { id: bug.id },
+    select: { reward: true, reporterId: true },
+  });
+  // Attribution: each reviewer's award names the agent that gave their judgement.
+  const judgements = rewardedReviewerUserIds.length
+    ? await tx.testVerdict.findMany({
+        where: { bugId: bug.id, goodToMerge: true, onBehalfOfUserId: { in: [...rewardedReviewerUserIds] } },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        select: { onBehalfOfUserId: true, agentId: true },
+      })
+    : [];
+  const judgingAgent = new Map<string, string>();
+  for (const judgement of judgements) {
+    if (!judgingAgent.has(judgement.onBehalfOfUserId)) judgingAgent.set(judgement.onBehalfOfUserId, judgement.agentId);
+  }
+  const awards = marketingAcceptAwards({
+    bug: { id: bug.id, tenantId: bug.tenantId, reporterId },
+    claim,
+    solverUserId,
+    rewardedReviewerUserIds,
+    reward,
+    reporterPoints: calculateReporterPoints(rewardConfig),
+    reviewerPoints: calculateReviewerPoints(rewardConfig),
+    dispatcherPoints: platform.dispatcher,
+    judgingAgent,
+  });
+  // Direct, not held: marketing work has no deployment reports to release a hold.
+  for (const entry of awards) await award(tx, entry);
+
+  const facts = {
+    solverUserId,
+    rewardedReviewerUserIds: [...rewardedReviewerUserIds],
+    published: true,
+    track: "marketing" as const,
+    mergeReviewId: saved.review.id,
+    summary: saved.review.summary,
+    points: awards.length,
+  };
+  await audit(agent, "issue.accepted", `bug:${bug.id}`, { ...facts, ...moved }, { bugId: bug.id, db: tx });
+  await publish(tx, {
+    tenantId: bug.tenantId,
+    type: "issue.accepted",
+    payload: { issueId: bug.id, ...facts, ...moved },
+    actorAgentId: agent.agentId,
+    bugId: bug.id,
+  });
+
+  return {
+    status: 200 as const,
+    accepted: true as const,
+    published: true as const,
+    solverUserId,
+    rewardedReviewerUserIds: [...rewardedReviewerUserIds],
+    review: saved.review,
+    replaced: saved.replaced,
+  };
 }
 
 type RecordValue = string | number | boolean | null;
@@ -722,8 +1006,8 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       message: "This issue's fix has already been merged, so it can't be rejected.",
     };
   }
-  const pullRequestUrl = bug.pullRequestUrl;
-  if (!pullRequestUrl) {
+  const pullRequestUrl = bug.track === "marketing" ? null : bug.pullRequestUrl;
+  if (!pullRequestUrl && bug.track !== "marketing") {
     return {
       status: 409,
       error: "not_ready",
@@ -732,6 +1016,114 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
     };
   }
   return prisma.$transaction(async (tx): Promise<AcceptFixResult> => {
+    if (bug.track === "marketing") {
+      await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+      const current = await tx.bug.findFirst({
+        where: { id: bug.id, tenantId: agent.tenantId, isDeleted: false },
+        select: mergeBugSelect,
+      });
+      if (!current || current.status === "resolved") {
+        return {
+          status: 409,
+          error: "not_ready",
+          missing: "already_accepted",
+          message: "This issue's fix has already been merged, so it can't be rejected.",
+        };
+      }
+      if (current.substatus !== "accepted") {
+        return {
+          status: 409,
+          error: "not_ready",
+          missing: "verdicts",
+          message: "Marketing work can be reviewed once its reviewers approve it (Done · Accepted).",
+        };
+      }
+
+      const saved = await saveMergeReview(tx, agent, current, review, pullRequestUrl, current.pullRequestHeadSha ?? null);
+      if (review.mistake) {
+        await recordMistake(agent, current.projectId, { ...review.mistake, bugId: current.id }, tx);
+      }
+
+      const workflow = await workflowFor(current.projectId, tx);
+      const sendBack = afterSendBack(current, workflow.revisionLimit, "manager_reject");
+      if (sendBack.keepsClaim) {
+        await tx.bug.update({
+          where: { id: current.id },
+          data: { ...moveTo(sendBack.substatus), revisionCount: sendBack.revisionCount },
+        });
+      } else {
+        const now = new Date();
+        const held = current.claims.filter((claim) => !claim.releasedAt && (claim.status === "active" || claim.status === "offered"));
+        for (const claim of held) {
+          await tx.issueClaim.update({ where: { id: claim.id }, data: { status: "released", releasedAt: now, releaseReason: "manager_rejected" } });
+          await publish(tx, {
+            tenantId: current.tenantId,
+            type: "claim.released",
+            actorAgentId: null,
+            bugId: current.id,
+            payload: { claimId: claim.id, issueId: current.id, beneficiaryUserId: claim.beneficiaryUserId, reason: "manager_rejected" },
+          });
+        }
+        await tx.bug.update({
+          where: { id: current.id },
+          data: { ...moveTo("open"), assigneeId: null, revisionCount: 0 },
+        });
+      }
+      await tx.bugActivity.create({
+        data: {
+          bugId: current.id,
+          actorId: agent.ownerId,
+          type: "status_changed",
+          summary: sendBack.keepsClaim
+            ? `Work rejected by manager: ${review.summary} (revision round ${sendBack.revisionCount} of ${workflow.revisionLimit})`
+            : `Work rejected by manager: ${review.summary} and revision limit reached (${workflow.revisionLimit}): reopened for bids`,
+          metadata: {
+            field: "status",
+            from: current.substatus,
+            to: sendBack.substatus,
+            rejected: true,
+            mergeReviewId: saved.review.id,
+            revisionCount: sendBack.revisionCount,
+            revisionLimit: workflow.revisionLimit,
+          },
+        },
+      });
+      await audit(
+        agent,
+        "issue.merge_rejected",
+        `bug:${current.id}`,
+        {
+          ...moveTo(sendBack.substatus),
+          rejected: true,
+          mergeReviewId: saved.review.id,
+          summary: review.summary,
+          notes: review.description,
+          pullRequestUrl,
+          headSha: saved.review.headSha,
+          revisionCount: sendBack.revisionCount,
+        },
+        { bugId: current.id, db: tx },
+      );
+      await publish(tx, {
+        tenantId: current.tenantId,
+        type: "issue.updated",
+        payload: {
+          issueId: current.id,
+          rejected: true,
+          ...moveTo(sendBack.substatus),
+          mergeReviewId: saved.review.id,
+          summary: review.summary,
+          notes: review.description,
+          pullRequestUrl,
+          headSha: saved.review.headSha,
+          revisionCount: sendBack.revisionCount,
+        },
+        actorAgentId: agent.agentId,
+        bugId: current.id,
+      });
+      return { status: 200, accepted: false, review: saved.review, replaced: saved.replaced, rejected: true };
+    }
+
     const saved = await saveMergeReview(tx, agent, bug, review, pullRequestUrl, bug.pullRequestHeadSha ?? null);
     if (review.mistake) {
       await recordMistake(agent, bug.projectId, { ...review.mistake, bugId: bug.id }, tx);
@@ -744,6 +1136,7 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       if (votes < voting.threshold) return recordReviewVote(tx, agent, bug, saved, votes, voting.threshold);
       decision = thresholdDecision({ userId: agent.ownerId, agentId: agent.agentId }, votes, voting.threshold);
     }
+
     await tx.bug.update({ where: { id: bug.id }, data: moveTo("in_progress") });
     await tx.bugActivity.create({
       data: {
