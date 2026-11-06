@@ -267,10 +267,10 @@ export async function structureIssue(
         if (recipientId) {
           const entry = await tx.pointEntry.findFirst({
             where: {
-              tenantId: bug.tenantId,
+              organisationId: bug.organisationId,
               sourceKey: pointSourceKey("reporter", bug.id, recipientId),
             },
-            select: { id: true, tenantId: true, userId: true, bugId: true, role: true, points: true },
+            select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true },
           });
           if (entry) {
             await correct(tx, { entry });
