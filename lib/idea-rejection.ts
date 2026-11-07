@@ -1,4 +1,16 @@
 import type { IdeaOpinion } from "@prisma/client";
+import { z } from "zod";
+
+export const rejectIdeaSchema = z
+  .object({
+    projectId: z.string().trim().min(1).max(191).optional(),
+    /** Context or reason why the idea was rejected (e.g. "it doesn't align with the product's vision"). */
+    reason: z.string().trim().max(10_000).optional(),
+    rejectReason: z.string().trim().max(10_000).optional(),
+  })
+  .strict();
+
+export type RejectIdeaInput = z.infer<typeof rejectIdeaSchema>;
 
 /**
  * When an idea is bad (#idea-rejected): it has had a fair hearing — its votes
