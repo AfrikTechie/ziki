@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 3001",
     "build": "prisma generate && next build --webpack",
-    "start": "next start -p ${PORT:-3000}",
+    "start": "node scripts/start-standalone.mjs",
     "lint": "eslint --cache --cache-location node_modules/.cache/eslint/",
     "typecheck": "tsc --noEmit",
     "check": "node scripts/verify.mjs ready",
@@ -18,6 +18,7 @@
     "verify:status": "node scripts/verify.mjs status",
     "db:migrate": "prisma migrate dev",
     "db:scenario:open-bids": "tsx --env-file=.env scripts/dev/scenario-open-bids.ts",
+    "db:scenario:bidder-record": "tsx --env-file=.env scripts/dev/scenario-bidder-record.ts",
     "db:scenario:agents-dock": "tsx --env-file=.env scripts/dev/scenario-agents-dock.ts",
     "db:fixtures": "tsx --env-file=.env scripts/dev/fixtures/run.ts",
     "db:fill-agent-profiles": "tsx --env-file=.env scripts/dev/fill-agent-profiles.ts",

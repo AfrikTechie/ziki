@@ -82,6 +82,7 @@ enum ActivityType {
   category_changed
   area_changed
   duplicate_changed
+  blocker_changed
 }
 
 /// A person's role inside an organisation (#423). Everyone who existed when the
@@ -437,6 +438,8 @@ model Bug {
   duplicateOfId             String?
   duplicateOf               Bug?                    @relation("BugDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates                Bug[]                   @relation("BugDuplicates")
+  blockedBy                 IssueBlocker[]          @relation("IssueBlockedBy")
+  blocking                  IssueBlocker[]          @relation("IssueBlocking")
   /// Product or marketing work (`WorkTrack`).
   track                     WorkTrack               @default(product)
   /// How many times this marketing work has been sent back for changes on the
@@ -538,6 +541,19 @@ model Bug {
   // so the list can be read in index order instead of sorting every row.
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), voteCount(sort: Desc), updatedAt(sort: Desc), createdAt(sort: Desc)], map: "Bug_list_top_votes_idx")
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), createdAt(sort: Desc), id(sort: Desc)], map: "Bug_list_newest_idx")
+}
+
+/// A dependency that explains why an issue cannot proceed until another issue is resolved.
+model IssueBlocker {
+  id           String   @id @default(cuid())
+  blockedBugId String
+  blockerBugId String
+  createdAt    DateTime @default(now())
+  blockedBug   Bug      @relation("IssueBlockedBy", fields: [blockedBugId], references: [id], onDelete: Cascade)
+  blockerBug   Bug      @relation("IssueBlocking", fields: [blockerBugId], references: [id], onDelete: Cascade)
+
+  @@unique([blockedBugId, blockerBugId])
+  @@index([blockerBugId])
 }
 
 /// A platform (Desktop, Web, Mobile) inside one organisation.
