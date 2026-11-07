@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { isTrackedSessionValid } from "@/lib/user-sessions";
 
 export const SESSION_EXPIRED_MESSAGE =
   "Session expired, sign in again";
@@ -37,22 +38,33 @@ export async function resolveSessionUserId(): Promise<
   { userId: string } | { error: string }
 > {
   const session = await auth();
-  const sessionId = session?.user?.id;
+  const userIdClaim = session?.user?.id;
+  const trackedSessionId = session?.user?.sessionId;
   const email = session?.user?.email?.toLowerCase();
   const sessionVersion = session?.user?.sessionVersion;
 
-  if (!sessionId && !email) {
+  if (!userIdClaim && !email) {
     return { error: SESSION_EXPIRED_MESSAGE };
   }
 
-  if (sessionId) {
+  if (userIdClaim) {
     try {
       const byId = await prisma.user.findUnique({
-        where: { id: sessionId },
+        where: { id: userIdClaim },
         select: { id: true, sessionVersion: true },
       });
       if (byId) {
         if (!sessionVersionAllowsSignIn(sessionVersion, byId.sessionVersion)) {
+          return { error: SESSION_EXPIRED_MESSAGE };
+        }
+        if (
+          trackedSessionId &&
+          !(await isTrackedSessionValid({
+            sessionId: trackedSessionId,
+            userId: byId.id,
+            userSessionVersion: byId.sessionVersion,
+          }))
+        ) {
           return { error: SESSION_EXPIRED_MESSAGE };
         }
         return { userId: byId.id };
@@ -70,6 +82,16 @@ export async function resolveSessionUserId(): Promise<
       });
       if (byEmail) {
         if (!sessionVersionAllowsSignIn(sessionVersion, byEmail.sessionVersion)) {
+          return { error: SESSION_EXPIRED_MESSAGE };
+        }
+        if (
+          trackedSessionId &&
+          !(await isTrackedSessionValid({
+            sessionId: trackedSessionId,
+            userId: byEmail.id,
+            userSessionVersion: byEmail.sessionVersion,
+          }))
+        ) {
           return { error: SESSION_EXPIRED_MESSAGE };
         }
         return { userId: byEmail.id };

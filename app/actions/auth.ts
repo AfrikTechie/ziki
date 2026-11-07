@@ -45,6 +45,7 @@ import {
   resetPasswordSchema,
   signupSchema,
 } from "@/lib/validations/issue";
+import { revokeSessionOnLogout } from "@/lib/user-sessions";
 
 const RESET_LINK_INVALID =
   "This reset link is invalid or has expired. Request a new one.";
@@ -185,6 +186,13 @@ export async function signupAction(
 }
 
 export async function logoutAction() {
+  const session = await auth().catch(() => null);
+  const reqHeaders = await headers().catch(() => null);
+  await revokeSessionOnLogout({
+    userId: session?.user?.id,
+    sessionId: session?.user?.sessionId,
+    headers: reqHeaders,
+  });
   const cookieStore = await cookies();
   cookieStore.delete(ACTIVE_ROLE_COOKIE_NAME);
   await signOut({ redirectTo: "/login" });
