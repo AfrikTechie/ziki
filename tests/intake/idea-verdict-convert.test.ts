@@ -13,6 +13,7 @@ const db = vi.hoisted(() => ({
   idea: { update: vi.fn(), findUniqueOrThrow: vi.fn() },
   bug: { create: vi.fn() },
   attachment: { updateMany: vi.fn() },
+  securityFinding: { updateMany: vi.fn() },
   issueStake: { updateMany: vi.fn(), findMany: vi.fn(async () => []), update: vi.fn() },
   pointEntry: { createMany: vi.fn() },
   projectWorkflow: { findUnique: vi.fn() },
