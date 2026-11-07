@@ -10,7 +10,8 @@ import { moveTo } from "@/lib/issue-substatus";
 import { GitHubError, githubClientFor } from "@/lib/github/client";
 import { diagnose, diagnosisNote, type Diagnosis } from "@/lib/github/merge-blockers";
 import { readPullRequest } from "@/lib/github/pull-request-snapshot";
-import { parseGitHubRepoUrl, parsePullRequestUrl } from "@/lib/github/pull-request-url";
+import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
+import { installationIdForPullRequest, PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { asSnapshot, type PullRequestSnapshot } from "@/lib/github/snapshot-types";
 
 /**
@@ -43,7 +44,7 @@ const syncBugSelect = {
   pullRequestHeadSha: true,
   isDeleted: true,
   reporterId: true,
-  project: { select: { repoUrl: true, githubInstallationId: true } },
+  project: { select: { repoUrl: true, githubInstallationId: true, ...PROJECT_REPOSITORIES_SELECT } },
   claims: {
     where: { status: { in: ["active", "released"] } },
     orderBy: { claimedAt: "desc" },
@@ -139,7 +140,7 @@ export async function syncPullRequestStatus(
   const pullRequestUrl = bug.pullRequestUrl;
   const ref = parsePullRequestUrl(pullRequestUrl);
   if (!ref) return { ok: false, error: "not_github", message: "The linked pull request isn't a GitHub pull request address." };
-  const link = linkStateFromUrl(pullRequestUrl, parseGitHubRepoUrl(bug.project.repoUrl));
+  const link = linkStateFromUrl(pullRequestUrl, repoForPullRequest(bug.project, pullRequestUrl));
   if (link === "other_repository") {
     return { ok: false, error: "other_repository", message: "The linked pull request isn't in the project's repository, so Ziki won't read it there." };
   }
@@ -153,7 +154,8 @@ export async function syncPullRequestStatus(
 
   let snapshot: PullRequestSnapshot;
   try {
-    const client = await githubClientFor(bug.project);
+    // The installation of the repository the pull request is in (#2), else the project's.
+    const client = await githubClientFor({ githubInstallationId: installationIdForPullRequest(bug.project, pullRequestUrl) });
     snapshot = await readPullRequest(client, ref);
   } catch (error) {
     const message = error instanceof GitHubError ? error.message : "Ziki couldn't read the pull request on GitHub.";

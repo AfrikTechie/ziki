@@ -17,7 +17,6 @@ import {
 } from "@/lib/invites";
 import { acceptShareLink, createShareLink, revokeShareLink } from "@/lib/share-invites";
 import { prisma } from "@/lib/prisma";
-import { EARN_ORGANISATION_SLUG } from "@/lib/earn/draft";
 
 import { RATE_LIMIT_MESSAGE, consumeRateLimit } from "@/lib/rate-limit";
 import {
@@ -60,9 +59,6 @@ export type OrganisationFormResult = {
 async function enterOrganisation(organisationId: string): Promise<never> {
   await setActiveOrganisationCookie(organisationId);
   revalidatePath("/", "layout");
-  // The Earn organisation opens on Earn's own default page, never the builders' Ideas.
-  const organisation = await prisma.organisation.findUnique({ where: { id: organisationId }, select: { slug: true } });
-  if (organisation?.slug === EARN_ORGANISATION_SLUG) redirect("/earn/home");
   // /home opens the first project of the organisation just made current, or its Projects page when it has none.
   redirect("/home");
 }

@@ -103,7 +103,8 @@ import { CommentPlacementError, placeComment, type CommentPlacement } from "@/li
 import { standingAcceptance } from "@/lib/accepted-fix";
 import { latestPullRequestReport, reportedClosedUnmerged } from "@/lib/agent-api/pull-request-report";
 import { isFormerNameOf } from "@/lib/github/former-repos";
-import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import {
   agentMentionNames,
   agentOwnerIds,
@@ -1292,7 +1293,7 @@ export async function editPullRequestUrlAction(
       reporterId: true,
       assigneeId: true,
       isDeleted: true,
-      project: { select: { repoUrl: true } },
+      project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
       claims: {
         where: { releasedAt: null, status: { in: ["active", "offered"] } },
         select: { status: true, beneficiaryUserId: true, agent: { select: { ownerUserId: true } } },
@@ -1364,7 +1365,8 @@ export async function editPullRequestUrlAction(
     );
   }
 
-  const repo = parseGitHubRepoUrl(existing.project?.repoUrl);
+  // The repository it is in: the main one or any the project lists (#2).
+  const repo = repoForPullRequest(existing.project, parsed.data.pullRequestUrl);
   if (repo && !sameRepo(parsedPr, repo)) {
     return fieldError(
       "pullRequestUrl",

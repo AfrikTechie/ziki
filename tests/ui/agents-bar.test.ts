@@ -105,24 +105,6 @@ describe("dockVisibleOn: where the agents bar shows", () => {
     expect(dockVisibleOn("/home/", 1)).toBe(true);
   });
 
-  it.each(["/earn", "/earn/", "/earn/tasks", "/earn/earnings", "/earn/marketing/12", "/earn/withdraw"])(
-    "keeps the bar on earn pages for earners with agents: %s",
-    (path) => {
-      expect(dockVisibleOn(path, 1)).toBe(true);
-      expect(dockVisibleOn(path, 3)).toBe(true);
-    },
-  );
-
-  it.each(["/earn", "/earn/tasks", "/earn/earnings"])("hides on earn pages when there are no agents: %s", (path) => {
-    expect(dockVisibleOn(path, 0)).toBe(false);
-  });
-
-  it("matches earn on the whole segment: a look-alike isn't earn", () => {
-    expect(dockVisibleOn("/earning/tasks", 1)).toBe(false);
-    expect(dockVisibleOn("/zedu/earnings", 1)).toBe(true); // a project that happens to be called "earnings": its landing page
-    expect(dockVisibleOn("/zedu/earnings/notes", 1)).toBe(false);
-  });
-
   it.each([
     "/questions",
     "/questions/abc",

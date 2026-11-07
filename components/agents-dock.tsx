@@ -2,7 +2,6 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { isEarnPath } from "@/lib/earn/paths";
 import { usePathname, useRouter } from "next/navigation";
 import { agentPageHref, LEADERBOARD_HREF } from "@/lib/header-nav";
 import { AGENTS_DOCK_HEIGHT, dockVisibleOn, leaderboardVisible } from "@/lib/agents-dock";
@@ -119,14 +118,11 @@ const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, workin
 export function AgentsDock({
   agents: given,
   defaultProjectSlug = null,
-  earn = false,
   memberCount = null,
 }: {
   agents: DockAgent[];
   /** Workstream's project on pages outside a project. */
   defaultProjectSlug?: ProjectRef | null;
-  /** Earn (#earn-drafts): the viewer is an earner; on the earn pages the leaderboard and workstream icons are left out. */
-  earn?: boolean;
   /** Members of the current organisation: the leaderboard link is left out when it is just you. Null when unknown. */
   memberCount?: number | null;
 }) {
@@ -350,9 +346,8 @@ export function AgentsDock({
   if (!visible) return null;
 
   // Workstream and the leaderboard are in the Agents menu; the strip's right end is the support link.
-  const quiet = earn && isEarnPath(pathname);
   // The leaderboard is in the Agents menu; nobody to rank against in an organisation of one.
-  const leaderboard = !quiet && leaderboardVisible(memberCount);
+  const leaderboard = leaderboardVisible(memberCount);
 
   const showLabels = () => {
     clearTimeout(labelTimer.current);
@@ -548,7 +543,7 @@ export function AgentsDock({
                 </ul>
               </div>
             ) : null}
-            {workstreamRef && !quiet ? (
+            {workstreamRef ? (
               <Link
                 href={projectPath(workstreamRef, "/workstream")}
                 onClick={() => setPanel(false)}

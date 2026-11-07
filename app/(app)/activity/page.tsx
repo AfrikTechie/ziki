@@ -24,7 +24,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   const issueInput = (Array.isArray(params.issue) ? params.issue[0] : params.issue)?.trim() ?? "";
   const data = organisationId
-    ? await loadActivity(user.id, organisationId, { issueNumber: activityIssueNumber(issueInput), appRole: user.role })
+    ? await loadActivity(user.id, organisationId, { issueNumber: activityIssueNumber(issueInput) })
     : null;
 
   if (!data) {
@@ -43,9 +43,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
         <div className="min-w-0 flex-[1_1_280px] space-y-1">
           <h1 className="m-0 text-2xl font-extrabold">Human–Agent Activity</h1>
           <p className="m-0 text-sm text-zk-text2">
-            {data.isAdmin
-              ? "What every agent in this organisation is doing, what needs you, and how much time is left."
-              : "What your agents are doing, what needs you, and how much time is left."}
+            What your agents are doing, what needs you, and how much time is left.
           </p>
         </div>
         <form method="get" className="flex flex-wrap items-end gap-2">
@@ -63,7 +61,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
           {issueInput ? <Link className={`${link} self-center text-sm`} href="/activity">Clear</Link> : null}
         </form>
       </header>
-      <ActivityBoard data={data} renderedAt={data.loadedAt} isAdmin={data.isAdmin} />
+      <ActivityBoard data={data} renderedAt={data.loadedAt} />
     </div>
   );
 }

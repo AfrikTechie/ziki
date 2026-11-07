@@ -70,13 +70,21 @@ describe("loadActivity", () => {
     expect(claimFindMany.mock.calls[0][0].where).toMatchObject({ agent: { ownerUserId: "jennifer" }, bug: { organisationId: "org-zedu" } });
   });
 
-  it("shows an admin every agent in the organisation, but only their own questions", async () => {
-    membershipFindUnique.mockResolvedValue({ role: "admin" });
-    const data = await loadActivity("jennifer", "org-zedu");
-    expect(data?.isAdmin).toBe(true);
-    expect(agentFindMany.mock.calls[0][0].where).not.toHaveProperty("ownerUserId");
-    expect(claimFindMany.mock.calls[0][0].where.agent).not.toHaveProperty("ownerUserId");
+  it("shows an admin only their own agents' work too, not the whole organisation's", async () => {
+    membershipFindUnique.mockResolvedValue({ id: "membership-1" });
+    await loadActivity("jennifer", "org-zedu");
+    expect(agentFindMany.mock.calls[0][0].where).toMatchObject({ ownerUserId: "jennifer" });
+    expect(claimFindMany.mock.calls[0][0].where.agent).toEqual({ ownerUserId: "jennifer" });
     expect(questionFindMany.mock.calls[0][0].where).toMatchObject({ ownerUserId: "jennifer", answeredAt: null });
+  });
+
+  it("shows nothing but the empty board to someone with no agents here", async () => {
+    membershipFindUnique.mockResolvedValue({ id: "membership-1" });
+    agentFindMany.mockResolvedValue([]);
+    const data = await loadActivity("jennifer", "org-zedu");
+    expect(data?.claims).toEqual([]);
+    expect(claimFindMany).not.toHaveBeenCalled();
+    expect(auditFindMany).not.toHaveBeenCalled();
   });
 
   it("matches nothing for an issue filter that isn't a number", async () => {

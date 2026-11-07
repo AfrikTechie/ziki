@@ -12,7 +12,8 @@ import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { parseIssueRef } from "@/lib/issue-ref";
-import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { standingAcceptance } from "@/lib/accepted-fix";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { moveTo } from "@/lib/issue-substatus";
@@ -193,7 +194,7 @@ export async function deliverWork(
       status: true,
       substatus: true,
       pullRequestUrl: true,
-      project: { select: { repoUrl: true } },
+      project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
     },
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue." };
@@ -289,7 +290,7 @@ export async function deliverWork(
   const headSha = marketing ? null : body.headSha ?? null;
   if (!marketing) {
     const ref = parsePullRequestUrl(pullRequestUrl!)!;
-    const repo = parseGitHubRepoUrl(bug.project?.repoUrl);
+    const repo = repoForPullRequest(bug.project, pullRequestUrl);
     if (repo && !sameRepo(ref, repo)) {
       return { status: 422, error: "wrong_repository", message: "That pull request is not in this project's repository.", field: "pullRequestUrl" };
     }

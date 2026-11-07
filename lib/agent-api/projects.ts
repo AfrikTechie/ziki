@@ -18,13 +18,30 @@ import type { Prisma } from "@prisma/client";
  * brief; each project's workflow numbers expose the gates it enforces so an
  * agent can set expectations.
  *
- * `githubInstallationId` is deliberately not selected — it is deployment
- * configuration, not agent-visible data.
+ * `repositories` (#2) lists every repository a fix can be in: the main one
+ * (`repoUrl`, kept for older agents) first, then the project's others.
+ *
+ * `githubInstallationId` (the project's and each repository's) is deliberately
+ * not selected — it is deployment configuration, not agent-visible data.
  */
 const projectSelect = {
   id: true, slug: true, name: true, goal: true, repoUrl: true, stagingUrl: true, rewardConfig: true,
   workflow: true,
+  repositories: {
+    select: { url: true, label: true, branch: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  },
 } satisfies Prisma.ProjectSelect;
+
+type AgentRepository = { url: string; label: string | null; branch: string | null; main: boolean };
+
+function agentRepositories(project: {
+  repoUrl: string | null;
+  repositories: { url: string; label: string | null; branch: string | null }[];
+}): AgentRepository[] {
+  const main = project.repoUrl ? [{ url: project.repoUrl, label: null, branch: null, main: true }] : [];
+  return [...main, ...project.repositories.map((repository) => ({ ...repository, main: false }))];
+}
 
 /** The organisation's slug, the first segment of its projects' addresses (#project-urls). */
 export async function organisationSlugOf(organisationId: string): Promise<string> {
@@ -61,6 +78,7 @@ export async function listAgentProjects(organisationId: string) {
   const openByProject = new Map(openCounts.map((row) => [row.projectId, row._count._all]));
   return projects.map((project) => ({
     ...project,
+    repositories: agentRepositories(project),
     workUrl: absoluteUrl(projectPath(projectRef(orgSlug, project.slug), "/work")),
     notesUrl: `/api/v1/projects/${project.id}/notes`,
     notesCommentsUrl: `/api/v1/projects/${project.id}/notes/comments`,
@@ -86,6 +104,7 @@ export async function getAgentProject(organisationId: string, projectId: string)
   });
   return {
     ...project,
+    repositories: agentRepositories(project),
     workUrl: absoluteUrl(projectPath(projectRef(orgSlug, project.slug), "/work")),
     notesUrl: `/api/v1/projects/${project.id}/notes`,
     notesCommentsUrl: `/api/v1/projects/${project.id}/notes/comments`,

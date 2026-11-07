@@ -23,11 +23,32 @@ const optionalUrl = (check: (url: URL) => boolean, message: string) =>
   );
 
 /** A GitHub repository's address. The form's example (github.com/owner/repository) is not a real one. */
-const repoUrlSchema = optionalUrl((url) =>
+const isGitHubRepoUrl = (url: URL) =>
   url.protocol === "https:" && url.hostname === "github.com" && !url.port && !url.username && !url.password &&
   /^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/.test(url.pathname) && !url.search && !url.hash &&
-  !/^\/owner\/repository(?:\.git)?\/?$/i.test(url.pathname),
-"Enter your GitHub repository's URL, such as https://github.com/your-org/your-repo.");
+  !/^\/owner\/repository(?:\.git)?\/?$/i.test(url.pathname);
+const GITHUB_REPO_URL_MESSAGE = "Enter your GitHub repository's URL, such as https://github.com/your-org/your-repo.";
+const repoUrlSchema = optionalUrl(isGitHubRepoUrl, GITHUB_REPO_URL_MESSAGE);
+
+/** How many repositories a project can list besides its main one (#2). */
+export const PROJECT_EXTRA_REPOSITORIES_MAX = 10;
+
+/** `https://github.com/owner/repo`, lower-cased: GitHub names are case-insensitive. */
+export function canonicalGitHubRepoUrl(value: string): string {
+  const [owner, repo] = new URL(value).pathname.replace(/\/$/, "").replace(/\.git$/i, "").split("/").filter(Boolean);
+  return `https://github.com/${owner}/${repo}`.toLowerCase();
+}
+
+/** Another repository for a project (#2): its URL, a short label and the branch fixes go into. */
+export const projectRepositorySchema = z.object({
+  url: z.string().trim().refine((value) => {
+    try { return isGitHubRepoUrl(new URL(value)); } catch { return false; }
+  }, GITHUB_REPO_URL_MESSAGE).transform(canonicalGitHubRepoUrl),
+  label: z.string().trim().max(40, "The label must be 40 characters or fewer.").transform((value) => value || null),
+  branch: z.string().trim().max(100, "The branch must be 100 characters or fewer.")
+    .refine((value) => value === "" || /^(?!\/|.*\.\.|.*\/$)[A-Za-z0-9._/-]+$/.test(value), "Enter a branch name, such as dev or main.")
+    .transform((value) => value || null),
+});
 
 /** The product's live site (#project-links). The example domains (example.com and the like) are not real sites. */
 const siteUrlSchema = optionalUrl((url) => url.protocol === "https:" && !url.username && !url.password &&

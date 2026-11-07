@@ -298,4 +298,33 @@ describe("repairPullRequestLink (#edit-pr-link)", () => {
     });
     expect(unrelated).toMatchObject({ status: 403, body: { error: "insufficient_level" } });
   });
+
+  it("accepts a pull request in a repository the project lists, and still refuses one in neither (#2)", async () => {
+    db.bug.findFirst.mockResolvedValue(
+      bug({
+        status: "done",
+        proofLinks: [PR],
+        project: {
+          repoUrl: "https://github.com/emerjent/ziki",
+          repositories: [{ url: "https://github.com/emerjent/ziki-api" }],
+        },
+        claims: [{ status: "active", releasedAt: null, agentId: "agent-cara", beneficiaryUserId: "cara", dispatcherUserId: null, agent: { ownerUserId: "cara" } }],
+        deliveries: [{ id: "d1", pullRequestUrl: PR, agentId: "agent-cara", beneficiaryUserId: "cara", agent: { ownerUserId: "cara" } }],
+      }),
+    );
+    db.tx.delivery.updateMany.mockResolvedValue({ count: 1 });
+
+    const inListed = await repairPullRequestLink(checker("cara", "working"), scope, "bug1", {
+      pullRequestUrl: "https://github.com/Emerjent/Ziki-API/pull/12",
+    });
+    expect(inListed).toMatchObject({
+      status: 200,
+      body: { repaired: true, pullRequestUrl: "https://github.com/emerjent/ziki-api/pull/12", samePullRequest: false },
+    });
+
+    const inNeither = await repairPullRequestLink(checker("cara", "working"), scope, "bug1", {
+      pullRequestUrl: "https://github.com/other/repo/pull/10",
+    });
+    expect(inNeither).toMatchObject({ status: 422, body: { error: "wrong_repository" } });
+  });
 });

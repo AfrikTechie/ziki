@@ -286,6 +286,8 @@ model User {
   /// #618: optional EVM address (0x + 40 hex) points could later be sent to.
   /// Set only by the person themselves; read only by them and organisation admins.
   walletAddress             String?
+  /// #earnings: what the person wants to earn each week, set on Your earnings. Null: the default goal.
+  weeklyEarningsGoal        Decimal?                @db.Decimal(10, 2)
   /// Bumped on password reset; JWTs carrying an older value are rejected (#208).
   sessionVersion            Int                     @default(0)
   createdAt                 DateTime                @default(now())
@@ -321,8 +323,6 @@ model User {
   redesignsOnBehalf         RedesignProposal[]      @relation("RedesignOnBehalfOf")
   redesignsApproved         RedesignProposal[]      @relation("RedesignApprover")
   pointEntries              PointEntry[]
-  earnTasks                 EarnTaskProgress[]
-  earnContacts              EarnContact[]
   pointDisputes             PointDispute[]          @relation("DisputeOpener")
   pointDisputesResolved     PointDispute[]          @relation("DisputeResolver")
   auditActions              AgentAuditEvent[]       @relation("AuditActorUser")
@@ -858,8 +858,32 @@ model Project {
   noteComments          ProjectNoteComment[]
   memberships           ProjectMembership[]
   joinRequests          ProjectJoinRequest[]
+  repositories          ProjectRepository[]
 
   @@unique([organisationId, slug])
+}
+
+/// More GitHub repositories for a project (#2), e.g. its API next to its web app.
+/// `Project.repoUrl` stays the main repository; these are the others. A pull
+/// request in any of them can be linked, delivered, accepted and resolved.
+model ProjectRepository {
+  id                   String   @id @default(cuid())
+  projectId            String
+  /// `https://github.com/owner/repo`, lower-cased so a repository is listed once.
+  url                  String
+  /// Short name shown to people and agents, e.g. "API" or "Mobile".
+  label                String?
+  /// The branch fixes go into, when it isn't the repository's default. Shown to
+  /// people and agents; Ziki does not read GitHub to enforce it (#pr-reports).
+  branch               String?
+  /// GitHub App installation for this repository when it differs from the
+  /// project's (another organization). Never a token.
+  githubInstallationId String?
+  createdAt            DateTime @default(now())
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, url])
+  @@index([projectId])
 }
 
 /// The per-project workflow dials (#595). One row per project; a missing row
@@ -2226,77 +2250,6 @@ model PointEntry {
   @@index([agentId])
   @@index([bugId])
   @@index([organisationId, role, correctedAt])
-}
-
-/// Where a person is on each Earn marketing task (#earn-tasks). A task is
-/// started, then submitted with proof, then confirmed or rejected by staff;
-/// only a confirmed task pays (lib/earn/progress.ts).
-enum EarnTaskStatus {
-  started
-  submitted
-  confirmed
-  rejected
-}
-
-/// A manager agent's advice on a submitted earn task (#earn-agent-review). A person still confirms or sends it back.
-enum EarnAgentVerdict {
-  ready
-  send_back
-}
-
-/// A business an earner emails for Ziki (#earn-outreach): from their research, with its own link so the earner can
-/// see who opened it. `code` is the link's id: ziki.dev/r/<code>.
-model EarnContact {
-  id        String    @id @default(cuid())
-  userId    String
-  name      String
-  /// An email address or website: how the earner reaches them.
-  contact   String?
-  code      String    @unique
-  /// When the earner ticked it sent.
-  sentAt    DateTime?
-  /// The first and latest time someone opened the link, and how often.
-  openedAt  DateTime?
-  lastOpenAt DateTime?
-  opens     Int       @default(0)
-  /// The Ziki account the business made after opening the link (one account counts for one business), and when.
-  signedUpUserId String?   @unique
-  signedUpAt     DateTime?
-  /// When that account started its first project of its own.
-  startedAt      DateTime?
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, createdAt])
-}
-
-model EarnTaskProgress {
-  id          String         @id @default(cuid())
-  userId      String
-  /// A task id from lib/earn/draft.ts: who, research, emails or post.
-  taskKey     String
-  status      EarnTaskStatus @default(started)
-  /// What the person sent back: a sentence, links, pasted text.
-  proof       String?
-  startedAt   DateTime       @default(now())
-  submittedAt DateTime?
-  decidedAt   DateTime?
-  /// The staff member who confirmed or rejected it.
-  decidedById String?
-  /// Why it was rejected, or a note on a confirmation.
-  note        String?
-  /// A manager agent's verdict on what was sent in, for the person who decides. Cleared when it is sent again.
-  agentVerdict     EarnAgentVerdict?
-  /// The agent's reason: what it checked and, for a send-back, what to fix.
-  agentReason      String?
-  /// How sure the agent is, 0 to 100. Self-reported, not proof.
-  agentConfidence  Int?
-  agentVerdictById String?
-  agentVerdictAt   DateTime?
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, taskKey])
-  @@index([status, submittedAt])
 }
 
 /// A member saying an award is missing or wrong (#436).

@@ -39,13 +39,15 @@ export function isPublicPath(
     pathWithoutBase === "/how-it-works" ||
     pathWithoutBase === "/for-agents" ||
     pathWithoutBase === "/developers" ||
+    // Public skills library (guest-accessible per optionalUser()).
+    pathWithoutBase === "/skills" ||
+    pathWithoutBase.startsWith("/skills/") ||
+    // /earn (#earnings): signs you up, or opens your Ideas page.
+    pathWithoutBase === "/earn" ||
     // The public comparison directory and every comparison page (#compare).
     pathWithoutBase === "/compare" ||
     pathWithoutBase.startsWith("/compare/") ||
-    pathWithoutBase === "/earn" ||
-    pathWithoutBase === "/skills" ||
-    pathWithoutBase.startsWith("/skills/") ||
-    // A business's own link from an earner's email (#earn-outreach): opened by people who aren't signed in.
+    // Old business links from earners' emails (#earn-outreach): opened by people who aren't signed in.
     /^\/r\/[a-z0-9]{4,16}$/.test(pathWithoutBase) ||
     isAuthPage ||
     isPasswordResetPage ||

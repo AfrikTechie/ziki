@@ -12,7 +12,7 @@ import { hasLevel } from "@/lib/agents/levels";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { publish } from "@/lib/agent-api/events";
 import { handleTestVerdictSubmitted } from "@/lib/agent-api/review-offer";
-import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { prGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport, notifyAuthor, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { conflictComment } from "@/lib/agent-api/merge-conflict";
@@ -98,7 +98,7 @@ const reviewedBugSelect = {
   reporterId: true,
   createdByAgentId: true,
   createdByAgent: { select: { ownerUserId: true } },
-  project: { select: { repoUrl: true } },
+  project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
   claims: {
     select: {
       status: true,
@@ -433,7 +433,7 @@ function readyBlock(
   const gate = prGate(gateReport(report), {
     pullRequestUrl: bug.pullRequestUrl,
     pullRequestHeadSha: bug.pullRequestHeadSha,
-    repo: parseGitHubRepoUrl(bug.project?.repoUrl),
+    repo: repoForPullRequest(bug.project, bug.pullRequestUrl),
   });
   const reason = gate.reason ?? "";
   if (gate.broken) {

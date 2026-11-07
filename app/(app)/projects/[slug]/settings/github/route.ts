@@ -26,7 +26,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const project = await prisma.project.findFirst({ where: { organisationId, slug }, select: { id: true } });
   if (!project) return NextResponse.redirect(new URL("/home", origin));
 
-  const state = `${slug}.${randomBytes(24).toString("base64url")}`;
+  // #2: connecting one of the project's other repositories (another
+  // organisation) records the installation on that repository, not the project.
+  const repositoryId = request.nextUrl.searchParams.get("repository");
+  let target = "";
+  if (repositoryId) {
+    const repository = /^[a-z0-9]{8,40}$/.test(repositoryId)
+      ? await prisma.projectRepository.findFirst({ where: { id: repositoryId, projectId: project.id }, select: { id: true } })
+      : null;
+    if (!repository) {
+      settingsUrl.searchParams.set("github", "error");
+      return NextResponse.redirect(settingsUrl);
+    }
+    target = `repo-${repository.id}.`;
+  }
+
+  const state = `${slug}.${target}${randomBytes(24).toString("base64url")}`;
   const cookieOpts = appCookieOptions(600);
   (await cookies()).set(STATE_COOKIE, state, cookieOpts);
   const installUrl = new URL(`https://github.com/apps/${encodeURIComponent(appSlug)}/installations/new`);

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ProjectJoinModal } from "@/components/project-join-modal";
+import { joinOpenProjectAction } from "@/app/actions/project-join-requests";
 import { projectPath, projectRef } from "@/lib/project-paths";
 
 export type DiscoverableProject = {
@@ -29,8 +30,18 @@ export type DiscoverableProject = {
 };
 
 export function DiscoverProjectCard({ project }: { project: DiscoverableProject }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState(project.userStatus);
+  const currentStatus = project.userStatus;
+  const router = useRouter();
+  const [joining, startJoining] = useTransition();
+  const [joinError, setJoinError] = useState<string | null>(null);
+  // Open projects take you in straight away (#earnings): no request, no waiting, then on to its work.
+  const join = () =>
+    startJoining(async () => {
+      setJoinError(null);
+      const result = await joinOpenProjectAction(project.id);
+      if (result.ok) router.push(result.href);
+      else setJoinError(result.error);
+    });
 
   return (
     <>
@@ -139,32 +150,17 @@ export function DiscoverProjectCard({ project }: { project: DiscoverableProject 
                   Open Project →
                 </Button>
               </Link>
-            ) : currentStatus === "pending" ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-zk-border bg-zk-chip/50 px-3.5 py-1.5 text-xs font-medium text-zk-muted">
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-                Request Pending
-              </span>
-            ) : project.isOpenForContributors ? (
-              <Button
-                variant="primary"
-                onClick={() => setModalOpen(true)}
-                className="text-xs font-bold"
-              >
-                {currentStatus === "rejected" ? "Re-apply to Join" : "Request to Join"}
+            ) : currentStatus === "rejected" ? (
+              <Button variant="secondary" disabled className="text-xs font-medium opacity-60">
+                Request declined
               </Button>
+            ) : project.isOpenForContributors ? (
+              <div className="flex flex-col items-end gap-1">
+                <Button variant="primary" onClick={join} disabled={joining} className="text-xs font-bold">
+                  {joining ? "Joining…" : "Join"}
+                </Button>
+                {joinError ? <p role="alert" className="text-xs text-zk-bad-fg">{joinError}</p> : null}
+              </div>
             ) : (
               <Button
                 variant="secondary"
@@ -178,12 +174,6 @@ export function DiscoverProjectCard({ project }: { project: DiscoverableProject 
         </div>
       </article>
 
-      <ProjectJoinModal
-        project={project}
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSuccess={() => setCurrentStatus("pending")}
-      />
     </>
   );
 }

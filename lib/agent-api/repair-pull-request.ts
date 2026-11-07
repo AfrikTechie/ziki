@@ -8,7 +8,8 @@ import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/inde
 import { publish } from "@/lib/agent-api/events";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { isFormerNameOf } from "@/lib/github/former-repos";
-import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, projectRepoRefs, repoForPullRequest } from "@/lib/github/project-repositories";
 import { standingAcceptance } from "@/lib/accepted-fix";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 
@@ -103,7 +104,7 @@ export async function repairPullRequestLink(
       beneficiaryUserId: true,
       assigneeId: true,
       createdByAgent: { select: { ownerUserId: true } },
-      project: { select: { repoUrl: true } },
+      project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
       claims: {
         select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } },
       },
@@ -156,7 +157,8 @@ export async function repairPullRequestLink(
   const previous = bug.pullRequestUrl;
   if (!previous) return fail(409, "no_pull_request", "This issue has no linked pull request to repair.");
 
-  const repo = parseGitHubRepoUrl(bug.project?.repoUrl);
+  // With no address named, the same number is looked for in the main repository.
+  const repo = repoForPullRequest(bug.project, null);
   if (!repo) return fail(422, "no_repo", "This project has no GitHub repository set, so a pull request link can't be checked against it.");
 
   const old = parsePullRequestUrl(previous);
@@ -164,15 +166,17 @@ export async function repairPullRequestLink(
   if (!target) {
     return fail(422, "invalid_url", "The linked address is not a GitHub pull request. Name the pull request to link (pullRequestUrl).");
   }
-  if (!sameRepo(target, repo)) return fail(422, "wrong_repository", "That pull request is not in this project's repository.");
+  // The repository it is in: the main one or any the project lists (#2).
+  const targetRepo = projectRepoRefs(bug.project).find((candidate) => sameRepo(target, candidate));
+  if (!targetRepo) return fail(422, "wrong_repository", "That pull request is not in this project's repository.");
 
   // The canonical address: the project's own spelling of its repository.
-  const next = `https://github.com/${repo.owner}/${repo.repo}/pull/${target.number}`;
+  const next = `https://github.com/${targetRepo.owner}/${targetRepo.repo}/pull/${target.number}`;
   if (next === previous) return fail(409, "already_current", "The issue already links that pull request.");
 
   // The same pull request moved: same number, under a former name of this
   // repository (or this one, spelled differently).
-  const samePullRequest = Boolean(old && old.number === target.number && (sameRepo(old, repo) || isFormerNameOf(old, repo)));
+  const samePullRequest = Boolean(old && old.number === target.number && (sameRepo(old, targetRepo) || isFormerNameOf(old, targetRepo)));
 
   if (!samePullRequest && prisma.agentAuditEvent) {
     const accepted = await standingAcceptance(prisma, bug.id);

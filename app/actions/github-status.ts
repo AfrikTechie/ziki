@@ -13,6 +13,7 @@ import { moveTo } from "@/lib/issue-substatus";
 import { GitHubError, githubClientFor } from "@/lib/github/client";
 import { mergePullRequest, rerunFailedChecks, updateBranch } from "@/lib/github/pull-request-actions";
 import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
+import { installationIdForPullRequest, PROJECT_REPOSITORIES_SELECT } from "@/lib/github/project-repositories";
 import { githubStatusPowers, SEND_BACK_STATUSES, type GitHubStatusPowers } from "@/lib/github/status-access";
 import { syncPullRequestStatus } from "@/lib/github/sync";
 import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
@@ -45,7 +46,7 @@ async function load(bugId: unknown) {
       reporterId: true,
       beneficiaryUserId: true,
       pullRequestUrl: true,
-      project: { select: { slug: true, githubInstallationId: true } },
+      project: { select: { slug: true, repoUrl: true, githubInstallationId: true, ...PROJECT_REPOSITORIES_SELECT } },
       claims: {
         where: { status: { in: ["active", "released"] } },
         orderBy: { claimedAt: "desc" },
@@ -116,7 +117,8 @@ async function freshRead(loaded: Loaded) {
   if (!result.ok) throw new GitHubError(409, result.message);
   const ref = parsePullRequestUrl(result.status.pullRequestUrl);
   if (!ref) throw new GitHubError(409, "The linked pull request isn't a GitHub pull request address.");
-  const client = await githubClientFor(loaded.bug.project);
+  // The connection of the repository the pull request is in (#2), else the project's.
+  const client = await githubClientFor({ githubInstallationId: installationIdForPullRequest(loaded.bug.project, result.status.pullRequestUrl) });
   if (!client.canWrite) {
     throw new GitHubError(401, "Ziki can read this repository but can't change it. Connect the project's GitHub App (project settings), or set GITHUB_TOKEN.");
   }

@@ -41,7 +41,6 @@ function renderBoard(data: Partial<ActivityData>) {
     <ActivityBoard
       data={{ agents: [zeddi, zoint], claims: [], questions: [], events: [], slots: [], ...data }}
       renderedAt={NOW}
-      isAdmin={false}
     />,
   );
 }
@@ -89,15 +88,24 @@ describe("ActivityBoard", () => {
     expect(within(ended).queryByText("Zeddi · the offer wasn't accepted in time")).not.toBeInTheDocument();
   });
 
-  it("shows 20 rows per section, then Show more", () => {
-    const released = Array.from({ length: 23 }, (_, index) =>
+  it("shows 3 rows per section, then 5 more each time Show more is pressed", () => {
+    const released = Array.from({ length: 10 }, (_, index) =>
       claim(`c${index}`, 100 + index, { status: "released", releasedAt: at(-index - 1), releaseReason: "agent" }),
     );
     renderBoard({ claims: released });
     const ended = screen.getByRole("region", { name: "Ended" });
-    expect(within(ended).getAllByRole("article")).toHaveLength(20);
-    fireEvent.click(within(ended).getByRole("button", { name: "Show 3 more ended claims" }));
-    expect(within(ended).getAllByRole("article")).toHaveLength(23);
+    expect(within(ended).getAllByRole("article")).toHaveLength(3);
+    expect(within(ended).getByText("3 of 10")).toBeInTheDocument();
+
+    fireEvent.click(within(ended).getByRole("button", { name: "Show 5 more ended claims" }));
+    expect(within(ended).getAllByRole("article")).toHaveLength(8);
+
+    fireEvent.click(within(ended).getByRole("button", { name: "Show 2 more ended claims" }));
+    expect(within(ended).getAllByRole("article")).toHaveLength(10);
+    expect(within(ended).queryByRole("button", { name: /^Show \d+ more/ })).not.toBeInTheDocument();
+
+    fireEvent.click(within(ended).getByRole("button", { name: "Show fewer" }));
+    expect(within(ended).getAllByRole("article")).toHaveLength(3);
   });
 
   it("opens a delivered issue's history in place", () => {
@@ -121,14 +129,34 @@ describe("ActivityBoard", () => {
     expect(within(progress).getByText("#2 Issue 2")).toBeInTheDocument();
   });
 
-  it("expands older activity in place instead of leaving the page", () => {
-    const events = Array.from({ length: 22 }, (_, index) => ({
+  it("expands older activity in place, 5 at a time, instead of leaving the page", () => {
+    const events = Array.from({ length: 12 }, (_, index) => ({
       id: `e${index}`, agent: zeddi, action: "issue.delivered", createdAt: at(-index), undone: false, issue: null,
     }));
     renderBoard({ events });
     const recent = screen.getByRole("region", { name: "Recent activity" });
-    expect(within(recent).getAllByRole("listitem")).toHaveLength(20);
-    fireEvent.click(within(recent).getByRole("button", { name: "Show older activity" }));
-    expect(within(recent).getAllByRole("listitem")).toHaveLength(22);
+    expect(within(recent).getAllByRole("listitem")).toHaveLength(3);
+    fireEvent.click(within(recent).getByRole("button", { name: "Show 5 more events" }));
+    expect(within(recent).getAllByRole("listitem")).toHaveLength(8);
+  });
+
+  it("keeps the agents panel short too", () => {
+    const agents = Array.from({ length: 5 }, (_, index) => ({ id: `agent-${index}`, name: `Agent ${index}` }));
+    renderBoard({ agents });
+    const panel = screen.getByRole("region", { name: "Your agents" });
+    expect(within(panel).getAllByRole("listitem")).toHaveLength(3);
+    fireEvent.click(within(panel).getByRole("button", { name: "Show 2 more agents" }));
+    expect(within(panel).getAllByRole("listitem")).toHaveLength(5);
+  });
+
+  it("uses a dropdown instead of chips when someone has many agents", () => {
+    const agents = Array.from({ length: 8 }, (_, index) => ({ id: `agent-${index}`, name: `Agent ${index}` }));
+    renderBoard({ agents, claims: [claim("c1", 1, { agent: agents[2] }), claim("c2", 2, { agent: agents[5] })] });
+    expect(screen.queryByRole("group", { name: "Show one agent" })).not.toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Agent" });
+    fireEvent.change(select, { target: { value: "agent-5" } });
+    const progress = screen.getByRole("region", { name: "In progress" });
+    expect(within(progress).getAllByRole("article")).toHaveLength(1);
+    expect(within(progress).getByText("#2 Issue 2")).toBeInTheDocument();
   });
 });

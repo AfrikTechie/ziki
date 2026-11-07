@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import {
-  ACTIVITY_SECTION_PAGE,
+  ACTIVITY_FIRST_ROWS,
+  ACTIVITY_MORE_ROWS,
   activityActionText,
   buildActivityBoard,
   formatAgo,
@@ -20,7 +21,7 @@ import { nudgeAgentAction } from "./actions";
  * The Activity page's board (#849): what needs you (with live countdowns),
  * work in progress, delivered work waiting on others, and what ended. The
  * server loads the data once; this recomputes the sections every second so
- * the clocks move. Every section shows 20 rows, then "Show more".
+ * the clocks move. Every list shows 3 rows, then 5 more per "Show more".
  */
 
 const noSubscribe = () => () => {};
@@ -67,18 +68,29 @@ function IssueLink({ issue }: { issue: ActivityIssue }) {
   );
 }
 
-/** Rows shown before "Show more", per section, with the toggle's label. */
+/** The first 3 rows of a list, then 5 more each time "Show more" is pressed. */
 function usePaged<T>(rows: T[], noun: string) {
-  const [open, setOpen] = useState(false);
-  const rest = rows.length - ACTIVITY_SECTION_PAGE;
+  const [shown, setShown] = useState(ACTIVITY_FIRST_ROWS);
+  const visible = rows.slice(0, shown);
+  const rest = rows.length - visible.length;
   return {
-    rows: open ? rows : rows.slice(0, ACTIVITY_SECTION_PAGE),
+    rows: visible,
     more:
-      rest > 0 ? (
-        <div className="border-t border-zk-divider px-4 py-2 sm:px-5">
-          <button type="button" className={moreButton} aria-expanded={open} onClick={() => setOpen(!open)}>
-            {open ? "Show fewer" : `Show ${rest} more ${noun}`}
-          </button>
+      rows.length > ACTIVITY_FIRST_ROWS ? (
+        <div className="flex flex-wrap items-center gap-x-4 border-t border-zk-divider px-4 py-1 sm:px-5">
+          {rest > 0 ? (
+            <button type="button" className={moreButton} onClick={() => setShown(shown + ACTIVITY_MORE_ROWS)}>
+              Show {Math.min(rest, ACTIVITY_MORE_ROWS)} more {noun}
+            </button>
+          ) : null}
+          {shown > ACTIVITY_FIRST_ROWS ? (
+            <button type="button" className={moreButton} onClick={() => setShown(ACTIVITY_FIRST_ROWS)}>
+              Show fewer
+            </button>
+          ) : null}
+          <span className="text-xs text-zk-muted">
+            {visible.length} of {rows.length}
+          </span>
         </div>
       ) : null,
   };
@@ -122,7 +134,7 @@ function NudgeButton({ need, sentAt, onSent }: { need: NeedItem; sentAt: number 
   );
 }
 
-export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityData; renderedAt: number; isAdmin: boolean }) {
+export function ActivityBoard({ data, renderedAt }: { data: ActivityData; renderedAt: number }) {
   // Starts at the server's moment so the first render matches, then ticks.
   const [now, setNow] = useState(renderedAt);
   useEffect(() => {
@@ -134,19 +146,19 @@ export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityDat
   const [showEnded, setShowEnded] = useState(true);
   const [openHistory, setOpenHistory] = useState<Record<string, boolean>>({});
   const [nudged, setNudged] = useState<Record<string, number>>({});
-  const [showOlder, setShowOlder] = useState(false);
   // Day headings use the viewer's time zone, so they wait for the browser.
   const mounted = useSyncExternalStore(noSubscribe, () => true, () => false);
 
   const board = useMemo(() => buildActivityBoard(data, now, agentId), [data, now, agentId]);
   const events = useMemo(() => data.events.filter((event) => !agentId || event.agent.id === agentId), [data.events, agentId]);
-  const shownEvents = showOlder ? events : events.slice(0, ACTIVITY_SECTION_PAGE);
-  const eventGroups = mounted ? groupEventsByDay(shownEvents, now) : [{ day: "Latest", events: shownEvents }];
 
   const needs = usePaged(board.needs, "items");
   const progress = usePaged(board.inProgress, "claims");
   const delivered = usePaged(board.delivered, "issues");
   const ended = usePaged(board.ended, "ended claims");
+  const agentList = usePaged(board.agents, "agents");
+  const recent = usePaged(events, "events");
+  const eventGroups = mounted ? groupEventsByDay(recent.rows, now) : [{ day: "Latest", events: recent.rows }];
 
   const tiles = [
     { href: "#needs-you", label: "Needs you", value: board.needs.length, note: board.nextDeadline ? `Next deadline in ${board.nextDeadline}` : "Nothing on a clock", warm: true },
@@ -184,10 +196,10 @@ export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityDat
         ))}
       </section>
 
-      {data.agents.length > 1 ? (
+      {data.agents.length > 1 && data.agents.length <= 6 ? (
         <div className={`${panel} flex flex-wrap items-center gap-2 px-4 py-3`} role="group" aria-label="Show one agent">
           <span className="mr-1 text-xs font-semibold text-zk-muted">Agent</span>
-          {[{ id: null as string | null, name: "All agents" }, ...data.agents].map((agent) => {
+          {[{ id: null as string | null, name: "All my agents" }, ...data.agents].map((agent) => {
             const on = agentId === agent.id;
             return (
               <button
@@ -201,6 +213,23 @@ export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityDat
               </button>
             );
           })}
+        </div>
+      ) : null}
+      {data.agents.length > 6 ? (
+        <div className={`${panel} flex flex-wrap items-center gap-2 px-4 py-3`}>
+          <label className="flex flex-wrap items-center gap-2 text-xs font-semibold text-zk-muted">
+            Agent
+            <select
+              value={agentId ?? ""}
+              onChange={(event) => setAgentId(event.target.value || null)}
+              className="h-10 min-w-0 rounded-lg border border-zk-border bg-zk-bg px-3 text-sm font-normal text-zk-text"
+            >
+              <option value="">All my agents</option>
+              {data.agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>{agent.name}</option>
+              ))}
+            </select>
+          </label>
         </div>
       ) : null}
 
@@ -233,7 +262,8 @@ export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityDat
                   <NudgeButton need={need} sentAt={nudged[need.key]} onSent={(at) => setNudged((current) => ({ ...current, [need.key]: at }))} />
                   {need.kind === "question" && need.href ? <Link href={need.href} className={quietButton}>Reply</Link> : null}
                   {need.kind === "sent_back" && need.issue ? <Link href={need.issue.href} className={quietButton}>See verdicts</Link> : null}
-                  {need.kind !== "question" && need.kind !== "sent_back" && need.issue ? <Link href={need.issue.href} className={quietButton}>Open issue</Link> : null}
+                  {need.kind === "plan" && need.issue ? <Link href={need.issue.href} className={quietButton}>Review plan</Link> : null}
+                  {(need.kind === "offer" || need.kind === "deadline") && need.issue ? <Link href={need.issue.href} className={quietButton}>Open issue</Link> : null}
                 </div>
               </article>
             ))}
@@ -341,11 +371,11 @@ export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityDat
         <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-5">
           <section aria-labelledby="agents-heading" className={panel}>
             <h2 id="agents-heading" className="m-0 border-b border-zk-border px-4 py-3 text-base font-bold text-zk-text">
-              {isAdmin ? "Agents in this organisation" : "Your agents"}
+              Your agents
             </h2>
             {!board.agents.length ? <p className="px-4 py-4 text-sm text-zk-muted">No agents yet.</p> : null}
             <ul className="m-0 list-none p-0">
-              {board.agents.map((summary) => (
+              {agentList.rows.map((summary) => (
                 <li key={summary.agent.id} className="border-t border-zk-divider px-4 py-3 first:border-t-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <strong className="font-semibold text-zk-text">{summary.agent.name}</strong>
@@ -355,6 +385,7 @@ export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityDat
                 </li>
               ))}
             </ul>
+            {agentList.more}
           </section>
 
           <section aria-labelledby="recent-heading" className={panel}>
@@ -377,13 +408,7 @@ export function ActivityBoard({ data, renderedAt, isAdmin }: { data: ActivityDat
                 </ul>
               </div>
             ))}
-            {events.length > ACTIVITY_SECTION_PAGE ? (
-              <div className="px-4 pb-3">
-                <button type="button" className={moreButton} aria-expanded={showOlder} onClick={() => setShowOlder(!showOlder)}>
-                  {showOlder ? "Show less activity" : "Show older activity"}
-                </button>
-              </div>
-            ) : null}
+            {recent.more}
           </section>
         </aside>
       </div>

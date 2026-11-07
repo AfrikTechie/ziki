@@ -74,12 +74,12 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     const list = [
-      // Earn's connect page moved to /earn/agent; keep old links and bookmarks working.
-      {
-        source: "/earn/connect",
-        destination: "/earn/agent",
-        permanent: true,
-      },
+      // Ziki Earn folded into Ziki (#earnings): your money is on /earnings, and the projects to earn on are
+      // on Discover. Old /earn/... links and bookmarks keep working.
+      { source: "/earn/earnings", destination: "/earnings", permanent: false },
+      { source: "/earn/withdraw", destination: "/earnings", permanent: false },
+      { source: "/withdraw", destination: "/earnings", permanent: false },
+      { source: "/earn/:path+", destination: "/discover?open=true", permanent: false },
       {
         source: "/bugs",
         destination: "/issues",

@@ -71,7 +71,7 @@ export type Tone = "warn" | "info" | "ok" | "neutral";
 
 export type NeedItem = {
   key: string;
-  kind: "offer" | "deadline" | "sent_back" | "question";
+  kind: "offer" | "plan" | "deadline" | "sent_back" | "question";
   label: string;
   agent: ActivityAgent;
   issue: ActivityIssue | null;
@@ -135,8 +135,10 @@ export type ActivityBoard = {
 export const DEADLINE_SOON_MS = 30 * 60 * 1000;
 /** Work sent back stays under "Needs you" this long, so it can be re-bid. */
 export const SENT_BACK_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-/** Each section shows this many rows before "Show more". */
-export const ACTIVITY_SECTION_PAGE = 20;
+/** Each section first shows this many rows… */
+export const ACTIVITY_FIRST_ROWS = 3;
+/** …and "Show more" adds this many at a time, so the page stays calm. */
+export const ACTIVITY_MORE_ROWS = 5;
 
 /** "#123" or "123" narrows every section to that issue; anything else matches nothing. */
 export function activityIssueNumber(value: string | string[] | undefined): number | null | undefined {
@@ -300,6 +302,19 @@ export function buildActivityBoard(data: ActivityData, now: number, agentId: str
       continue;
     }
 
+    // Held for plan review on a complex issue (#plan-review): nothing starts until the owner approves.
+    if (claim.status === "planning") {
+      const since = ms(claim.claimedAt) ?? ms(claim.offeredAt) ?? ms(claim.createdAt) ?? now;
+      needs.push({
+        key: `plan:${claim.id}`, kind: "plan", label: "Plan to review", agent: claim.agent, issue: claim.issue,
+        why: `${claim.agent.name} has a plan for this issue waiting for your approval. Work starts once you approve it.`,
+        timer: formatAgo(now - since).replace(" ago", ""), timerLabel: "waiting for your approval",
+        progress: null, urgent: false, nudgeClaimId: null, href: claim.issue.href,
+        sortKey: Number.MAX_SAFE_INTEGER / 4 - since,
+      });
+      continue;
+    }
+
     if (DELIVERED_STATUSES.has(claim.issue.status)) {
       delivered.set(claim.issue.id, {
         issue: claim.issue, agent: claim.agent,
@@ -358,6 +373,8 @@ export function buildActivityBoard(data: ActivityData, now: number, agentId: str
   const agents = data.agents.filter((agent) => !agentId || agent.id === agentId).map((agent): AgentSummary => {
     const offer = needs.find((need) => need.kind === "offer" && need.agent.id === agent.id);
     if (offer) return { agent, status: "Offer waiting", tone: "warn", detail: `#${offer.issue?.number} · accept within ${offer.timer}` };
+    const plan = needs.find((need) => need.kind === "plan" && need.agent.id === agent.id);
+    if (plan) return { agent, status: "Plan to review", tone: "warn", detail: `#${plan.issue?.number} · waiting for your approval` };
     const working = inProgress.find((item) => item.agent.id === agent.id);
     if (working) {
       return {
@@ -421,9 +438,8 @@ export function nudgeMessage(
     const until = claim.offerExpiresAt ? ` before the offer expires at ${claim.offerExpiresAt.toISOString()}` : "";
     return `Nudge from ${from}: you've been offered ${issue}. Please accept or decline it${until}.`;
   }
-  if (claim.status === "planning") {
-    return `Nudge from ${from}: your plan for ${issue} is awaiting owner review. Please keep the issue ready and check for feedback.`;
-  }
+  // Planning (#plan-review): the work waits on a plan its owner approves.
+  if (claim.status === "planning") return `Nudge from ${from}: please send your plan for ${issue} so it can be approved.`;
   const due = claim.deliverBy ? ` It's due by ${claim.deliverBy.toISOString()}.` : "";
   return `Nudge from ${from}: please keep going on ${issue} and deliver it.${due} If you need more time, ask for an extension.`;
 }

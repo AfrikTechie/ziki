@@ -1,8 +1,6 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { isOrganisationAdminRole } from "@/lib/agents/membership";
-import type { AppRole } from "@/lib/roles";
 import { auditAccess, auditWhere } from "@/lib/agent-audit/visibility";
 import { activeIn } from "@/lib/agents/active-in";
 import { parseEscalationBody } from "@/lib/agent-questions";
@@ -13,10 +11,11 @@ import type { ActivityClaim, ActivityData, ActivityIssue, ActivitySlots } from "
 
 /**
  * Everything the Activity page shows (#849), for one signed-in person in their
- * current organisation. Organisation owners and admins see every agent's
- * work; everyone else sees their own agents. Questions (escalations) are
- * always the person's own, as in the Inbox. Each list is capped: the page
- * shows them 20 at a time with "Show more".
+ * current organisation: their own agents' work only, admins included. In a
+ * large organisation, every agent's claims and events drown out your own;
+ * other people's agents are on their profiles and the issue pages.
+ * Questions (escalations) are the person's own, as in the Inbox. Each list is
+ * capped; the page shows 3 rows first and 5 more per "Show more".
  */
 
 /** How many rows each list loads. */
@@ -68,34 +67,34 @@ function toIssue(bug: IssueRow): ActivityIssue {
 export async function loadActivity(
   userId: string,
   organisationId: string,
-  options: { issueNumber?: number | null; appRole?: AppRole | null } = {},
-): Promise<(ActivityData & { isAdmin: boolean; loadedAt: number }) | null> {
+  options: { issueNumber?: number | null } = {},
+): Promise<(ActivityData & { loadedAt: number }) | null> {
   const member = await prisma.membership.findUnique({
     where: { organisationId_userId: { organisationId, userId } },
-    select: { role: true },
+    select: { id: true },
   });
   if (!member) return null;
-  const isAdmin = isOrganisationAdminRole(member.role, options.appRole);
 
   const agents = await prisma.agent.findMany({
-    where: { ...activeIn(organisationId), revokedAt: null, ...(isAdmin ? {} : { ownerUserId: userId }) },
+    where: { ...activeIn(organisationId), revokedAt: null, ownerUserId: userId },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });
   const agentIds = agents.map((agent) => agent.id);
   const loadedAt = Date.now();
-  const empty = { agents, claims: [], questions: [], events: [], slots: [], isAdmin, loadedAt };
+  const empty = { agents, claims: [], questions: [], events: [], slots: [], loadedAt };
   // An issue filter that isn't a number matches nothing, never everything.
-  if (options.issueNumber === null || (!agentIds.length && !isAdmin)) return empty;
+  if (options.issueNumber === null || !agentIds.length) return empty;
 
   const bug: Prisma.BugWhereInput = {
     organisationId,
     isDeleted: false,
     ...(options.issueNumber !== undefined ? { number: options.issueNumber } : {}),
   };
-  // The issue scope already keeps claims in this organisation; a member sees their own agents' claims.
-  const agentScope: Prisma.AgentWhereInput = isAdmin ? {} : { ownerUserId: userId };
-  const access = auditAccess({ isAdminOfOrganisation: isAdmin, organisationId, ownedAgentIds: agentIds });
+  // The issue scope keeps claims in this organisation; the agent scope keeps them yours.
+  const agentScope: Prisma.AgentWhereInput = { ownerUserId: userId };
+  // Your own agents' events, even for an admin (who could see everyone's in Settings → Audit).
+  const access = auditAccess({ isAdminOfOrganisation: false, organisationId, ownedAgentIds: agentIds });
 
   const [openClaims, releasedClaims, questions, events] = await Promise.all([
     prisma.issueClaim.findMany({
@@ -185,7 +184,6 @@ export async function loadActivity(
   });
 
   return {
-    isAdmin,
     loadedAt,
     agents,
     claims,

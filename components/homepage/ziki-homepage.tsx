@@ -723,7 +723,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                   <Link href="/api/health" className="hover:text-slate-900 transition-colors">System Health</Link>
                 </li>
                 <li>
-                  <Link href="/admin/audit" className="hover:text-slate-900 transition-colors">Audit Log</Link>
+                  <Link href="/settings/audit" className="hover:text-slate-900 transition-colors">Audit Log</Link>
                 </li>
                 <li>
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">

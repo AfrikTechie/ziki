@@ -15,7 +15,8 @@ import { currentHold, type IssueHold } from "@/lib/issue-holders";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
 import { isThresholdOnly, weightedTally } from "@/lib/governance";
 import { workflowFor } from "@/lib/workflow";
-import { parseGitHubRepoUrl, parsePullRequestUrl, type RepoRef } from "@/lib/github/pull-request-url";
+import { parsePullRequestUrl, type RepoRef } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { linkStateFromUrl, prGate, reportWanted, type LinkState, type PrGate } from "@/lib/agent-api/pr-gate";
 import {
   gateReport,
@@ -342,10 +343,9 @@ export async function triageQueue(
   const now = deps.now ?? Date.now();
   const project = await prisma.project.findFirst({
     where: { id: scope.projectId, organisationId: scope.organisationId },
-    select: { id: true, slug: true, repoUrl: true, organisation: { select: { slug: true } } },
+    select: { id: true, slug: true, repoUrl: true, ...PROJECT_REPOSITORIES_SELECT, organisation: { select: { slug: true } } },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
-  const repo = parseGitHubRepoUrl(project.repoUrl);
   const workflow = await workflowFor(project.id);
   const thresholdOnly = isThresholdOnly(workflow);
 
@@ -369,6 +369,8 @@ export async function triageQueue(
   const reports = await latestPullRequestReports(page.items);
 
   const items = await Promise.all(page.items.map(async (bug): Promise<TriageItem> => {
+    // The repository this pull request is in: the main one or one the project lists (#2).
+    const repo = repoForPullRequest(project, bug.pullRequestUrl);
     const pullRequest = pullRequestFacts(bug.pullRequestUrl, repo, reports.get(bug.id) ?? null, bug.pullRequestHeadSha ?? null, now);
     const [hold, judged, bids, stranded, idle, stale] = await Promise.all([
       currentHold(bug.id),

@@ -114,7 +114,7 @@ import { loadProdConfirmers } from "@/lib/live-confirm-data";
 import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
 import { LiveFlow } from "@/components/live-flow";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
-import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { DecisionCard } from "@/components/decision-card";
 import { decisionFor } from "@/lib/your-decision";
 import { agentInstructionsFor } from "@/lib/agent-instructions";
@@ -1097,11 +1097,11 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     ? await loadOptional("live check", null, async () => {
         const [report, project, confirmers, moves] = await Promise.all([
           latestPullRequestReport(bug.id, bug.pullRequestUrl),
-          prisma.project.findUnique({ where: { id: bug.projectId }, select: { repoUrl: true } }),
+          prisma.project.findUnique({ where: { id: bug.projectId }, select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } }),
           loadProdConfirmers([bug.id]),
           prisma.bugActivity.findMany({ where: { bugId: bug.id, type: "status_changed" }, orderBy: { createdAt: "asc" }, select: { createdAt: true, metadata: true } }),
         ]);
-        const repo = parseGitHubRepoUrl(project?.repoUrl);
+        const repo = repoForPullRequest(project, bug.pullRequestUrl);
         // #live-confirm: when it last moved to each Live status, for the flow in the Status box.
         const reachedAt: Partial<Record<"on_dev" | "on_staging" | "on_prod", Date>> = {};
         for (const move of moves) {

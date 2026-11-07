@@ -24,7 +24,7 @@ import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly, thresholdDecision, type ThresholdDecision } from "@/lib/governance";
 import { mergeReviewTally } from "@/lib/agent-api/merge-review-tally";
-import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { recordMistake, recordMistakeSchema, type RecordMistakeInput } from "@/lib/agent-api/mistakes";
 import { prGate, type PrGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport, notifyAuthor } from "@/lib/agent-api/pull-request-report";
@@ -83,7 +83,7 @@ export const mergeBugSelect = {
   reporterId: true,
   createdByAgentId: true,
   createdByAgent: { select: { ownerUserId: true } },
-  project: { select: { repoUrl: true } },
+  project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
   claims: {
     select: {
       id: true,
@@ -449,7 +449,7 @@ async function reviewFix(
   const gate = prGate(gateReport(report), {
     pullRequestUrl: bug.pullRequestUrl,
     pullRequestHeadSha: bug.pullRequestHeadSha,
-    repo: parseGitHubRepoUrl(bug.project?.repoUrl),
+    repo: repoForPullRequest(bug.project, bug.pullRequestUrl),
   });
   const block = acceptBlock(gate, report?.mergeable === false ? conflictComment(claim?.agent.name).todo : undefined);
   if (block) {

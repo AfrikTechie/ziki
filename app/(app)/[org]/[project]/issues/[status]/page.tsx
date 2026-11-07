@@ -12,9 +12,8 @@ type Props = {
 /** `/<slug>/issues/<status>`: open, in-progress, done, merge, live, closed, all, rejected, duplicates (#project-urls). */
 export default async function IssuesStatusPage({ params, searchParams }: Props) {
   const { org, project, status: segment } = await params;
-  // Earn (#earn-drafts): the Ziki tasks step above Open lists Ziki's own paid tasks.
-  // Earners do these on their own page, not in the builders' issue list.
-  if (segment === "ziki-tasks") redirect("/earn/marketing");
+  // The old Ziki tasks step (#earnings): Earn is part of Ziki now, so old links open the project's list.
+  if (segment === "ziki-tasks") redirect(`/${org}/${project}/issues/open`);
   const status = statusFromSegment(segment);
   if (!status) notFound();
   const query = await searchParams;

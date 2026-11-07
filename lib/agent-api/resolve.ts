@@ -8,7 +8,8 @@ import { statusChangedSummary, unboostedSummary } from "@/lib/activity-log";
 import { AGENT_RESOLVE_VIA } from "@/lib/agent-resolution";
 import { hasLevel } from "@/lib/agents/levels";
 import { mergedRefusal, reconcileMergedWork, type ReconcileResult } from "@/lib/agent-api/reconcile-merged";
-import { parseGitHubRepoUrl, parsePullRequestUrl } from "@/lib/github/pull-request-url";
+import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { prGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { moveTo } from "@/lib/issue-substatus";
@@ -57,7 +58,7 @@ export async function resolveMergedFix(
     where: { id: bugId, ...scope, isDeleted: false },
     select: {
       id: true, status: true, substatus: true, track: true, assigneeId: true, reporterId: true, pullRequestUrl: true, pullRequestHeadSha: true, isBoosted: true,
-      project: { select: { repoUrl: true } },
+      project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
       claims: {
         where: { status: "active", releasedAt: null },
         select: { id: true, agentId: true, beneficiaryUserId: true },
@@ -94,7 +95,7 @@ export async function resolveMergedFix(
   const refusal = mergedRefusal(prGate(gateReport(report), {
     pullRequestUrl,
     pullRequestHeadSha: bug.pullRequestHeadSha,
-    repo: parseGitHubRepoUrl(bug.project?.repoUrl),
+    repo: repoForPullRequest(bug.project, pullRequestUrl),
   }));
   if (refusal || !report) return fail(409, refusal?.error ?? "needs_pr_report", refusal?.message ?? "Nobody has reported the pull request yet.");
 

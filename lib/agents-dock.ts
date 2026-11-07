@@ -1,4 +1,3 @@
-import { isEarnPath } from "@/lib/earn/paths";
 import { isProjectFirstPath } from "@/lib/project-paths";
 import { isReservedProjectSlug } from "@/lib/project-slug";
 
@@ -14,8 +13,6 @@ export const AGENTS_DOCK_HEIGHT = 76;
  * here. The pages, matched on whole path segments (a trailing slash is fine):
  *
  * - the organisation's `/home`, `/feed`, `/activity` and `/inbox` (and below it);
- * - the earn pages (`isEarnPath`, lib/earn/paths.ts), where an earner keeps the
- *   bar for their agents (#earn-drafts);
  * - a project's landing page `/<org>/<project>`, its `/ideas` and `/issues`
  *   pages (and below them), an issue `/<org>/<project>/<number>`,
  *   `/<org>/<project>/workstream` and `/<org>/<project>/work`.
@@ -31,7 +28,6 @@ export function dockVisibleOn(pathname: string | null | undefined, agentCount: n
   const segments = path.split("/").filter(Boolean);
   const [first] = segments;
   if (!first) return false;
-  if (isEarnPath(pathname)) return true;
   if (first === "inbox") return true;
   if (first === "home" || first === "feed" || first === "activity") return segments.length === 1;
   if (isReservedProjectSlug(first) || segments.length < 2 || isProjectFirstPath(path)) return false;

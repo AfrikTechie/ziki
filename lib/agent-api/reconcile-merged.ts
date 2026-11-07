@@ -10,7 +10,8 @@ import {
   finalizeResolved,
   mergeBugSelect,
 } from "@/lib/agent-api/merge";
-import { parseGitHubRepoUrl, parsePullRequestUrl } from "@/lib/github/pull-request-url";
+import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
+import { repoForPullRequest } from "@/lib/github/project-repositories";
 import { prGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport, pullRequestStateView, type PullRequestStateView } from "@/lib/agent-api/pull-request-report";
 
@@ -126,7 +127,7 @@ export async function reconcileMergedWork(
   const gate = prGate(gateReport(report), {
     pullRequestUrl: bug.pullRequestUrl,
     pullRequestHeadSha: bug.pullRequestHeadSha,
-    repo: parseGitHubRepoUrl(bug.project?.repoUrl),
+    repo: repoForPullRequest(bug.project, bug.pullRequestUrl),
   });
   const refusal = mergedRefusal(gate);
   if (refusal) return fail(409, refusal.error, refusal.message);

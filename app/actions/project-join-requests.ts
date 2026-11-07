@@ -4,106 +4,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { canManageProject } from "@/lib/project-permissions";
-import { orgPath, projectPath, projectRef } from "@/lib/project-paths";
+import { ideasPath, marketingPath, orgPath, projectPath, projectRef } from "@/lib/project-paths";
 
 export type JoinRequestActionResult = {
   ok?: boolean;
   error?: string;
 };
-
-/**
- * Apply or re-apply to join an open project as an external contributor.
- */
-export async function requestToJoinProjectAction(formData: FormData): Promise<JoinRequestActionResult> {
-  const user = await requireUser();
-  const projectId = String(formData.get("projectId") ?? "").trim();
-  const message = String(formData.get("message") ?? "").trim().slice(0, 1000);
-
-  if (!projectId) return { error: "Project ID is required." };
-
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, archivedAt: null },
-    select: {
-      id: true,
-      slug: true,
-      name: true,
-      organisationId: true,
-      isOpenForContributors: true,
-      visibility: true,
-      organisation: { select: { slug: true } },
-    },
-  });
-
-  if (!project) return { error: "Project not found." };
-  if (!project.isOpenForContributors || project.visibility !== "public") {
-    return { error: "This project is not currently accepting contributor applications." };
-  }
-
-  // Check if already an org member or project member
-  const [isOrgMember, isProjectMember] = await Promise.all([
-    prisma.membership.findUnique({ where: { organisationId_userId: { organisationId: project.organisationId, userId: user.id } } }),
-    prisma.projectMembership.findUnique({ where: { projectId_userId: { projectId, userId: user.id } } }),
-  ]);
-
-  if (isOrgMember || isProjectMember) {
-    return { error: "You are already a member of this project." };
-  }
-
-  // Check existing request for rate limiting and duplicate prevention
-  const existingRequest = await prisma.projectJoinRequest.findUnique({
-    where: { projectId_userId: { projectId, userId: user.id } },
-  });
-  if (existingRequest?.status === "pending") {
-    return { error: "You already have a pending request to join this project." };
-  }
-  if (
-    existingRequest?.updatedAt &&
-    Date.now() - existingRequest.updatedAt.getTime() < 10 * 60 * 1000
-  ) {
-    return { error: "Please wait a few minutes before submitting another request." };
-  }
-
-  // Upsert join request (re-apply if previously rejected)
-  await prisma.projectJoinRequest.upsert({
-    where: { projectId_userId: { projectId, userId: user.id } },
-    create: {
-      projectId,
-      userId: user.id,
-      message: message || null,
-      status: "pending",
-    },
-    update: {
-      message: message || null,
-      status: "pending",
-      reviewedBy: null,
-      reviewedAt: null,
-    },
-  });
-
-  // Notify organisation managers
-  const managers = await prisma.membership.findMany({
-    where: { organisationId: project.organisationId, role: { in: ["owner", "admin"] } },
-    select: { userId: true },
-  });
-
-  const pRef = projectRef(project.organisation.slug, project.slug);
-  if (managers.length > 0) {
-    await prisma.notification.createMany({
-      data: managers.map((m) => ({
-        userId: m.userId,
-        organisationId: project.organisationId,
-        kind: "join_request",
-        title: `${user.name || user.email} requested to join ${project.name}`,
-        url: orgPath(pRef, "invites"),
-      })),
-      skipDuplicates: true,
-    }).catch(() => {});
-  }
-
-  revalidatePath("/discover");
-  revalidatePath(orgPath(pRef, "invites"));
-  return { ok: true };
-}
 
 /**
  * Accept a pending join request. Org admins only.
@@ -265,4 +171,44 @@ export async function removeProjectMemberAction(formData: FormData): Promise<voi
   revalidatePath(orgPath(pRef, "members"));
   revalidatePath("/[org]/[project]/org", "layout");
   revalidatePath("/discover");
+}
+
+export type JoinOpenProjectResult = { ok: true; href: string } | { ok: false; error: string };
+
+/**
+ * Joins a project that is open for contributors straight away (#earnings): no request to wait on and nobody to
+ * accept it, because opening the project to contributors already said yes. Any earlier request is marked accepted.
+ * Returns where to go next: the project's Marketing tab when it has marketing tasks waiting for bids (Ziki
+ * Marketing), else its Ideas.
+ */
+export async function joinOpenProjectAction(projectId: string): Promise<JoinOpenProjectResult> {
+  const user = await requireUser();
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, archivedAt: null },
+    select: { id: true, slug: true, isOpenForContributors: true, visibility: true, organisationId: true, organisation: { select: { slug: true } } },
+  });
+  if (!project) return { ok: false, error: "Project not found." };
+  if (!project.isOpenForContributors || project.visibility !== "public") {
+    return { ok: false, error: "This project isn't open to join right now." };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.projectMembership.upsert({
+      where: { projectId_userId: { projectId: project.id, userId: user.id } },
+      create: { projectId: project.id, userId: user.id },
+      update: {},
+    });
+    await tx.projectJoinRequest.updateMany({
+      where: { projectId: project.id, userId: user.id, status: "pending" },
+      data: { status: "accepted", reviewedAt: new Date() },
+    });
+  });
+
+  const pRef = projectRef(project.organisation.slug, project.slug);
+  const marketingTasks = await prisma.bug.count({
+    where: { projectId: project.id, track: "marketing", status: "open", isDeleted: false },
+  });
+  revalidatePath("/discover");
+  revalidatePath(orgPath(pRef, "members"));
+  return { ok: true, href: marketingTasks > 0 ? marketingPath(pRef) : ideasPath(pRef) };
 }

@@ -29,7 +29,7 @@ import { findIdleInProgress } from "@/lib/agent-api/idle";
 import { findStrandedDeliveries, type StrandedIssue } from "@/lib/agent-api/stranded-delivery";
 import { prGate, reportWanted, type PrGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReports, reportedAt, reporterName, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
-import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 
 /** Why a hold is stale, in the work item's words (#reclaim). */
 const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
@@ -651,8 +651,7 @@ async function pullRequestWork(
   projectId: string,
   now = Date.now(),
 ): Promise<Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates">> {
-  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { repoUrl: true } });
-  const repo = parseGitHubRepoUrl(project?.repoUrl);
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } });
   const rows = await prisma.bug.findMany({
     where: {
       organisationId,
@@ -675,7 +674,8 @@ async function pullRequestWork(
   };
   for (const row of rows) {
     const report = reports.get(row.id) ?? null;
-    const gate = prGate(gateReport(report), { pullRequestUrl: row.pullRequestUrl, pullRequestHeadSha: row.pullRequestHeadSha, repo });
+    // The repository this pull request is in: the main one or one the project lists (#2).
+    const gate = prGate(gateReport(report), { pullRequestUrl: row.pullRequestUrl, pullRequestHeadSha: row.pullRequestHeadSha, repo: repoForPullRequest(project, row.pullRequestUrl) });
     const issue: PrIssue = { id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl!, gate, report };
     work.prGates.set(row.id, gate);
     if (gate.canReconcile) work.toReconcile.push(issue);
