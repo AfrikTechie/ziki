@@ -5,6 +5,8 @@ import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/ra
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
 import { eventStreamBus, ORGANISATION_WRITE } from "@/lib/events/stream-bus";
 import { acceptFix } from "@/lib/agent-api/merge";
+import { secretDetectedResponse } from "@/lib/agent-api/issues";
+import { checkPostForSecrets, stringsIn } from "@/lib/security/secret-guard";
 
 /**
  * POST /api/v1/issues/{id}/merge — a merge review (#434, #review-entries), the
@@ -45,6 +47,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const input: unknown = await req.json().catch(() => ({}));
+  // #secret-protection: a review's summary and description are posted on the issue.
+  const secrets = await checkPostForSecrets({
+    organisationId: agent.organisationId,
+    actor: { kind: "agent", agentId: agent.agentId, agentName: agent.name, ownerId: agent.ownerId },
+    source: "issues.merge",
+    fields: stringsIn(input),
+  });
+  if (!secrets.ok) return withAgentBudgetHeaders(secretDetectedResponse(secrets), budget);
   const result = await acceptFix(agent, id, input && typeof input === "object" ? input : {});
   const { status, ...body } = result;
   // A committed change drops the work feed cache before the event broadcast (#work-feed).

@@ -12,15 +12,19 @@ const ISSUE: ChecklistIssue = {
   repo: REPO,
 };
 
-function sampleReport(overrides: Partial<GateReport & { createdAt: Date; checkedAt?: Date | null }> = {}): GateReport & { createdAt: Date; checkedAt?: Date | null } {
-  return {
+function sampleReport(
+  overrides: Partial<
+    GateReport & { createdAt: Date; checkedAt?: Date | null }
+  > = {},
+): GateReport & { createdAt: Date; checkedAt?: Date | null } {
+   return {
     pullRequestUrl: PR,
     headSha: HEAD,
     state: "open",
-    mergedInto: null,
-    inDefaultBranch: null,
     checks: "passing",
     mergeable: true,
+    mergedInto: null,
+    inDefaultBranch: null,
     createdAt: new Date("2026-11-06T10:00:00Z"),
     ...overrides,
   };
@@ -47,8 +51,12 @@ describe("mergeChecklist (#merge-checklist)", () => {
   it("waits when no report exists yet", () => {
     const list = mergeChecklist(null, ISSUE, now);
     expect(list.verdict).toBe("waiting");
-    expect(list.headline).toBe("Waiting for an agent to check the pull request on GitHub.");
-    expect(list.items.find((it) => it.key === "repository")?.state).toBe("pass");
+    expect(list.headline).toBe(
+      "Waiting for an agent to check the pull request on GitHub.",
+    );
+    expect(list.items.find((it) => it.key === "repository")?.state).toBe(
+      "pass",
+    );
     expect(list.items.find((it) => it.key === "open")?.state).toBe("wait");
   });
 
@@ -60,21 +68,33 @@ describe("mergeChecklist (#merge-checklist)", () => {
   });
 
   it("blocks when the delivered commit differs from the checked commit", () => {
-    const list = mergeChecklist(sampleReport({ headSha: "fedcba9876543210fedcba9876543210fedcba98" }), ISSUE, now);
+    const list = mergeChecklist(
+      sampleReport({ headSha: "fedcba9876543210fedcba9876543210fedcba98" }),
+      ISSUE,
+      now,
+    );
     expect(list.verdict).toBe("blocked");
     expect(list.headline).toContain("Head moved");
     expect(list.items.find((it) => it.key === "head")?.state).toBe("fail");
   });
 
   it("blocks when CI checks are failing", () => {
-    const list = mergeChecklist(sampleReport({ checks: "failing" }), ISSUE, now);
+    const list = mergeChecklist(
+      sampleReport({ checks: "failing" }),
+      ISSUE,
+      now,
+    );
     expect(list.verdict).toBe("blocked");
     expect(list.headline).toBe("Not ready: Checks are failing.");
     expect(list.items.find((it) => it.key === "checks")?.state).toBe("fail");
   });
 
   it("waits when CI checks are still running (pending)", () => {
-    const list = mergeChecklist(sampleReport({ checks: "pending" }), ISSUE, now);
+    const list = mergeChecklist(
+      sampleReport({ checks: "pending" }),
+      ISSUE,
+      now,
+    );
     expect(list.verdict).toBe("waiting");
     expect(list.items.find((it) => it.key === "checks")?.state).toBe("wait");
   });
@@ -88,16 +108,26 @@ describe("mergeChecklist (#merge-checklist)", () => {
 
   it("waits when the report is older than REPORT_STALE_HOURS (6h)", () => {
     const staleTime = new Date("2026-11-06T03:00:00Z"); // 9 hours before `now`
-    const list = mergeChecklist(sampleReport({ createdAt: staleTime }), ISSUE, now);
+    const list = mergeChecklist(
+      sampleReport({ createdAt: staleTime }),
+      ISSUE,
+      now,
+    );
     expect(list.verdict).toBe("waiting");
     expect(list.items.find((it) => it.key === "fresh")?.state).toBe("wait");
-    expect(list.items.find((it) => it.key === "fresh")?.detail).toBe("Last checked 9 hours ago");
+    expect(list.items.find((it) => it.key === "fresh")?.detail).toBe(
+      "Last checked 9 hours ago",
+    );
   });
 
   it("recognizes refreshed checkedAt timestamp even if createdAt is older than 6 hours", () => {
     const oldCreated = new Date("2026-11-06T02:00:00Z"); // 10h ago
     const refreshedChecked = new Date("2026-11-06T11:00:00Z"); // 1h ago
-    const list = mergeChecklist(sampleReport({ createdAt: oldCreated, checkedAt: refreshedChecked }), ISSUE, now);
+    const list = mergeChecklist(
+      sampleReport({ createdAt: oldCreated, checkedAt: refreshedChecked }),
+      ISSUE,
+      now,
+    );
     expect(list.verdict).toBe("ready");
     expect(list.items.find((it) => it.key === "fresh")?.state).toBe("pass");
   });
@@ -108,9 +138,17 @@ describe("mergeChecklist (#merge-checklist)", () => {
       pullRequestHeadSha: HEAD,
       repo: REPO,
     };
-    const list = mergeChecklist(sampleReport({ pullRequestUrl: "https://github.com/other-org/other-repo/pull/999" }), foreignIssue, now);
+    const list = mergeChecklist(
+      sampleReport({
+        pullRequestUrl: "https://github.com/other-org/other-repo/pull/999",
+      }),
+      foreignIssue,
+      now,
+    );
     expect(list.verdict).toBe("blocked");
     expect(list.headline).toBe("Not ready: Points somewhere else.");
-    expect(list.items.find((it) => it.key === "repository")?.state).toBe("fail");
+    expect(list.items.find((it) => it.key === "repository")?.state).toBe(
+      "fail",
+    );
   });
 });

@@ -119,16 +119,18 @@ describe("security workflow-stage filters", () => {
     expect(filterSecurityFindingsByStage(findings, parseSecurityStageFilter("unknown"))).toHaveLength(4);
   });
 
-  it("renders a reload-safe link for each filter and marks the active stage", () => {
-    const markup = renderToStaticMarkup(<SecurityStageFilterBar findings={findings} selected="open" />);
+  it("renders reload-safe stage links, preserves severity, and marks the active stage", () => {
+    const markup = renderToStaticMarkup(
+      <SecurityStageFilterBar findings={findings} selected="open" severity="critical" />,
+    );
 
-    expect(markup).toContain('href="/security?stage=open"');
+    expect(markup).toContain('href="/security?stage=open&amp;severity=critical"');
     expect(markup).toContain('aria-current="page"');
     expect(markup).toContain('aria-label="All: 4 open findings"');
     expect(markup).toContain('aria-label="Reported: 1 open finding"');
     expect(markup).toContain('aria-label="Open: 2 open findings"');
     expect(markup).toContain('aria-label="In progress: 1 open finding"');
-    expect(markup).toContain('href="/security?stage=in-progress"');
+    expect(markup).toContain('href="/security?stage=in-progress&amp;severity=critical"');
   });
 
   it("filters the loaded open table without revealing redacted finding details", async () => {
@@ -148,6 +150,28 @@ describe("security workflow-stage filters", () => {
     expect(markup).toContain("Visible finding title");
     expect(markup).not.toContain("Other workflow stage");
     expect(markup).not.toContain("REDACTED");
+  });
+
+  it("combines severity and stage filters and preserves the other filter in links", async () => {
+    loadDashboard.mockResolvedValueOnce(
+      dashboard([
+        { ...makeFinding("critical-open", "Open", "Critical open finding"), severity: "critical" },
+        { ...makeFinding("high-open", "Open", "High open finding"), severity: "high" },
+        { ...makeFinding("critical-progress", "In progress", "Critical in progress"), severity: "critical" },
+      ]),
+    );
+    const markup = renderToStaticMarkup(
+      await SecurityPage({
+        searchParams: Promise.resolve({ stage: "open", severity: "critical" }),
+      }),
+    );
+
+    expect(markup).toContain("Showing 1 of 3 open findings");
+    expect(markup).toContain("Critical open finding");
+    expect(markup).not.toContain("High open finding");
+    expect(markup).not.toContain("Critical in progress");
+    expect(markup).toContain('href="/security?severity=high&amp;stage=open"');
+    expect(markup).toContain('href="/security?stage=in-progress&amp;severity=critical"');
   });
 
   it("shows all findings for an invalid stage and keeps the bar visible with no findings", async () => {

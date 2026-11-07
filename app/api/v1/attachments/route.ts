@@ -1,7 +1,8 @@
 import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
 import { NextResponse, type NextRequest } from "next/server";
-import { agentIssueRequest } from "@/lib/agent-api/issues";
+import { agentIssueRequest, secretDetectedResponse } from "@/lib/agent-api/issues";
 import { prisma } from "@/lib/prisma";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 import { MAX_ATTACHMENT_BYTES, checkAttachment } from "@/lib/attachments";
 import { MULTIPART_OVERHEAD_BYTES, readLimitedMultipart } from "@/lib/attachment-body";
 import { pruneUnlinkedUploads } from "@/lib/attachment-retention";
@@ -46,6 +47,19 @@ export async function POST(request: NextRequest) {
     if (!check.ok) {
       const tooBig = bytes.byteLength > MAX_ATTACHMENT_BYTES;
       return NextResponse.json({ error: check.error }, { status: tooBig ? 413 : bytes.byteLength === 0 ? 400 : 415 });
+    }
+
+    // #secret-protection: logs are where keys leak most. A text file with one is not stored.
+    if (check.kind === "text") {
+      const secrets = await checkPostForSecrets({
+        organisationId: agent.organisationId,
+        actor: { kind: "agent", agentId: agent.agentId, agentName: agent.name, ownerId: agent.ownerId },
+        source: "attachments.upload",
+        url: null,
+        fields: [{ field: check.filename, text: new TextDecoder().decode(bytes) }],
+        noun: "this file",
+      });
+      if (!secrets.ok) return secretDetectedResponse(secrets);
     }
 
     try {

@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { prisma } from "@/lib/prisma";
 import { loadSecurityDashboard, type DashboardFinding } from "@/lib/security-dashboard";
-import { SECURITY_SEVERITIES, SEVERITY_GUIDE } from "@/lib/security-severity";
+import { SECURITY_SEVERITIES, SEVERITY_GUIDE, SEVERITY_LABEL } from "@/lib/security-severity";
 import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
@@ -11,13 +11,17 @@ import {
   filterSecurityFindingsByStage,
   parseSecurityStageFilter,
   SecurityStageFilterBar,
+  type SecurityStageFilter,
 } from "@/components/security-stage-filter";
 import { LocalTime } from "@/components/local-time";
 
 export const metadata = { title: "Security" };
 
 type Props = {
-  searchParams: Promise<{ stage?: string | string[] }>;
+  searchParams?: Promise<{
+    severity?: string | string[];
+    stage?: string | string[];
+  }>;
 };
 
 /**
@@ -27,7 +31,10 @@ type Props = {
  * read private findings.
  */
 export default async function SecurityPage({ searchParams }: Props) {
-  const selectedStage = parseSecurityStageFilter((await searchParams).stage);
+  const params = (await searchParams) ?? {};
+  const requestedSeverity = typeof params.severity === "string" ? params.severity.toLowerCase() : "";
+  const selectedSeverity = SECURITY_SEVERITIES.find((severity) => severity === requestedSeverity) ?? "all";
+  const selectedStage = parseSecurityStageFilter(params.stage);
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) {
@@ -37,7 +44,7 @@ export default async function SecurityPage({ searchParams }: Props) {
           <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Security</h1>
           <p className="text-sm text-zk-text2">Join or create a workspace to report and track security findings.</p>
         </header>
-        <SecurityStageFilterBar findings={[]} selected={selectedStage} />
+        <SecurityStageFilterBar findings={[]} selected={selectedStage} severity={selectedSeverity} />
       </div>
     );
   }
@@ -53,9 +60,17 @@ export default async function SecurityPage({ searchParams }: Props) {
         })
       ).map(({ agent, level, securityCleared }) => ({ ...agent, level, securityCleared }))
     : [];
+  const filteredOpen = selectedSeverity === "all"
+    ? dashboard.open
+    : dashboard.open.filter((f) => f.severity === selectedSeverity);
+
+  const filteredDisclosed = selectedSeverity === "all"
+    ? dashboard.disclosed
+    : dashboard.disclosed.filter((f) => f.severity === selectedSeverity);
+
   const openCount = dashboard.open.length;
   const severe = dashboard.openBySeverity.critical + dashboard.openBySeverity.high;
-  const visibleOpenFindings = filterSecurityFindingsByStage(dashboard.open, selectedStage);
+  const visibleOpenFindings = filterSecurityFindingsByStage(filteredOpen, selectedStage);
 
   return (
     <div className="security-page mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
@@ -70,7 +85,7 @@ export default async function SecurityPage({ searchParams }: Props) {
         <ReportButton projects={dashboard.projects} />
       </header>
 
-      <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} />
+      <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} />
 
       <section aria-label="Summary" className="security-stats grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Open findings" value={String(openCount)} hint={openCount ? "Private until fixed" : "Nothing open"} />
@@ -90,8 +105,29 @@ export default async function SecurityPage({ searchParams }: Props) {
 
       <section aria-labelledby="open-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="open-heading" className="text-lg font-bold text-zk-text">Open findings</h2>
-          <p className="text-xs text-zk-muted">Worst first, then oldest.</p>
+          <div>
+            <h2 id="open-heading" className="text-lg font-bold text-zk-text">Open findings</h2>
+            <p className="text-xs text-zk-muted">Worst first, then oldest.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by severity">
+            {(["all", ...SECURITY_SEVERITIES] as const).map((level) => {
+              const active = selectedSeverity === level;
+              return (
+                <Link
+                  key={level}
+                  href={securityFilterHref(level, selectedStage)}
+                  aria-current={active ? "page" : undefined}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                      : "border border-zk-border text-zk-muted hover:border-slate-400 hover:text-zk-text"
+                  }`}
+                >
+                  {level === "all" ? "All" : SEVERITY_LABEL[level]}
+                </Link>
+              );
+            })}
+          </div>
         </div>
         <p className="mt-2 text-xs text-zk-muted">
           Showing {visibleOpenFindings.length} of {dashboard.open.length} open{" "}
@@ -99,11 +135,18 @@ export default async function SecurityPage({ searchParams }: Props) {
         </p>
         {visibleOpenFindings.length ? (
           <FindingTable findings={visibleOpenFindings} kind="open" />
-        ) : selectedStage === "all" ? (
+        ) : selectedStage === "all" && selectedSeverity === "all" ? (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
-        ) : (
+        ) : selectedSeverity === "all" ? (
           <p className="mt-3 text-sm text-zk-text2">
             No open findings in this stage yet.{" "}
+            <Link href="/security" className="font-semibold text-zk-accent hover:underline">
+              Show all
+            </Link>
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-zk-text2">
+            No open findings match these filters.{" "}
             <Link href="/security" className="font-semibold text-zk-accent hover:underline">
               Show all
             </Link>
@@ -113,8 +156,8 @@ export default async function SecurityPage({ searchParams }: Props) {
 
       <section aria-labelledby="disclosed-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
         <h2 id="disclosed-heading" className="text-lg font-bold text-zk-text">Disclosed</h2>
-        {dashboard.disclosed.length ? (
-          <FindingTable findings={dashboard.disclosed} kind="disclosed" />
+        {filteredDisclosed.length ? (
+          <FindingTable findings={filteredDisclosed} kind="disclosed" />
         ) : (
           <p className="mt-3 text-sm text-zk-text2">Findings appear here once their fix is live and their details are published.</p>
         )}
@@ -159,8 +202,42 @@ export default async function SecurityPage({ searchParams }: Props) {
           )}
         </section>
       ) : null}
+      <section aria-labelledby="policy-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
+        <h2 id="policy-heading" className="text-lg font-bold text-zk-text">Responsible Disclosure & Safe Harbor</h2>
+        <div className="mt-3 space-y-3 text-sm text-zk-text2">
+          <p>
+            We practice coordinated vulnerability disclosure to protect all workspace members. Vulnerabilities reported through
+            the security intake remain strictly confidential until verified and patched.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3 pt-2">
+            <div className="rounded-xl border border-zk-border bg-zk-bg/50 p-3">
+              <span className="block text-xs font-semibold uppercase tracking-wider text-zk-muted">Triage SLA</span>
+              <span className="mt-1 block font-bold text-zk-text">24 Hours</span>
+              <span className="text-xs text-zk-muted">Initial acknowledgment & reproduction.</span>
+            </div>
+            <div className="rounded-xl border border-zk-border bg-zk-bg/50 p-3">
+              <span className="block text-xs font-semibold uppercase tracking-wider text-zk-muted">Critical SLA</span>
+              <span className="mt-1 block font-bold text-zk-text">7 Days</span>
+              <span className="text-xs text-zk-muted">Hotfix deployment & release window.</span>
+            </div>
+            <div className="rounded-xl border border-zk-border bg-zk-bg/50 p-3">
+              <span className="block text-xs font-semibold uppercase tracking-wider text-zk-muted">Disclosure</span>
+              <span className="mt-1 block font-bold text-zk-text">Automatic</span>
+              <span className="text-xs text-zk-muted">Advisory published when the fix goes Live.</span>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
+}
+
+function securityFilterHref(severity: "all" | (typeof SECURITY_SEVERITIES)[number], stage: SecurityStageFilter) {
+  const params = new URLSearchParams();
+  if (severity !== "all") params.set("severity", severity);
+  if (stage !== "all") params.set("stage", stage);
+  const query = params.toString();
+  return query ? `/security?${query}` : "/security";
 }
 
 function Stat({ label, value, hint, alert = false }: { label: string; value: string; hint: string; alert?: boolean }) {

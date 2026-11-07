@@ -9,6 +9,7 @@ import { giveConfirmation, parseConfirmation } from "@/lib/agent-api/confirmatio
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { parseEvidenceFileLines } from "@/lib/agent-api/evidence-files";
 import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type ConfirmationActionResult = {
   ok?: true;
@@ -64,6 +65,19 @@ export async function giveConfirmationAction(
   if (!canAccess) return { error: "Issue not found" };
 
   const organisationId = bug.organisationId;
+
+  // #secret-protection: an entry is posted on the issue for everyone to read.
+  const text = (name: string) => { const value = formData.get(name); return typeof value === "string" ? value : ""; };
+  const secrets = await checkPostForSecrets({
+    organisationId,
+    projectId: bug.projectId,
+    actor: { kind: "user", userId },
+    source: "confirmation",
+    bugId: bug.id,
+    fields: { summary: text("summary"), description: text("description") },
+    noun: "this confirmation",
+  });
+  if (!secrets.ok) return { error: secrets.message };
 
   const verdict = field(formData, "verdict");
   const files = parseEvidenceFileLines(field(formData, "files") ?? "");

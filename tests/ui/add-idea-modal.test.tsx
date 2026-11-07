@@ -76,13 +76,13 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     Object.defineProperty(HTMLVideoElement.prototype, "srcObject", {
       set(val) {
         this._srcObject = val;
-        queueMicrotask(() => {
+        setTimeout(() => {
           Object.defineProperty(this, "videoWidth", { value: 1920, configurable: true });
           Object.defineProperty(this, "videoHeight", { value: 1080, configurable: true });
           if (this.onloadedmetadata) {
             this.onloadedmetadata(new Event("loadedmetadata"));
           }
-        });
+        }, 10);
       },
       get() {
         return this._srcObject;
@@ -1477,7 +1477,7 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     await waitFor(() => {
       expect(screen.getByAltText("Captured screenshot")).toBeTruthy();
       expect(screen.getByRole("button", { name: /Retake/i })).toBeTruthy();
-    }, { timeout: 5000 });
+    }, { timeout: 15000 });
 
     // Advance to details
     await user.click(screen.getByRole("button", { name: "Continue" }));

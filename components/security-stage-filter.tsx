@@ -45,9 +45,11 @@ export function filterSecurityFindingsByStage<T extends Pick<DashboardFinding, "
 export function SecurityStageFilterBar({
   findings,
   selected,
+  severity,
 }: {
   findings: readonly Pick<DashboardFinding, "stage">[];
   selected: SecurityStageFilter;
+  severity?: string;
 }) {
   const counts: Record<SecurityStageFilter, number> = {
     all: findings.length,
@@ -72,7 +74,11 @@ export function SecurityStageFilterBar({
     <nav aria-label="Filter open findings by workflow stage" className="flex flex-wrap gap-2">
       {SECURITY_STAGE_FILTERS.map((filter) => {
         const active = selected === filter.value;
-        const href = filter.value === "all" ? "/security" : `/security?stage=${filter.value}`;
+        const params = new URLSearchParams();
+        if (filter.value !== "all") params.set("stage", filter.value);
+        if (severity && severity !== "all") params.set("severity", severity);
+        const query = params.toString();
+        const href = query ? `/security?${query}` : "/security";
         return (
           <Link
             key={filter.value}

@@ -7,6 +7,7 @@ import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { consumeRateLimit, ACTION_RATE_LIMITS, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 import {
   createSupportThreadSchema,
   addRequesterMessageSchema,
@@ -25,6 +26,21 @@ import {
 } from "@/lib/support-threads";
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
+
+/**
+ * #secret-protection: a support message is read by whoever takes the request,
+ * and "my key doesn't work" is exactly when people paste one.
+ */
+function supportSecrets(userId: string, organisationId: string, body: string, bugId?: string) {
+  return checkPostForSecrets({
+    organisationId,
+    actor: { kind: "user", userId },
+    source: "support",
+    bugId: bugId ?? null,
+    fields: { body },
+    noun: "this message",
+  });
+}
 
 export async function createSupportThreadAction(input: unknown): Promise<ActionResult<{ threadId: string }>> {
   const user = await requireUser();
@@ -49,6 +65,9 @@ export async function createSupportThreadAction(input: unknown): Promise<ActionR
   if (!isMember) {
     return { ok: false, error: "You must be a member of this organisation to ask about this issue." };
   }
+
+  const secrets = await supportSecrets(user.id, bug.organisationId, parsed.data.body, bug.id);
+  if (!secrets.ok) return { ok: false, error: secrets.message };
 
   try {
     const result = await createSupportThread(user, bug.organisationId, parsed.data.issueId, parsed.data.body);
@@ -76,6 +95,9 @@ export async function addRequesterMessageAction(input: unknown): Promise<ActionR
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
+
+  const secrets = await supportSecrets(user.id, organisationId, parsed.data.body);
+  if (!secrets.ok) return { ok: false, error: secrets.message };
 
   try {
     const result = await addRequesterMessage(user, organisationId, parsed.data.threadId, parsed.data.body);
@@ -129,6 +151,9 @@ export async function replySupportThreadAction(input: unknown): Promise<ActionRe
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
+
+  const secrets = await supportSecrets(user.id, organisationId, parsed.data.body);
+  if (!secrets.ok) return { ok: false, error: secrets.message };
 
   try {
     const result = await replySupportThread(user, organisationId, parsed.data.threadId, parsed.data.body);
