@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { deliveryReceiptSchema } from "@/lib/delivery-receipt";
 import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
 import { revisionLimitSchema } from "@/lib/workflow-config";
@@ -42,6 +43,8 @@ export const marketingDeliveryBodySchema = z
     deliverableUrls: z.array(httpUrl).max(20).optional(),
     attachmentIds: z.array(z.string().trim().min(1).max(191)).max(MAX_ATTACHMENTS_PER_ITEM).optional(),
     screenshots: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
+    /** What was checked about the work, what was not, and what the reviewer should look at (#delivery-receipt). */
+    receipt: deliveryReceiptSchema.optional(),
   })
   .strict()
   .refine((body) => Boolean(body.deliverableText) || (body.deliverableUrls?.length ?? 0) + (body.attachmentIds?.length ?? 0) > 0, {

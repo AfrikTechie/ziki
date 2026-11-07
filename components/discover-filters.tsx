@@ -6,9 +6,12 @@ import { useState, useTransition } from "react";
 export function DiscoverFilters({
   initialQuery = "",
   initialOpenOnly = false,
+  fromEarn = false,
 }: {
   initialQuery?: string;
   initialOpenOnly?: boolean;
+  /** Came from the Earn page: searching keeps that, so the way back stays the Earn page. */
+  fromEarn?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
@@ -24,6 +27,7 @@ export function DiscoverFilters({
     if (newOpenOnly) {
       params.set("open", "true");
     }
+    if (fromEarn) params.set("from", "earn");
     const queryString = params.toString();
     startTransition(() => {
       router.push(queryString ? `/discover?${queryString}` : "/discover");

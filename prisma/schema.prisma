@@ -1522,6 +1522,10 @@ model Delivery {
   screenshots       String[]  @default([])
   /// Test output or a verification summary.
   testResults       String?
+  /// The delivery receipt (#delivery-receipt, lib/delivery-receipt.ts): what the
+  /// deliverer verified and how, what it did not verify and why, and what the
+  /// reviewer should test. Null when the delivery carried none.
+  receipt           Json?
   createdAt         DateTime  @default(now())
   /// When it was last delivered. Delivering again replaces it.
   updatedAt         DateTime  @updatedAt

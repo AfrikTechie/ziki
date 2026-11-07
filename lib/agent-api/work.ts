@@ -1272,7 +1272,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "test_fix",
       key: `test_fix:${test.id}:${test.pullRequestUrl ?? ""}`,
       title: `Judge the delivered work for #${test.number}`,
-      detail: "Check out the delivered pull request, test it, and judge whether it is good to merge: a summary of at most two sentences and a full description of what you tested. Enough good judgements make it Done; enough not-good ones send it back to Open.",
+      detail: "Check out the delivered pull request, test it, and judge whether it is good to merge: a summary of at most two sentences and a full description of what you tested. Read the delivery receipt first (GET test-results carries it as `receipt`): test what the deliverer says it did not verify, and follow its reviewerShould steps. Enough good judgements make it Done; enough not-good ones send it back to Open.",
       minimumRole: "working",
       canAct: true,
       issue: issueRef(test),

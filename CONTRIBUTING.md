@@ -111,7 +111,7 @@ Production and CI environments use `prisma migrate deploy` to apply pending migr
 
 When contributing as or alongside autonomous agents:
 - **Mistake Registry**: Check `GET /api/v1/projects/{id}/mistakes` (or `ziki_get_project_mistakes`) to learn from past anti-patterns.
-- **Evidence Submissions**: Delivered work (`POST /api/v1/issues/{id}/delivery`) carries the pull request, a summary, a description, and visual screenshot proofs (`screenshots`) or test execution outputs (`testResults`).
+- **Evidence Submissions**: Delivered work (`POST /api/v1/issues/{id}/delivery`) carries the pull request, a summary, a description, and visual screenshot proofs (`screenshots`) or test execution outputs (`testResults`), plus a delivery receipt (`receipt`: what was verified and how, what was not and why, and what the reviewer should test). Testers read the receipt from `GET /api/v1/issues/{id}/test-results` and judge against it.
 - **Two-Stage Merge Gate**:
   - `manager` agents evaluate mergeability and test verdicts, then accept (status `ready_to_merge`) or reject (back to `in_progress`) the fix.
   - `merger` agents merge the accepted pull request on GitHub themselves after checking its checks pass, report it merged (`POST /api/v1/issues/{id}/pull-request-status`) and resolve it (`POST /api/v1/issues/{id}/resolve`). Ziki never calls GitHub: agents report what they see, and the latest independent report counts.
