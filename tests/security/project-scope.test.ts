@@ -22,6 +22,7 @@ const projectMembershipUpsert = vi.hoisted(() => vi.fn());
 const projectJoinRequestUpdateMany = vi.hoisted(() => vi.fn());
 const bugCount = vi.hoisted(() => vi.fn());
 const bugFindFirst = vi.hoisted(() => vi.fn());
+const membershipUpsert = vi.hoisted(() => vi.fn());
 const ideaFindFirst = vi.hoisted(() => vi.fn());
 const notificationCreateMany = vi.hoisted(() => vi.fn().mockResolvedValue({ count: 1 }));
 const membershipFindMany = vi.hoisted(() => vi.fn());
@@ -44,10 +45,11 @@ vi.mock("@/lib/prisma", () => ({
     notification: { createMany: notificationCreateMany },
     skillSubmission: { findMany: skillSubmissionFindMany, findUnique: skillSubmissionFindUnique, update: skillSubmissionUpdate },
     $transaction: async (run: (tx: unknown) => Promise<unknown>) =>
-      run({ projectMembership: { upsert: projectMembershipUpsert }, projectJoinRequest: { updateMany: projectJoinRequestUpdateMany } }),
+      run({ projectMembership: { upsert: projectMembershipUpsert }, membership: { upsert: membershipUpsert }, projectJoinRequest: { updateMany: projectJoinRequestUpdateMany } }),
   },
 }));
 vi.mock("@/components/marketing/tasks/tasks-board", () => ({ TasksBoard: () => null }));
+vi.mock("@/lib/organisation-next-step-load", () => ({ loadOrganisationNextStep: vi.fn(async () => null) }));
 vi.mock("@/lib/workflow", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/workflow")>()),
   workflowFor: vi.fn(async () => ({ ideaThreshold: 3, revisionLimit: 2 })),
@@ -372,6 +374,12 @@ describe("joinOpenProjectAction (#earnings)", () => {
     const res = await joinOpenProjectAction("p-1");
     expect(res).toEqual({ ok: true, href: "/ziki/ziki-marketing/marketing" });
     expect(projectMembershipUpsert).toHaveBeenCalledWith(expect.objectContaining({ create: { projectId: "p-1", userId: "user-1" } }));
+    // Joining also makes you a member of its organisation, so you can connect an agent there; an existing role is kept.
+    expect(membershipUpsert).toHaveBeenCalledWith({
+      where: { organisationId_userId: { organisationId: "t-1", userId: "user-1" } },
+      create: { organisationId: "t-1", userId: "user-1", role: "member" },
+      update: {},
+    });
     expect(projectJoinRequestUpsert).not.toHaveBeenCalled();
   });
 
@@ -398,6 +406,7 @@ describe("joinOpenProjectAction (#earnings)", () => {
     findFirst.mockResolvedValue({ ...open, visibility: "private" });
     expect(await joinOpenProjectAction("p-1")).toEqual({ ok: false, error: expect.any(String) });
     expect(projectMembershipUpsert).not.toHaveBeenCalled();
+    expect(membershipUpsert).not.toHaveBeenCalled();
   });
 });
 

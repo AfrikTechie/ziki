@@ -9,10 +9,14 @@ const db = vi.hoisted(() => {
     testVerdict: { updateMany: vi.fn() },
     mergeReview: { updateMany: vi.fn() },
     reviewOffer: { updateMany: vi.fn() },
+    agentAuditEvent: { update: vi.fn() },
+    bugActivity: { create: vi.fn() },
   };
   return {
     bug: { findFirst: vi.fn() },
     delivery: { findFirst: vi.fn() },
+    agentAuditEvent: { findFirst: vi.fn() },
+    pullRequestReport: { findFirst: vi.fn() },
     $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
     tx,
   };
@@ -70,6 +74,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.bug.findFirst.mockResolvedValue(bug());
   db.delivery.findFirst.mockResolvedValue(null);
+  db.agentAuditEvent.findFirst.mockResolvedValue(null);
+  db.pullRequestReport.findFirst.mockResolvedValue(null);
   db.tx.pullRequestReport.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => savedRow(data));
   db.tx.bug.updateMany.mockResolvedValue({ count: 1 });
 });
@@ -278,6 +284,46 @@ describe("repairPullRequestLink (#edit-pr-link)", () => {
     expect(managerRepair).toMatchObject({
       status: 200,
       body: { repaired: true, pullRequestUrl: newPr, samePullRequest: false, moved: { deliveries: 0 } },
+    });
+  });
+
+  describe("an accepted fix (#replacement-pr)", () => {
+    const nextPr = "https://github.com/emerjent/ziki/pull/560";
+    const accepted = () =>
+      bug({
+        status: "merge",
+        substatus: "error",
+        proofLinks: [PR],
+        project: { repoUrl: "https://github.com/emerjent/ziki" },
+        claims: [{ status: "active", releasedAt: null, agentId: "agent-cara", beneficiaryUserId: "cara", dispatcherUserId: null, agent: { ownerUserId: "cara" } }],
+        deliveries: [{ id: "d1", pullRequestUrl: PR, agentId: "agent-cara", beneficiaryUserId: "cara", agent: { ownerUserId: "cara" } }],
+      });
+    /** The latest report on the accepted pull request, by its state; the replacement has none. */
+    const reportOnAccepted = (state: string | null) =>
+      db.pullRequestReport.findFirst.mockImplementation(async ({ where }: { where: { pullRequestUrl: string } }) =>
+        state && where.pullRequestUrl === PR ? { id: "r1", state, pullRequestUrl: PR, createdAt: new Date(), headSha: "aaa1111" } : null);
+
+    beforeEach(() => {
+      db.bug.findFirst.mockResolvedValue(accepted());
+      db.agentAuditEvent.findFirst.mockResolvedValue({ id: "accept1", payload: { pullRequestUrl: PR } });
+      db.tx.delivery.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it("lets the claim holder link a replacement when the accepted pull request is reported closed, and restarts review", async () => {
+      reportOnAccepted("closed");
+      const result = await repairPullRequestLink(checker("cara", "working"), scope, "bug1", { pullRequestUrl: nextPr });
+      expect(result).toMatchObject({ status: 200, body: { repaired: true, pullRequestUrl: nextPr, samePullRequest: false } });
+      expect(db.tx.agentAuditEvent.update).toHaveBeenCalledWith({ where: { id: "accept1" }, data: { undoneAt: expect.any(Date) } });
+      expect(db.tx.bug.updateMany).toHaveBeenCalledWith({ where: { id: "bug1", status: { in: ["done", "merge"] } }, data: { status: "done", substatus: "requires_review" } });
+      expect(audit).toHaveBeenCalledWith(expect.anything(), "issue.pull_request_repaired", "bug:bug1", expect.objectContaining({ replacesPullRequestUrl: PR }), expect.anything());
+    });
+
+    it.each(["open", "merged", null])("answers 409 status_changed while the accepted pull request is %s", async (state) => {
+      reportOnAccepted(state);
+      const result = await repairPullRequestLink(checker("cara", "working"), scope, "bug1", { pullRequestUrl: nextPr });
+      expect(result).toMatchObject({ status: 409, body: { error: "status_changed" } });
+      expect(db.$transaction).not.toHaveBeenCalled();
+      expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
     });
   });
 

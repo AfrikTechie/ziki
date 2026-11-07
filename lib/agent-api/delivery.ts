@@ -14,7 +14,7 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
 import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
-import { standingAcceptance } from "@/lib/accepted-fix";
+import { acceptedFixGate, releaseAcceptedFix } from "@/lib/accepted-fix";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { moveTo } from "@/lib/issue-substatus";
 import { deliverableText, marketingDeliveryBodySchema } from "@/lib/validations/marketing";
@@ -300,6 +300,8 @@ export async function deliverWork(
   // Marketing work stops here: no pull request, repository, report or head commit.
   const pullRequestUrl = marketing ? null : body.pullRequestUrl!;
   const headSha = marketing ? null : body.headSha ?? null;
+  /** Set when this delivery replaces an accepted pull request that was closed unmerged (#replacement-pr). */
+  let replacing: { acceptanceId: string; previous: string } | null = null;
   if (!marketing) {
     const ref = parsePullRequestUrl(pullRequestUrl!)!;
     const repo = repoForPullRequest(bug.project, pullRequestUrl);
@@ -307,13 +309,18 @@ export async function deliverWork(
       return { status: 422, error: "wrong_repository", message: "That pull request is not in this project's repository.", field: "pullRequestUrl" };
     }
     // #489: an accepted fix is bound to the pull request that was reviewed.
-    const accepted = await standingAcceptance(prisma, bug.id);
-    if (accepted && bug.pullRequestUrl && bug.pullRequestUrl !== pullRequestUrl) {
-      return {
-        status: 409,
-        error: "accepted_pull_request",
-        message: "This issue's accepted fix is bound to a different pull request: deliver the accepted one.",
-      };
+    // #replacement-pr: unless that pull request was closed without merging, so it
+    // can never merge: then a replacement is delivered and review starts again.
+    const gate = await acceptedFixGate(bug.id, bug.pullRequestUrl);
+    if (gate.acceptance && bug.pullRequestUrl && bug.pullRequestUrl !== pullRequestUrl) {
+      if (!gate.replaceable) {
+        return {
+          status: 409,
+          error: "accepted_pull_request",
+          message: "This issue's accepted fix is bound to a different pull request: deliver the accepted one. (A replacement is accepted only when the accepted pull request is reported closed without merging.)",
+        };
+      }
+      replacing = { acceptanceId: gate.acceptance.id, previous: bug.pullRequestUrl };
     }
 
     // The pull request has to be open: the latest independent report on it says
@@ -385,17 +392,27 @@ export async function deliverWork(
         data: { pullRequestUrl: pullRequestUrl! },
       });
     }
+    // #replacement-pr: the accepted pull request is closed unmerged; the acceptance goes
+    // with it and the replacement is reviewed afresh.
+    if (replacing) {
+      await releaseAcceptedFix(tx, { bugId: bug.id, acceptanceId: replacing.acceptanceId, previous: replacing.previous, next: pullRequestUrl!, actorUserId: agent.ownerId });
+    }
     await tx.bugActivity.create({
       data: {
         bugId: bug.id,
         actorId: agent.ownerId,
         type: "status_changed",
-        summary: marketing ? "delivered the work" : `delivered the work in ${pullRequestUrl}`,
+        summary: marketing
+          ? "delivered the work"
+          : replacing
+            ? `delivered the work in ${pullRequestUrl}, replacing ${replacing.previous}`
+            : `delivered the work in ${pullRequestUrl}`,
         metadata: {
           field: "status",
           from,
           to: "requires_review",
           deliveryId: saved.id,
+          ...(replacing ? { replacesPullRequestUrl: replacing.previous } : {}),
           ...(marketing
             ? { deliverableUrls: body.deliverableUrls ?? [], attachmentIds }
             : { pullRequestUrl: pullRequestUrl! }),
@@ -411,6 +428,7 @@ export async function deliverWork(
       ...(marketing ? { deliverableUrls: body.deliverableUrls ?? [] } : { pullRequestUrl: pullRequestUrl!, headSha }),
       summary: body.summary,
       agentId: agent.agentId,
+      ...(replacing ? { replacesPullRequestUrl: replacing.previous } : {}),
       // #delivery-receipt: the receipt travels with the event, so a listener can judge against it.
       ...(body.receipt ? { receipt: body.receipt } : {}),
       // #stranded-delivery: a manager agent filed it for the person credited.

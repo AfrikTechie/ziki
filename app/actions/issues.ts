@@ -100,7 +100,7 @@ import { publish } from "@/lib/agent-api/events";
 import { issueChangePayload, publishWebEvent } from "@/lib/agent-api/web-events";
 import { firstPullRequestLink } from "@/lib/github/pr-mention";
 import { CommentPlacementError, placeComment, type CommentPlacement } from "@/lib/comment-placement";
-import { standingAcceptance } from "@/lib/accepted-fix";
+import { acceptedFixGate, releaseAcceptedFix, standingAcceptance } from "@/lib/accepted-fix";
 import { latestPullRequestReport, reportedClosedUnmerged } from "@/lib/agent-api/pull-request-report";
 import { isFormerNameOf } from "@/lib/github/former-repos";
 import { parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
@@ -1388,12 +1388,20 @@ export async function editPullRequestUrlAction(
     (sameRepo(oldPr, repo) || isFormerNameOf(oldPr, repo)),
   );
 
-  const accepted = await standingAcceptance(prisma, bugId);
-  if (accepted && previousPullRequestUrl && !samePullRequest) {
-    return {
-      error:
-        "This issue's accepted fix is bound to a different pull request — link the accepted one again.",
-    };
+  // #replacement-pr: an accepted fix is bound to its pull request unless that one
+  // was closed without merging; then a replacement may be linked and is reviewed afresh.
+  let replacingAcceptanceId: string | null = null;
+  if (!samePullRequest) {
+    const gate = await acceptedFixGate(bugId, previousPullRequestUrl);
+    if (gate.acceptance && previousPullRequestUrl) {
+      if (!gate.replaceable) {
+        return {
+          error:
+            "This issue's accepted fix is bound to a different pull request — link the accepted one again. (A replacement is accepted only when the accepted pull request is reported closed without merging.)",
+        };
+      }
+      replacingAcceptanceId = gate.acceptance.id;
+    }
   }
 
   const latestReport = !samePullRequest
@@ -1445,6 +1453,16 @@ export async function editPullRequestUrlAction(
       }
     }
 
+    if (replacingAcceptanceId && previousPullRequestUrl) {
+      await releaseAcceptedFix(tx, {
+        bugId,
+        acceptanceId: replacingAcceptanceId,
+        previous: previousPullRequestUrl,
+        next: nextPullRequestUrl,
+        actorUserId: userId,
+      });
+    }
+
     await publishWebEvent(tx, {
       bugId,
       type: "issue.updated",
@@ -1470,6 +1488,7 @@ export async function editPullRequestUrlAction(
           pullRequestUrl: nextPullRequestUrl,
           headSha: nextHeadSha,
           via: "editPullRequest",
+          ...(replacingAcceptanceId ? { replacesPullRequestUrl: previousPullRequestUrl } : {}),
         },
       },
     });

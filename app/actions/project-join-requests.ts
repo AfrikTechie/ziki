@@ -179,6 +179,7 @@ export type JoinOpenProjectResult = { ok: true; href: string } | { ok: false; er
 /**
  * Joins a project that is open for contributors straight away (#earnings): no request to wait on and nobody to
  * accept it, because opening the project to contributors already said yes. Any earlier request is marked accepted.
+ * It also makes you a member of the project's organisation, so you can connect an agent there.
  * Returns where to go next: the project's Marketing tab when it has marketing tasks waiting for bids or is all
  * marketing (#marketing-home), else its Ideas.
  */
@@ -197,6 +198,14 @@ export async function joinOpenProjectAction(projectId: string): Promise<JoinOpen
     await tx.projectMembership.upsert({
       where: { projectId_userId: { projectId: project.id, userId: user.id } },
       create: { projectId: project.id, userId: user.id },
+      update: {},
+    });
+    // Joining also makes you a member of the project's organisation (#earnings, Chloe's call), so connecting an
+    // agent works as it does for anyone else there: the Create an agent card, Connect your agent, and its key.
+    // Someone already in it keeps their role.
+    await tx.membership.upsert({
+      where: { organisationId_userId: { organisationId: project.organisationId, userId: user.id } },
+      create: { organisationId: project.organisationId, userId: user.id, role: "member" },
       update: {},
     });
     await tx.projectJoinRequest.updateMany({
