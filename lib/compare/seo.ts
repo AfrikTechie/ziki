@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { absoluteUrl } from "@/lib/site-url";
 import { SHARE_IMAGE } from "@/lib/share-image";
+import { fullTitle, SITE_OG } from "@/lib/seo/site";
 import type { BuiltComparison, PlatformData } from "./build";
 import { COMPARE_HREF, comparisonHref } from "./slug";
 
-const SITE_OG = { siteName: "Ziki" } as const;
 
 export function directoryMetadata(): Metadata {
   const title = "Compare Ziki with other AI platforms";
@@ -14,8 +14,8 @@ export function directoryMetadata(): Metadata {
     title,
     description,
     alternates: { canonical: absoluteUrl(COMPARE_HREF) },
-    openGraph: { ...SITE_OG, type: "website", title, description, url: absoluteUrl(COMPARE_HREF), images: [{ ...SHARE_IMAGE }] },
-    twitter: { card: "summary_large_image", title, description },
+    openGraph: { ...SITE_OG, type: "website", title: fullTitle(title), description, url: absoluteUrl(COMPARE_HREF), images: [{ ...SHARE_IMAGE }] },
+    twitter: { card: "summary_large_image", title: fullTitle(title), description, images: [SHARE_IMAGE.url] },
   };
 }
 
@@ -29,8 +29,8 @@ export function comparisonMetadata(built: BuiltComparison, a: PlatformData, b: P
     // Every pair has one canonical URL; the other order redirects to it.
     alternates: { canonical: url },
     robots: built.indexable ? undefined : { index: false, follow: true },
-    openGraph: { ...SITE_OG, type: "article", title, description: built.seoDescription, url, images: [{ ...SHARE_IMAGE }] },
-    twitter: { card: "summary_large_image", title, description: built.seoDescription },
+    openGraph: { ...SITE_OG, type: "article", title: fullTitle(title), description: built.seoDescription, url, images: [{ ...SHARE_IMAGE }] },
+    twitter: { card: "summary_large_image", title: fullTitle(title), description: built.seoDescription, images: [SHARE_IMAGE.url] },
   };
 }
 

@@ -33,21 +33,14 @@ export default async function MarketingHomePage({ params, searchParams }: Props)
   } catch (error) {
     return <LoadError title="Tasks could not be loaded" reference={logLoadFailure("[marketing tasks] board query failed", error)} />;
   }
-  // The same "Create an agent" card as the Ideas list (#earnings): someone who just joined lands here.
+  // The same "Create an agent" card as the Ideas list (#earnings).
   const nextStep = await loadOrganisationNextStep({
     userId: context.user.id,
     appRole: context.user.role,
     organisationId: context.organisationId,
     slug: context.project.ref,
   });
-  return (
-    <>
-      {nextStep ? (
-        <div className="mx-auto mb-4 w-full max-w-6xl">
-          <OrganisationNextStepCard step={nextStep} organisationId={context.organisationId} />
-        </div>
-      ) : null}
-      <TasksBoard slug={slug} board={board} />
-    </>
-  );
+  // Inside the panel, under the stages, where the Ideas list shows it.
+  const notice = nextStep ? <OrganisationNextStepCard step={nextStep} organisationId={context.organisationId} /> : null;
+  return <TasksBoard slug={slug} board={board} notice={notice} />;
 }

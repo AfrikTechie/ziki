@@ -5,7 +5,7 @@ import { MilestoneManager } from "@/components/milestone-manager";
 import { loadOrg } from "../org-context";
 import { OrgPageHeader, ReadOnlyNote } from "../org-ui";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Milestones" };
 
 /** The organisation's milestones. Owners and admins manage them; everyone reads them on /milestones. */

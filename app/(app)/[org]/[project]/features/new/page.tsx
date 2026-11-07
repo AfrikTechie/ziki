@@ -3,7 +3,7 @@ import { requireProject } from "@/lib/project-route";
 import { projectPath } from "@/lib/project-paths";
 import { FeaturePlanEditor } from "../feature-plan-editor";
 
-export const metadata = { title: "Plan a feature · Ziki" };
+export const metadata = { title: "Plan a feature" };
 
 export default async function NewFeaturePlanPage({ params }: { params: Promise<{ org: string; project: string }> }) {
   const { org, project: slug } = await params;

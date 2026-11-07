@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { isPasswordAuthEnabled } from "@/lib/auth-mode";
 import { ResetPasswordForm } from "@/components/reset-password-form";
 import { AuthSplitFrame } from "../login/auth-split-frame";
+import { NOINDEX } from "@/lib/seo/site";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
-export const metadata = { title: "Set a new password" };
+/* Distinct browser-tab title; the root layout appends the site name. */
+export const metadata = { title: "Set a new password", robots: NOINDEX };
 
 export default async function ResetPasswordPage({
   searchParams,

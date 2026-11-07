@@ -41,22 +41,27 @@ export function ProjectSettingsForm({
         <Input id="project-name" name="name" defaultValue={project.name} minLength={2} maxLength={60} required />
         {result?.field === "name" ? <span className="text-xs text-zk-bad-fg">{result.fieldErrors?.name ?? result.error}</span> : null}
       </label>
-      <label htmlFor="project-goal" className="block space-y-1 text-sm font-medium text-zk-text">Goal
-        <Textarea id="project-goal" name="goal" defaultValue={project.goal ?? ""} maxLength={4000} rows={6} aria-describedby="project-goal-hint" />
-        <span id="project-goal-hint" className="block text-xs font-normal text-zk-muted">Markdown is supported. Maximum 4,000 characters.</span>
-      </label>
-      <label htmlFor="project-repo-url" className="block space-y-1 text-sm font-medium text-zk-text">GitHub repository URL
-        <Input id="project-repo-url" name="repoUrl" type="url" inputMode="url" placeholder="https://github.com/owner/repository" defaultValue={project.repoUrl ?? ""} />
-        {result?.field === "repoUrl" ? <span className="text-xs text-zk-bad-fg">{result.fieldErrors?.repoUrl ?? result.error}</span> : null}
+      <label htmlFor="project-goal" className="block space-y-1 text-sm font-medium text-zk-text">Project Brief &amp; Context for Agents
+        <Textarea id="project-goal" name="goal" defaultValue={project.goal ?? ""} maxLength={4000} rows={6} aria-describedby="project-goal-hint" placeholder="Explain what this project is building, who it is for, and how the final product should work." />
+        <span id="project-goal-hint" className="block text-xs font-normal text-zk-muted">Agents read this context when working on your project. Markdown is supported. Maximum 4,000 characters.</span>
       </label>
       <label htmlFor="project-site-url" className="block space-y-1 text-sm font-medium text-zk-text">Site URL
         <Input id="project-site-url" name="siteUrl" type="url" inputMode="url" placeholder="https://example.com" defaultValue={project.siteUrl ?? ""} />
         {result?.field === "siteUrl" ? <span className="text-xs text-zk-bad-fg">{result.fieldErrors?.siteUrl ?? result.error}</span> : null}
       </label>
-      <label htmlFor="project-staging-url" className="block space-y-1 text-sm font-medium text-zk-text">Staging URL
-        <Input id="project-staging-url" name="stagingUrl" type="url" inputMode="url" placeholder="https://staging.example.com" defaultValue={project.stagingUrl ?? ""} />
-        {result?.field === "stagingUrl" ? <span className="text-xs text-zk-bad-fg">{result.fieldErrors?.stagingUrl ?? result.error}</span> : null}
-      </label>
+      <details className="rounded-xl border border-zk-border bg-zk-subtle/30 p-4">
+        <summary className="cursor-pointer text-sm font-medium text-zk-text">Developer Links &amp; Staging (Advanced)</summary>
+        <div className="mt-4 space-y-4">
+          <label htmlFor="project-repo-url" className="block space-y-1 text-sm font-medium text-zk-text">GitHub repository URL
+            <Input id="project-repo-url" name="repoUrl" type="url" inputMode="url" placeholder="https://github.com/owner/repository" defaultValue={project.repoUrl ?? ""} />
+            {result?.field === "repoUrl" ? <span className="text-xs text-zk-bad-fg">{result.fieldErrors?.repoUrl ?? result.error}</span> : null}
+          </label>
+          <label htmlFor="project-staging-url" className="block space-y-1 text-sm font-medium text-zk-text">Staging URL
+            <Input id="project-staging-url" name="stagingUrl" type="url" inputMode="url" placeholder="https://staging.example.com" defaultValue={project.stagingUrl ?? ""} />
+            {result?.field === "stagingUrl" ? <span className="text-xs text-zk-bad-fg">{result.fieldErrors?.stagingUrl ?? result.error}</span> : null}
+          </label>
+        </div>
+      </details>
 
       <div className="space-y-3 rounded-xl border border-zk-border bg-zk-card p-4">
         <h4 className="text-sm font-semibold text-zk-text">Visibility and Collaboration</h4>

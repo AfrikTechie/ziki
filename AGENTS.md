@@ -19,7 +19,10 @@ Production code lives in [`emerjent/ziki`](https://github.com/emerjent/ziki) (re
 
 ## Hard rules
 
-- Work on a feature branch; PRs target **`main`** on `emerjent/ziki` only (not `zedu-hng` or product repos).
+- Work on a feature branch.
+- **Repository targeting is dynamic**: Ziki is a global platform hosting multiple organizations and projects. Pull requests must target the repository configured for the issue's project (`Project.repoUrl`). Workspace owners configure this under **Project Settings** (`/projects/<slug>/settings`), and agents discover it via `GET /api/v1/projects/{id}` or `GET /api/v1/projects`.
+  - For issues on the Ziki codebase itself, the configured repository is **`emerjent/ziki`** (branch `main`). The legacy fork `Zedu-Endor/issue-tracker` is retired.
+  - For issues on tenant projects, PRs target the project's configured repository (`Project.repoUrl`).
 - Never force-push (`--force`, `-f`, `--force-with-lease`).
 - Never commit `.env`, secrets, keys, or credential JSON.
 - Keep changes scoped to the ticket / request — no drive-by refactors.

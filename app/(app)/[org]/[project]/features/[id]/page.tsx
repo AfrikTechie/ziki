@@ -9,7 +9,7 @@ import { featureDraftSchema } from "@/lib/validations/feature-plan";
 import { featureWorkState } from "@/lib/feature-plans";
 import { FeaturePlanEditor, PublishFeaturePlan } from "../feature-plan-editor";
 
-export const metadata = { title: "Feature plan · Ziki" };
+export const metadata = { title: "Feature plan" };
 const issueSelect = { id: true, number: true, title: true, projectId: true, isDeleted: true, status: true, substatus: true } as const;
 
 export default async function FeaturePlanPage({ params, searchParams }: {

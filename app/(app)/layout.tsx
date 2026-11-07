@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 import { isLinkPreviewBot } from "@/lib/link-preview";
 import { isPublicAgentPath } from "@/lib/public-agent-paths";
+import { projectOverviewSegments } from "@/lib/project-slug";
 import { AppHeader } from "@/components/app-header";
 import { getUnreadCount } from "@/lib/lookups";
 import { MAIN_CONTENT_ID, SkipLink } from "@/components/skip-link";
@@ -56,11 +57,26 @@ export default async function AppLayout({
     }
   }
 
-  // #agent-profile: a guest on a public agent page (a profile, the directory)
-  // gets a plain shell with a way to sign in, not the sign-in redirect.
   const reqPath = (await headers()).get("x-ziki-path") ?? "";
+  const overviewSegments = !session?.user ? projectOverviewSegments(reqPath) : null;
+  const overviewProject = overviewSegments
+    ? await prisma.project.findFirst({
+        where: {
+          slug: overviewSegments.projectSlug,
+          // Only a public project gets the guest shell. A private one sends a
+          // guest to sign in, the same as an address that names no project, so
+          // the shell doesn't tell outsiders which private projects exist.
+          visibility: "public",
+          archivedAt: null,
+          organisation: { slug: overviewSegments.orgSlug, archivedAt: null },
+        },
+        select: { id: true },
+      })
+    : null;
+  // Guests may read a project's public overview. The page itself decides
+  // whether the project is public or the viewer is a member.
   const isPublicSkillsPath = reqPath === "/skills" || reqPath.startsWith("/skills/");
-  if (!session?.user && (isPublicAgentPath(reqPath) || reqPath === "/discover" || isPublicSkillsPath)) {
+  if (!session?.user && (isPublicAgentPath(reqPath) || reqPath === "/discover" || isPublicSkillsPath || overviewProject)) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
         <header className="border-b border-zk-border bg-zk-surface">

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import "@/app/(app)/[org]/[project]/issues/_list/issues.css";
 import { RememberIssueList } from "@/components/back-to-list";
 import { IdeasList } from "@/components/ideas-list";
@@ -32,7 +32,16 @@ const EMPTY: Record<TaskTabParam, string> = {
  * the top, each stage's lifecycle steps down the left, ideas as the Ideas list
  * and tasks as issue rows. Tasks open on the shared issue route (D6).
  */
-export function TasksBoard({ slug, board }: { slug: ProjectRef; board: TasksBoardData }) {
+export function TasksBoard({
+  slug,
+  board,
+  notice,
+}: {
+  slug: ProjectRef;
+  board: TasksBoardData;
+  /** A card shown inside the panel, under the stages, as the Ideas list shows its notices (the Create an agent card). */
+  notice?: ReactNode;
+}) {
   const { tab: current, counts, list, pagination, sortParam } = board;
   const stage = TASK_STAGES.find((candidate) => candidate.steps.includes(current.param));
   const isIdeas = list.kind === "proposals";
@@ -73,6 +82,7 @@ export function TasksBoard({ slug, board }: { slug: ProjectRef; board: TasksBoar
         ) : null}
 
         <div className="w-full min-w-0 flex-1 space-y-4">
+          {notice}
           {list.kind === "proposals" ? (
             <>
               <div className="flex justify-end">

@@ -2,13 +2,18 @@
 
 Team **Zendor (Zedu-Endor)** — lead: [@Goodnessmbakara](https://github.com/Goodnessmbakara).
 
-This is Team Zendor's **Task 1** **Ziki Issues** project (HNG15) — [`emerjent/ziki`](https://github.com/emerjent/ziki) (renamed from `emerjent/bug-tracker`, formerly `zeduchat/bug-tracker`). It is **not** part of `zedu-fe`, `zedu-mobile`, or `zedu-desktop`. All PRs target **this** repository's `main`.
+Ziki is a global, multi-tenant issue and task platform where organizations manage projects connected to their own GitHub repositories.
+
+- **Ziki Core Platform Development**: This repository — [`emerjent/ziki`](https://github.com/emerjent/ziki) (renamed from `emerjent/bug-tracker`, formerly `zeduchat/bug-tracker`) — is Team Zendor's **Task 1** **Ziki Issues** project (HNG15). PRs for Ziki itself target **`emerjent/ziki:main`**.
+  The legacy `Zedu-Endor/issue-tracker` fork is retired and no longer used.
+- **Dynamic Project Repositories**: Across Ziki organizations, each project's target repository is dynamic and configurable by the organization/workspace owner in **Project Settings** (`repoUrl`). Agents working on issues in any project dynamically fetch `Project.repoUrl` (via `GET /api/v1/projects/{id}`) and open pull requests against that project's configured repository.
 
 ## Default branch
 
 - Default branch: **`main`**
-- Always branch from an up-to-date `main`
-- Open PRs against `main` in `emerjent/ziki` — never against `zedu-hng` or other Zedu product repos
+- Always branch from an up-to-date `main` of the target repository
+- For Ziki core platform development, open PRs against `main` in `emerjent/ziki` — never against `zedu-hng` or other Zedu product repos
+- For tenant projects on Ziki, open PRs against the project's configured repository (`Project.repoUrl`)
 
 ## Branch naming
 
@@ -49,7 +54,7 @@ Keep the subject imperative and under ~72 characters. One logical change per com
 
 1. One logical change per PR — keep diffs reviewable
 2. Fill in the PR template (Summary + Test plan)
-3. Target **`main`** on `emerjent/ziki`
+3. Target the repository configured for the project (`emerjent/ziki:main` for Ziki core development, or the workspace-configured `Project.repoUrl` for tenant projects)
 4. Do not mix unrelated refactors with feature work
 5. Never force-push (`git push --force`, `-f`, or `--force-with-lease`)
 6. Do not commit secrets (`.env`, keys, credentials)

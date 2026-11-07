@@ -1,8 +1,12 @@
+import Link from "next/link";
+import { AgentFace } from "@/components/agent-face";
 import { AwardBidButton } from "@/components/award-bid-button";
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { StepTitle } from "@/components/issue-timeline";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
+import { agentPageHref } from "@/lib/header-nav";
+import type { BidderRecordView } from "@/lib/bidder-record";
 import { isOpenBid } from "@/lib/open-bids";
 
 export type BidEntryView = {
@@ -13,6 +17,8 @@ export type BidEntryView = {
   summary: string;
   description: string;
   areaMatch: boolean;
+  /** The bid owner's record, across their agents in this organisation (#825). */
+  record?: BidderRecordView;
   /** Its weighted votes (#bid-votes): a manager or merger agent's counts the project's managerVoteWeight. */
   votes?: number;
   /** It was awarded (it got the task), or withdrawn. */
@@ -199,6 +205,7 @@ function BidList({ bids, canAward = false, awardThreshold }: { bids: BidEntryVie
                     </span>
                   </p>
                   <EntrySummary summary={bid.summary} description={bid.description} />
+                  {bid.record ? <BidderRecord record={bid.record} /> : null}
                   <EntryReplies replies={bid.replies} />
                 </div>
                 {/* Any open bid can be awarded (#open-award); its votes are guidance. */}
@@ -223,6 +230,112 @@ function BidList({ bids, canAward = false, awardThreshold }: { bids: BidEntryVie
         </ul>
       )}
     </>
+  );
+}
+
+function BidderRecord({ record }: { record: BidderRecordView }) {
+  if (record.newHere) {
+    return (
+      <p data-testid="bidder-record-new" className="m-0 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-zk-muted">
+        <span className="font-semibold">Form</span>
+        <span>· New here</span>
+      </p>
+    );
+  }
+  const recent = [...record.recent].reverse();
+  return (
+    <details data-testid="bidder-record" className="group/record mt-1.5">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-1 py-1 text-[12px] text-zk-text2 hover:bg-zk-surface/60 [&::-webkit-details-marker]:hidden">
+        <span className="font-semibold text-zk-muted">Form</span>
+        <span aria-hidden="true" className="flex max-w-full flex-wrap items-center gap-0.5">
+          {recent.map((task) => (
+            <span
+              key={task.issueId}
+              data-testid="bidder-form-square"
+              data-outcome={task.outcome}
+              className={`h-2.5 w-2.5 rounded-[3px] ${task.outcome === "finished" ? "bg-zk-ok-fg" : "bg-zk-muted/35"}`}
+            />
+          ))}
+        </span>
+        <span>
+          {record.recentFinished} of {record.recent.length} finished
+        </span>
+        {record.areaFixes > 0 && record.areaName ? (
+          <span className="text-zk-muted">
+            · {record.areaFixes} {record.areaFixes === 1 ? "fix" : "fixes"} in {record.areaName}
+          </span>
+        ) : null}
+        <span className="ml-auto inline-flex items-center gap-1 font-medium text-zk-accent">
+          See record
+          <span aria-hidden="true" className="inline-block transition-transform group-open/record:rotate-90">›</span>
+        </span>
+      </summary>
+      <div className="mt-1 rounded-lg border border-zk-border bg-zk-surface px-2.5 py-2 text-[12px] text-zk-text2">
+        <dl className="m-0 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
+          <RecordStat label="Finished" value={record.finished} />
+          <RecordStat label="Dropped" value={record.dropped} />
+          <RecordStat label="Finish rate" value={`${record.finishRate}%`} />
+          <RecordStat
+            label={record.areaName ? `Fixes in ${record.areaName}` : "Fixes in this area"}
+            value={record.areaFixes}
+          />
+        </dl>
+        {record.recent.length > 0 ? (
+          <section className="mt-3">
+            <h4 className="m-0 text-[11px] font-bold uppercase tracking-wide text-zk-muted">Latest tasks</h4>
+            <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
+              {record.recent.map((task) => (
+                <li key={task.issueId} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span
+                    className={`shrink-0 text-[11px] font-semibold ${task.outcome === "finished" ? "text-zk-ok-fg" : "text-zk-muted"}`}
+                  >
+                    {task.outcome === "finished" ? "Finished" : "Dropped"}
+                  </span>
+                  <Link href={task.path} className="min-w-0 break-words font-medium text-zk-text hover:underline sm:truncate">
+                    {task.title}
+                  </Link>
+                  {task.agentName ? <span className="text-zk-muted">via {task.agentName}</span> : null}
+                  <span className="whitespace-nowrap text-[11px] text-zk-muted">
+                    · <LocalTime date={task.at} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {record.agents.length > 0 ? (
+          <section className="mt-3">
+            <h4 className="m-0 text-[11px] font-bold uppercase tracking-wide text-zk-muted">By agent</h4>
+            <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
+              {record.agents.map((agent) => (
+                <li key={agent.id} className="flex min-w-0 flex-wrap items-center gap-2">
+                  <AgentFace agentId={agent.id} size={18} still />
+                  {agent.username ? (
+                    <Link href={agentPageHref(agent.username)} className="min-w-0 break-words font-medium text-zk-text hover:underline sm:truncate">
+                      {agent.name}
+                    </Link>
+                  ) : (
+                    <span className="min-w-0 break-words font-medium text-zk-text sm:truncate">{agent.name}</span>
+                  )}
+                  <span className="ml-auto min-w-0 text-zk-muted">
+                    {agent.finished} finished · {agent.dropped} dropped
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function RecordStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="min-w-0 break-words text-[11px] text-zk-muted">{label}</dt>
+      <dd className="m-0 font-semibold text-zk-text">{value}</dd>
+    </div>
   );
 }
 

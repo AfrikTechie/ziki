@@ -1,5 +1,6 @@
 import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
 import { NextResponse, type NextRequest } from "next/server";
+import { agentFindingViewer } from "@/lib/security-findings";
 import { agentIssueRequest, issueProject } from "@/lib/agent-api/issues";
 import { readAgentIdea } from "@/lib/agent-api/ideas";
 
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   const { id } = await context.params;
   return agentIssueRequest(request, "ideas.read", "read", id, async (agent) => {
     const scope = await issueProject(agent, request.nextUrl.searchParams);
-    return NextResponse.json({ idea: await readAgentIdea(scope, id) });
+    return NextResponse.json({ idea: await readAgentIdea(scope, id, await agentFindingViewer(agent)) });
   });
 }
 

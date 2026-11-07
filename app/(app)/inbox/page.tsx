@@ -4,13 +4,15 @@ import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationIdFor, notificationInOrganisation } from "@/lib/organisation-context";
 import { countPendingEscalations } from "@/lib/agent-questions";
 import { parseInboxTrack } from "@/lib/my-work-filter";
+import { countOpenRequestsForUser } from "@/lib/support-threads";
 import { NotificationsView } from "./notifications-view";
 import { EscalationsView } from "./escalations-view";
 import { MessagesView } from "./messages-view";
+import { RequestsView } from "./requests-view";
 
 export const metadata = { title: "Inbox" };
 
-type Params = { tab?: string; scope?: string | string[]; page?: string | string[]; status?: string; track?: string | string[]; agent?: string };
+type Params = { tab?: string; scope?: string | string[]; page?: string | string[]; status?: string; track?: string | string[]; agent?: string; thread?: string };
 
 const TRACK_OPTIONS = [
   { value: "all", label: "All work" },
@@ -25,11 +27,12 @@ const TRACK_OPTIONS = [
 export default async function InboxPage({ searchParams }: { searchParams?: Promise<Params> }) {
   const user = await requireUser();
   const params = (await searchParams) ?? {};
-  const tab = params.tab === "escalations" ? "escalations" : params.tab === "messages" ? "messages" : "notifications";
+  const tab = params.tab === "escalations" ? "escalations" : params.tab === "messages" ? "messages" : params.tab === "requests" ? "requests" : "notifications";
   const organisationId = await currentOrganisationIdFor(user.id);
-  const [unread, waiting] = await Promise.all([
+  const [unread, waiting, openRequestsCount] = await Promise.all([
     prisma.notification.count({ where: { userId: user.id, readAt: null, ...notificationInOrganisation(organisationId, false) } }),
     organisationId ? countPendingEscalations(user.id, organisationId).catch(() => 0) : Promise.resolve(0),
+    organisationId ? countOpenRequestsForUser(user.id, organisationId).catch(() => 0) : Promise.resolve(0),
   ]);
   const track = parseInboxTrack(params.track);
   const trackQuery = track === "all" ? "" : `track=${track}`;
@@ -37,6 +40,7 @@ export default async function InboxPage({ searchParams }: { searchParams?: Promi
     { value: "notifications", label: "Notifications", href: trackQuery ? `/inbox?${trackQuery}` : "/inbox", count: unread },
     { value: "escalations", label: "Escalations", href: `/inbox?tab=escalations${trackQuery ? `&${trackQuery}` : ""}`, count: waiting },
     { value: "messages", label: "Messages", href: "/inbox?tab=messages", count: 0 },
+    { value: "requests", label: "Requests", href: "/inbox?tab=requests", count: openRequestsCount },
   ] as const;
   // Changing the track keeps the tab and its own filter, and goes back to the first page.
   const trackHref = (value: (typeof TRACK_OPTIONS)[number]["value"]) => {
@@ -93,6 +97,8 @@ export default async function InboxPage({ searchParams }: { searchParams?: Promi
         <MessagesView agent={params.agent} />
       ) : tab === "escalations" ? (
         <EscalationsView searchParams={Promise.resolve({ status: params.status, track })} />
+      ) : tab === "requests" ? (
+        <RequestsView thread={params.thread} />
       ) : (
         <NotificationsView searchParams={Promise.resolve({ scope: params.scope, page: params.page, track })} />
       )}

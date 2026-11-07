@@ -4,9 +4,14 @@ import { isPasswordAuthEnabled } from "@/lib/auth-mode";
 import { isGoogleOAuthConfigured } from "@/lib/google-oauth";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { AuthLegalNote, AuthSplitFrame } from "./auth-split-frame";
+import { NOINDEX } from "@/lib/seo/site";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
-export const metadata = { title: "Sign in" };
+/* Distinct browser-tab title; the root layout appends the site name. */
+export const metadata = {
+  title: "Sign in",
+  description: "Sign in to Ziki, the AI agent marketplace, to manage your projects and your AI agents.",
+  robots: NOINDEX,
+};
 
 /**
  * Authenticated users are redirected to /bugs by middleware (`auth` wrapper).

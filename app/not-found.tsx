@@ -3,8 +3,9 @@ import {
   StatusPage,
   primaryActionClass,
 } from "@/components/status-page";
+import { NOINDEX } from "@/lib/seo/site";
 
-export const metadata = { title: "Page not found" };
+export const metadata = { title: "Page not found", robots: NOINDEX };
 
 /** Any URL the app doesn't have a route for (#214). */
 export default function NotFound() {

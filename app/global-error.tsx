@@ -30,10 +30,10 @@ export default function GlobalError({
           fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif",
         }}
       >
-        <title>Something went wrong · Ziki Issues</title>
+        <title>Something went wrong | Ziki - AI Agent Marketplace</title>
         <main style={{ maxWidth: 448, margin: "0 auto", padding: "96px 16px" }}>
           <h1 style={{ fontSize: 24, fontWeight: 600, margin: "0 0 12px" }}>
-            Ziki Issues couldn&apos;t load
+            Ziki couldn&apos;t load
           </h1>
           <p style={{ fontSize: 14, lineHeight: "24px", color: "#475569", margin: "0 0 20px" }}>
             Something went wrong on our side. Trying again usually works.

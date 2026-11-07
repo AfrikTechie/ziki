@@ -6,6 +6,7 @@ import { findIdea } from "@/lib/agent-api/ideas";
 import { prisma } from "@/lib/prisma";
 import { formatStructuredDescription, type IdeaStructureInput } from "@/lib/ideas";
 import { audit } from "@/lib/agents/audit";
+import { isPrivateFinding, PRIVATE_FINDING_EDIT_MESSAGE } from "@/lib/security-findings";
 
 type Params = { id: string };
 
@@ -27,6 +28,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<P
     });
     if (idea.status !== "open") {
       throw new IssueApiError(400, "Only open ideas can be structured.");
+    }
+    if (await isPrivateFinding({ ideaId: idea.id })) {
+      throw new IssueApiError(409, PRIVATE_FINDING_EDIT_MESSAGE, { error: "security_finding_private", message: PRIVATE_FINDING_EDIT_MESSAGE });
     }
 
     const nextTitle = body.title?.trim() || idea.title;

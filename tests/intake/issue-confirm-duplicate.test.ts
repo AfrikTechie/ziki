@@ -43,6 +43,8 @@ const db = vi.hoisted(() => ({
   comment: { create: vi.fn(async () => ({ id: "comment1" })) },
   user: { findUnique: vi.fn(async () => ({ name: "Ada" })) },
   issueClaim: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
+  supportThread: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
+  notification: { createMany: vi.fn() },
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));

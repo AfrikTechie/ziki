@@ -193,6 +193,18 @@ describe("prGate (#pr-reports)", () => {
     expect(prGate(report({ mergeable: false }), issue())).toMatchObject({ canAccept: false, needsReport: false });
   });
 
+  it("refuses an accept when checks are unknown or unavailable, and asks for a report", () => {
+    expect(prGate(report({ checks: "unknown" }), issue())).toMatchObject({ canDeliver: true, canAccept: false, needsReport: true });
+    expect(prGate(report({ checks: "pending" }), issue())).toMatchObject({ canDeliver: true, canAccept: false, needsReport: true });
+  });
+
+  it("empty check detail alone cannot enable acceptance", () => {
+    // Empty checkRuns derives "unknown", not "none", so it cannot satisfy the gate.
+    expect(prGate(report({ checks: "unknown" }), issue())).toMatchObject({ canAccept: false, needsReport: true });
+    // Only explicit "none" (no checkRuns) can enable acceptance when checks are truly not configured.
+    expect(prGate(report({ checks: "none" }), issue())).toMatchObject({ canAccept: true });
+  });
+
   it("resolves a merge the default branch contains, and waits for a release otherwise", () => {
     expect(prGate(report({ state: "merged", mergedInto: "main", inDefaultBranch: true }), issue())).toMatchObject({ canReconcile: true, canDeliver: false, canAccept: false, awaitingRelease: false });
     const staging = prGate(report({ state: "merged", mergedInto: "staging", inDefaultBranch: false }), issue());

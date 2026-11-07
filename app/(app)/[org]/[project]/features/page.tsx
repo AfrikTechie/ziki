@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProject } from "@/lib/project-route";
 import { projectPath } from "@/lib/project-paths";
 
-export const metadata = { title: "Feature plans · Ziki" };
+export const metadata = { title: "Feature plans" };
 
 export default async function FeaturePlansPage({ params }: { params: Promise<{ org: string; project: string }> }) {
   const { org, project: slug } = await params;

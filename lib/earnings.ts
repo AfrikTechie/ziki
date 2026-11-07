@@ -80,8 +80,9 @@ export async function headerEarnings(db: Db, userId: string, organisationId: str
     db.projectMembership.findFirst({ where: { userId }, select: { id: true } }),
   ]);
   if (!entry && !joined) return null;
-  // What you earned in the workspace you're in (Chloe's call); Withdraw still shows your total.
-  return entry ? totalEarned(db, userId, organisationId) : 0;
+  // What you earned in the workspace you're in (Chloe's call); Withdraw still shows your total. Once it shows, it is
+  // the real amount, the signup bonus included: someone who just joined sees their $0.67, not $0.
+  return totalEarned(db, userId, organisationId);
 }
 
 /** A held award, as lib/points/payout.ts keeps it on the issue. */
@@ -102,6 +103,24 @@ export async function beingChecked(db: Db, userId: string, organisationId: strin
     }
   }
   return held;
+}
+
+/** What a person has earned in each workspace (#862), biggest first. Withdraw and the header $ are for one of them. */
+export type WorkspaceTotal = { organisationId: string; name: string; total: number };
+
+export function workspaceTotals(rows: readonly { organisationId: string; name: string; total: number }[]): WorkspaceTotal[] {
+  return rows
+    .filter((row) => Math.abs(row.total) > 0.004)
+    .map((row) => ({ organisationId: row.organisationId, name: row.name, total: row.total }))
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+}
+
+export async function earningsByWorkspace(db: Db, userId: string): Promise<WorkspaceTotal[]> {
+  const grouped = await db.pointEntry.groupBy({ by: ["organisationId"], where: { userId }, _sum: { points: true } });
+  if (grouped.length === 0) return [];
+  const organisations = await db.organisation.findMany({ where: { id: { in: grouped.map((row) => row.organisationId) } }, select: { id: true, name: true } });
+  const nameOf = new Map(organisations.map((organisation) => [organisation.id, organisation.name]));
+  return workspaceTotals(grouped.map((row) => ({ organisationId: row.organisationId, name: nameOf.get(row.organisationId) ?? "Another workspace", total: pointsNumber(row._sum.points) })));
 }
 
 /** Where the money came from, in the few groups a person thinks in. Order is the bar's order. */
@@ -141,43 +160,22 @@ export type EarningsActivity = { id: string; who: string; did: string; ref: stri
  * workspace you belong to, every project in it; in one you only joined a project of (from Discover), just the
  * projects you joined there.
  */
-export type TaskScope = { organisationId: string; name: string; projectIds: string[] | null };
-
 /**
- * The scope for the switcher's selection, given as `<org>` or `<org>/<project>` (the header's current project), or
- * the person's active workspace when nothing is selected. Null when they can't work anywhere in it.
+ * Your earnings (#earnings, Chloe's call): everything, in every workspace and project you're in. The money is all of
+ * yours, and the tasks are the best-paying open ones wherever you can work. Withdraw is the one that shows a single
+ * workspace (app/(app)/earnings/withdraw-actions.ts).
  */
-export async function taskScopeFor(db: Db, userId: string, selected: string | null, activeOrganisationId: string | null): Promise<TaskScope | null> {
-  const slug = selected ? decodeURIComponent(selected.split("/")[0] ?? "") : "";
-  const organisation = slug
-    ? await db.organisation.findUnique({ where: { slug }, select: { id: true, name: true } })
-    : activeOrganisationId
-      ? await db.organisation.findUnique({ where: { id: activeOrganisationId }, select: { id: true, name: true } })
-      : null;
-  if (!organisation) return null;
-  const [member, joined] = await Promise.all([
-    db.membership.findUnique({ where: { organisationId_userId: { organisationId: organisation.id, userId } }, select: { id: true } }),
-    db.projectMembership.findMany({ where: { userId, project: { organisationId: organisation.id, archivedAt: null } }, select: { projectId: true } }),
-  ]);
-  if (member) return { organisationId: organisation.id, name: organisation.name, projectIds: null };
-  if (joined.length) return { organisationId: organisation.id, name: organisation.name, projectIds: joined.map((row) => row.projectId) };
-  return null;
-}
-
-export async function earningsSummary(db: Db, userId: string, scope: TaskScope | null = null) {
-  // Everything on the page is for the selected workspace only (Chloe's call: no total across workspaces).
-  const inOrg = scope?.organisationId ?? null;
-  const here = inOrg ? { organisationId: inOrg } : {};
+export async function earningsSummary(db: Db, userId: string) {
   const weekStart = startOfWeek();
-  const [total, checking, week, goalRow, byRole, solvedCount, latest, projectMemberships] = await Promise.all([
-    totalEarned(db, userId, inOrg),
-    beingChecked(db, userId, inOrg),
-    db.pointEntry.aggregate({ where: { userId, ...here, createdAt: { gte: weekStart } }, _sum: { points: true } }),
+  const [total, checking, week, goalRow, byRole, solvedCount, latest, projectMemberships, memberships] = await Promise.all([
+    totalEarned(db, userId),
+    beingChecked(db, userId),
+    db.pointEntry.aggregate({ where: { userId, createdAt: { gte: weekStart } }, _sum: { points: true } }),
     db.user.findUnique({ where: { id: userId }, select: { weeklyEarningsGoal: true } }),
-    db.pointEntry.groupBy({ by: ["role"], where: { userId, ...here }, _sum: { points: true } }),
-    db.pointEntry.count({ where: { userId, ...here, role: "solver", points: { gt: 0 } } }),
+    db.pointEntry.groupBy({ by: ["role"], where: { userId }, _sum: { points: true } }),
+    db.pointEntry.count({ where: { userId, role: "solver", points: { gt: 0 } } }),
     db.pointEntry.findMany({
-      where: { userId, ...here },
+      where: { userId },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 6,
       select: {
@@ -191,6 +189,7 @@ export async function earningsSummary(db: Db, userId: string, scope: TaskScope |
       },
     }),
     db.projectMembership.findMany({ where: { userId }, select: { projectId: true } }),
+    db.membership.findMany({ where: { userId, organisation: { archivedAt: null } }, select: { organisationId: true } }),
   ]);
 
   const amountOf = new Map(byRole.map((row) => [row.role, pointsNumber(row._sum.points)]));
@@ -200,25 +199,29 @@ export async function earningsSummary(db: Db, userId: string, scope: TaskScope |
     amount: group.roles.reduce((sum, role) => sum + (amountOf.get(role) ?? 0), 0),
   })).filter((source) => source.amount > 0.004);
 
-  // The tasks that pay the most in the selected workspace or project; with nothing to work on there, the
-  // best-paying tasks in projects open to join, so there is always somewhere to start.
+  // The tasks that pay the most wherever you can work: every workspace you're in and every project you joined. With
+  // nothing to work on there, the best-paying tasks in projects open to join, so there is always somewhere to start.
   const projectIds = projectMemberships.map((row) => row.projectId);
-  const open = await db.bug.findMany({
-        where: {
-          status: "open",
-          substatus: "open",
-          isDeleted: false,
-          ...(scope
-            ? { organisationId: scope.organisationId, ...(scope.projectIds ? { projectId: { in: scope.projectIds } } : {}) }
-            : { project: { visibility: "public", isOpenForContributors: true, archivedAt: null } }),
-        },
-        orderBy: [{ reward: "desc" }, { createdAt: "desc" }],
-        take: 4,
-        select: { id: true, number: true, title: true, reward: true, _count: { select: { bids: true } }, project: { select: { name: true, slug: true, organisation: { select: { slug: true } } } } },
-      });
+  const organisationIds = memberships.map((row) => row.organisationId);
+  const openTask = { status: "open" as const, substatus: "open" as const, isDeleted: false };
+  const taskSelect = { id: true, number: true, title: true, reward: true, _count: { select: { bids: true } }, project: { select: { name: true, slug: true, organisation: { select: { slug: true } } } } };
+  const best = (where: Prisma.BugWhereInput) =>
+    db.bug.findMany({ where: { ...openTask, ...where }, orderBy: [{ reward: "desc" }, { createdAt: "desc" }], take: 4, select: taskSelect });
+  const yours = organisationIds.length || projectIds.length
+    ? await best({
+        project: { archivedAt: null },
+        OR: [
+          ...(organisationIds.length ? [{ organisationId: { in: organisationIds } }] : []),
+          ...(projectIds.length ? [{ projectId: { in: projectIds } }] : []),
+        ],
+      })
+    : [];
+  const open = yours.length ? yours : await best({ project: { visibility: "public", isOpenForContributors: true, archivedAt: null } });
 
   return {
     joinedProjects: projectIds.length,
+    /** True when the tasks are in places you work (you can bid); false for the fallback, projects open to join. */
+    tasksAreYours: yours.length > 0,
     total,
     checking,
     earnedThisWeek: pointsNumber(week._sum.points),

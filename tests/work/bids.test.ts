@@ -6,9 +6,10 @@ const db = vi.hoisted(() => {
     bug: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     bugActivity: { createMany: vi.fn(), create: vi.fn() },
     issueBid: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    issueClaim: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
+    issueClaim: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
+    pointEntry: { findMany: vi.fn() },
     bidVote: { findMany: vi.fn(), deleteMany: vi.fn() },
-    agent: { findFirst: vi.fn() },
+    agent: { findFirst: vi.fn(), findMany: vi.fn() },
     projectWorkflow: { findUnique: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -31,6 +32,8 @@ vi.mock("@/lib/agent-api/offer", async (original) => ({
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
 import { parseBid, placeBid, withdrawBid } from "@/lib/agent-api/bid";
+import { bidderRecordsForBids } from "@/lib/bidder-record-data";
+import { summarizeBidderRecord, type BidderOutcomeEvent } from "@/lib/bidder-record";
 import { resetWorkflowCache } from "@/lib/workflow";
 
 const caller = {
@@ -53,7 +56,10 @@ beforeEach(() => {
   db.$queryRaw.mockResolvedValue([{ id: "issue1" }]);
   db.bug.findFirst.mockResolvedValue({ id: "issue1", projectId: "project", status: "open", substatus: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
   db.issueClaim.findFirst.mockResolvedValue(null);
+  db.issueClaim.findMany.mockResolvedValue([]);
   db.issueClaim.count.mockResolvedValue(0);
+  db.pointEntry.findMany.mockResolvedValue([]);
+  db.agent.findMany.mockResolvedValue([]);
   db.projectWorkflow.findUnique.mockResolvedValue(null);
   db.agent.findFirst.mockResolvedValue(null);
   db.issueBid.updateMany.mockResolvedValue({ count: 1 });
@@ -180,5 +186,128 @@ describe("withdrawBid", () => {
     await withdrawBid(caller, "project", "issue1");
     expect(db.issueBid.updateMany.mock.calls[0][0].data.withdrawnAt).toBeInstanceOf(Date);
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.bid_withdrawn" }));
+  });
+});
+
+describe("bidder records (#825)", () => {
+  const at = (day: number) => new Date(`2026-10-${String(day).padStart(2, "0")}T12:00:00Z`);
+  const event = (overrides: Partial<BidderOutcomeEvent>): BidderOutcomeEvent => ({
+    issueId: "issue1",
+    issueNumber: 1,
+    title: "Fix login",
+    path: "/zedu/ziki/1",
+    outcome: "finished",
+    at: at(1),
+    areaId: "area-auth",
+    agentId: "agent1",
+    ...overrides,
+  });
+  const agents = [{ id: "agent1", name: "Ada's Claude", username: "adas-claude" }];
+
+  it("counts each issue once, with finished beating a drop of the same issue", () => {
+    const record = summarizeBidderRecord(
+      [
+        event({}),
+        event({ outcome: "dropped", at: at(2) }),
+        event({ issueId: "issue2", issueNumber: 2, path: "/zedu/ziki/2", outcome: "dropped", at: at(3) }),
+        event({ issueId: "issue3", issueNumber: 3, path: "/zedu/ziki/3", outcome: "dropped", at: at(4) }),
+      ],
+      agents,
+      { id: "area-auth", name: "Auth" },
+    );
+    expect(record.finished).toBe(1);
+    expect(record.dropped).toBe(2);
+    expect(record.finishRate).toBe(33);
+    expect(record.newHere).toBe(false);
+    expect(record.areaFixes).toBe(1);
+  });
+
+  it("shows only the last ten tasks, newest first, and counts the form from them", () => {
+    const events = Array.from({ length: 12 }, (_, index) =>
+      event({
+        issueId: `issue${index}`,
+        issueNumber: index + 1,
+        path: `/zedu/ziki/${index + 1}`,
+        outcome: index === 5 ? "dropped" : "finished",
+        at: at(index + 1),
+      }),
+    );
+    const record = summarizeBidderRecord(events, agents, null);
+    expect(record.recent).toHaveLength(10);
+    expect(record.recent[0]?.issueId).toBe("issue11");
+    expect(record.recentFinished).toBe(9);
+    expect(record.finished).toBe(11);
+    expect(record.dropped).toBe(1);
+  });
+
+  it("says New here under three tasks", () => {
+    const record = summarizeBidderRecord(
+      [event({}), event({ issueId: "issue2", issueNumber: 2, path: "/zedu/ziki/2" })],
+      agents,
+      null,
+    );
+    expect(record.newHere).toBe(true);
+  });
+
+  it("loads every bid owner's record in organisation-scoped batched queries", async () => {
+    db.pointEntry.findMany.mockResolvedValue([
+      {
+        userId: "ada",
+        agentId: "agent1",
+        createdAt: at(3),
+        bug: { id: "bug1", number: 1, title: "Fix login", organisationId: "organisation", areaId: "area-auth", isDeleted: false, project: { slug: "ziki", organisation: { slug: "zedu" } } },
+      },
+      {
+        userId: "ada",
+        agentId: "agent1",
+        createdAt: at(2),
+        bug: { id: "foreign", number: 9, title: "Elsewhere", organisationId: "other", areaId: null, isDeleted: false, project: { slug: "ziki", organisation: { slug: "other" } } },
+      },
+    ]);
+    db.issueClaim.findMany.mockResolvedValue([
+      {
+        beneficiaryUserId: "ada",
+        agentId: "agent1",
+        releasedAt: at(4),
+        bug: { id: "bug2", number: 2, title: "Old task", areaId: "area-auth", project: { slug: "ziki", organisation: { slug: "zedu" } } },
+      },
+    ]);
+    db.agent.findMany.mockResolvedValue([
+      { id: "agent1", ownerUserId: "ada", name: "Ada's Claude", username: "adas-claude" },
+    ]);
+
+    const records = await bidderRecordsForBids(
+      { organisationId: "organisation", areaId: "area-auth", areaName: "Auth" },
+      [{ beneficiaryUserId: "ada" }, { beneficiaryUserId: "ada" }],
+    );
+
+    expect(db.pointEntry.findMany).toHaveBeenCalledTimes(1);
+    expect(db.issueClaim.findMany).toHaveBeenCalledTimes(1);
+    expect(db.agent.findMany).toHaveBeenCalledTimes(1);
+    expect(db.pointEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        organisationId: "organisation",
+        userId: { in: ["ada"] },
+        role: "solver",
+        points: { gt: 0 },
+        correctedAt: null,
+        sourceKey: { not: { startsWith: "multiplier:" } },
+      }),
+    }));
+    expect(db.issueClaim.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        releaseReason: { in: ["silence", "deadline", "abandoned"] },
+        bug: { organisationId: "organisation", isDeleted: false },
+      }),
+    }));
+
+    const record = records.get("ada")!;
+    expect(record.finished).toBe(1);
+    expect(record.dropped).toBe(1);
+    expect(record.areaFixes).toBe(1);
+    expect(record.recent.map((task) => task.path)).toEqual(["/zedu/ziki/2", "/zedu/ziki/1"]);
+    expect(record.agents).toEqual([
+      { id: "agent1", name: "Ada's Claude", username: "adas-claude", finished: 1, dropped: 1 },
+    ]);
   });
 });
