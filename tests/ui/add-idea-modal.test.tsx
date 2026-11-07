@@ -424,6 +424,329 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     );
   });
 
+  it("supports correcting AI interpretation for broken product image listing and generates specific issue draft without generic upload steps", async () => {
+    const user = userEvent.setup();
+    const mockTrack = { stop: vi.fn(), onended: null };
+    const mockStream = {
+      getTracks: vi.fn(() => [mockTrack]),
+      getVideoTracks: vi.fn(() => [mockTrack]),
+    };
+
+    class MockMediaRecorder {
+      state = "inactive";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["recorded video chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    // Initial interpretation missed the broken image
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior: "User scrolled on the products page",
+        context: "Products page",
+        intent: "Browse products",
+        isAmbiguous: true,
+      },
+      draft: {
+        title: "Product browsing issue",
+        description: "## Summary\nUser scrolled on products page.",
+        suggestedType: "Bug",
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("User scrolled on the products page")).toBeTruthy();
+    });
+
+    // Open clarification and enter correction
+    await user.click(screen.getByRole("button", { name: /\+ Clarify or correct/i }));
+    const correctionInput = screen.getByPlaceholderText(/Actually, the bug only happens/i);
+    await user.type(
+      correctionInput,
+      "I'm reporting the broken image on the whambar product listing"
+    );
+
+    // Mock AI refinement incorporating the product listing correction
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior: "The whambar product listing displays a broken or missing product image",
+        context: "whambar product listing",
+        intent: "Report broken product image",
+        isAmbiguous: false,
+      },
+      draft: {
+        title: "Broken image on whambar product listing",
+        description: [
+          "## Summary",
+          "The whambar product listing displays a broken or missing image instead of the expected product photo.",
+          "",
+          "## Steps to Reproduce",
+          "1. Navigate to the view containing the whambar product listing.",
+          "2. Locate the product image container on the whambar product listing.",
+          "3. Observe that the image fails to load or renders as a broken asset.",
+          "",
+          "## Expected Behavior",
+          "The whambar product listing should display a valid, properly rendered image.",
+          "",
+          "## Actual Behavior",
+          "The product image fails to load and displays a broken image icon or empty placeholder.",
+        ].join("\n"),
+        suggestedType: "Bug",
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: /Update with correction/i }));
+
+    await waitFor(() => {
+      expect(mockedInterpretVisual).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("The whambar product listing displays a broken or missing product image")
+      ).toBeTruthy();
+    });
+
+    // Confirm understanding and proceed to draft
+    await user.click(screen.getByRole("button", { name: /Confirm & continue to draft/i }));
+
+    expect(screen.getByText("Review issue draft")).toBeTruthy();
+    const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
+    expect(titleInput.value).toBe("Broken image on whambar product listing");
+    expect(titleInput.value).not.toContain("I'm reporting");
+
+    const descInput = screen.getByLabelText("Description") as HTMLTextAreaElement;
+    expect(descInput.value).toContain("whambar product listing");
+    expect(descInput.value).not.toContain("file upload");
+    expect(descInput.value).not.toContain("Upload");
+
+    // Submit issue
+    await user.click(screen.getByRole("button", { name: "Submit idea" }));
+    await waitFor(() => {
+      expect(mockedCreateBug).toHaveBeenCalledTimes(1);
+    });
+    const formData = mockedCreateBug.mock.calls[0][0];
+    expect(formData.get("title")).toBe("Broken image on whambar product listing");
+    expect(formData.get("description")).toContain("whambar product listing");
+  });
+
+  it("combines Wham Bars product card context with brief 'the image is broken.' clarification without fabricating upload steps", async () => {
+    const user = userEvent.setup();
+
+    const mockStream = {
+      getTracks: () => [
+        {
+          stop: vi.fn(),
+          kind: "video",
+          enabled: true,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        },
+      ],
+      getVideoTracks: () => [
+        {
+          stop: vi.fn(),
+          kind: "video",
+          enabled: true,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        },
+      ],
+      getAudioTracks: () => [],
+    };
+
+    class MockMediaRecorder {
+      state = "recording";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      stream: unknown;
+
+      constructor(stream: unknown) {
+        this.stream = stream;
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["video-chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    // Initial interpretation correctly identifies Wham Bars product card, price, button, empty area, but ambiguous intent
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior:
+          "Wham Bars product card with description, price (£0.15), and Add to Basket button has a large empty space",
+        context: "Wham Bars product card",
+        intent: "Ambiguous intent",
+        isAmbiguous: true,
+      },
+      draft: {
+        title: "Wham Bars product card layout",
+        description: "## Summary\nWham Bars product card has an empty area.",
+        suggestedType: "Bug",
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Wham Bars product card with description, price (£0.15), and Add to Basket button has a large empty space"
+        )
+      ).toBeTruthy();
+    });
+
+    // Open clarification and enter brief correction
+    await user.click(screen.getByRole("button", { name: /\+ Clarify or correct/i }));
+    const correctionInput = screen.getByPlaceholderText(/Actually, the bug only happens/i);
+    await user.type(correctionInput, "the image is broken.");
+
+    // AI refinement combines Wham Bars context with the clarification
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior:
+          "The Wham Bars product card displays a broken or missing image instead of the expected product photo.",
+        context: "Wham Bars product card",
+        intent: "Report defect on Wham Bars product card",
+        isAmbiguous: false,
+      },
+      draft: {
+        title: "Broken image on Wham Bars product card",
+        description: [
+          "## Summary",
+          "The Wham Bars product card displays a broken or missing image instead of the expected product photo.",
+          "",
+          "## Steps to Reproduce",
+          "1. Navigate to the product listing containing the Wham Bars product card.",
+          "2. Locate the Wham Bars product card (price £0.15 with Add to Basket button).",
+          "3. Observe that the product image area inside the card is blank or broken.",
+          "",
+          "## Expected Behavior",
+          "The Wham Bars product card should display a valid, properly rendered image.",
+          "",
+          "## Actual Behavior",
+          "The Wham Bars product image fails to load, leaving an empty area inside the product card.",
+        ].join("\n"),
+        suggestedType: "Bug",
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: /Update with correction/i }));
+
+    await waitFor(() => {
+      expect(mockedInterpretVisual).toHaveBeenCalledTimes(2);
+    });
+
+    // Check arguments of the second call: must have passed previousUnderstanding and clarification
+    const secondCallArgs = mockedInterpretVisual.mock.calls[1][0];
+    expect(secondCallArgs.clarification).toBe("the image is broken.");
+    expect(secondCallArgs.previousUnderstanding).toContain("Wham Bars product card");
+    expect(secondCallArgs.previousUnderstanding).toContain("£0.15");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "The Wham Bars product card displays a broken or missing image instead of the expected product photo."
+        )
+      ).toBeTruthy();
+    });
+
+    // Confirm understanding and proceed to draft
+    await user.click(screen.getByRole("button", { name: /Confirm & continue to draft/i }));
+
+    expect(screen.getByText("Review issue draft")).toBeTruthy();
+    const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
+    expect(titleInput.value).toBe("Broken image on Wham Bars product card");
+    expect(titleInput.value).not.toBe("the image is broken.");
+
+    const descInput = screen.getByLabelText("Description") as HTMLTextAreaElement;
+    expect(descInput.value).toContain("Wham Bars product card");
+    expect(descInput.value).toContain("price £0.15 with Add to Basket button");
+    expect(descInput.value).not.toContain("file upload");
+    expect(descInput.value).not.toContain("upload");
+    expect(descInput.value).not.toContain("Upload");
+
+    // Submit issue
+    await user.click(screen.getByRole("button", { name: "Submit idea" }));
+    await waitFor(() => {
+      expect(mockedCreateBug).toHaveBeenCalledTimes(1);
+    });
+    const formData = mockedCreateBug.mock.calls[0][0];
+    expect(formData.get("title")).toBe("Broken image on Wham Bars product card");
+    expect(formData.get("description")).toContain("Wham Bars product card");
+  });
+
   it("integrates tenant issue types into the review selector", async () => {
     const user = userEvent.setup();
     const customTypes = [

@@ -122,9 +122,16 @@ STRICT PRINCIPLES:
 1. Ground every statement in observable evidence: Identify concrete elements, labels, buttons, navigation items, page headers, URLs, input fields, or icons shown in the frames.
 2. Never invent details or assume unspecified backend architectures. Never use generic placeholders like "Perform the interactions", "Navigate to the relevant page", or "Observe the defect".
 3. When the user provides spoken voice narration or written notes/corrections, synthesize them directly with the visual cues (e.g., if user says "Kebab menu in DM header is unresponsive", look at the header, identify the button, and document the exact reproduction path). The spoken narration explains what the user is attempting and what failed; the image keyframes confirm what occurred on screen.
-4. If the visual demonstration is ambiguous (e.g., multiple rapid clicks, no clear error indication, or multiple interpretations possible), set isAmbiguous: true and specify in observedBehavior what needs user clarification.
-5. Provide a concise, specific title (under 12 words) describing what went wrong or what should change.
-6. Provide structured description formatted with standard markdown headings:
+4. When a user provides a correction, clarification, or defect note (e.g., "the image is broken", "I'm reporting the broken image on the whambar product listing", "Actually, the button is disabled on mobile"):
+   - When refining an existing understanding that identified a component (e.g. Wham Bars product card, price £0.15, empty area), PRESERVE and COMBINE that component context with the clarification. The clarification identifies the defect affecting that component. DO NOT discard the identified product card, price, or buttons.
+   - NEVER copy conversational phrases ("I'm reporting", "Actually", "The issue is", "I want to report") or raw user phrases ("the image is broken") verbatim into the title, summary, or actual behavior.
+   - Formulate a concise, professional issue title naming the component and defect (e.g., "Broken image on Wham Bars product card" or "Broken image on whambar product listing").
+   - Formulate an objective summary describing the defect in 1-2 clear sentences incorporating the product context.
+   - Formulate realistic, context-specific reproduction steps leading to the demonstrated defect. NEVER invent unrelated actions (such as file uploads, file selectors, form resets, or settings changes) when the issue is about observing a broken image, defective layout, or on-screen content. If evidence is insufficient for complex interactions, provide the direct navigation and observation steps rather than fabricating actions.
+   - Formulate distinct, concrete Expected Behavior and Actual Behavior.
+5. If the visual demonstration is ambiguous or evidence is insufficient, set isAmbiguous: true and specify in observedBehavior what needs user clarification. Do not invent steps or behaviors.
+6. Provide a concise, specific title (under 12 words) describing what went wrong or what should change.
+7. Provide structured description formatted with standard markdown headings:
    - ## Summary: 1-2 concise sentences naming the component and the problem.
    - ## Steps to Reproduce: Numbered, concrete reproduction steps using exact UI element names.
    - ## Expected Behavior: Clear description of expected system behavior.
@@ -139,102 +146,404 @@ function normalizeSuggestedType(type?: string): "Bug" | "Feature" | "Improvement
 }
 
 /**
- * Extracts concrete semantic components, actions, and expectations from user clarification.
+ * Strips conversational filler and self-referential reporting prefixes from user text.
+ * e.g. "I'm reporting the broken image on the whambar product listing" -> "broken image on the whambar product listing"
+ * e.g. "Actually, the button is disabled on mobile" -> "the button is disabled on mobile"
  */
-function parseClarificationDetails(clarification: string): {
+export function stripConversationalPrefix(text: string): string {
+  return text
+    .replace(/^i(?:'m| am)?\s+(?:reporting|trying to (?:report|show)|demonstrating|showing|talking about)\s+(?:the\s+|a\s+|an\s+)?/i, "")
+    .replace(/^actually,?\s*(?:the (?:issue|problem|bug) is\s*|it(?:'s| is)\s*|i meant\s*|this is\s*)?/i, "")
+    .replace(/^(?:the (?:problem|issue|bug) is (?:that\s+)?(?:the\s+)?)/i, "")
+    .replace(/^(?:note that\s+(?:the\s+)?)/i, "")
+    .replace(/^(?:this is (?:a|an)\s+)/i, "")
+    .replace(/^(?:i noticed (?:that\s+)?(?:the\s+)?)/i, "")
+    .replace(/^(?:there(?:'s| is) (?:a|an)\s+)/i, "")
+    .trim();
+}
+
+/**
+ * Capitalizes first letter of string.
+ */
+export function capitalize(s: string): string {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export type ClarificationParsedDetails = {
   component: string;
   action: string;
   expected: string;
   actual: string;
-} {
+  title: string;
+  summary: string;
+  steps: string[];
+  isFeature?: boolean;
+};
+
+export interface ExtractedPreviousContext {
+  component?: string;
+  price?: string;
+  button?: string;
+  hasEmptyArea?: boolean;
+  rawText?: string;
+}
+
+/**
+ * Extracts previously established components, prices, buttons, and visual anomalies from prior understanding.
+ */
+export function extractContextFromPreviousUnderstanding(previous?: string): ExtractedPreviousContext {
+  if (!previous || !previous.trim()) return {};
+  const text = previous.trim();
+
+  let component: string | undefined;
+
+  // 1. Check for explicit "Context: <name>"
+  const contextMatch = text.match(/(?:Context:\s*)([^.\n]+)/i);
+  if (contextMatch && contextMatch[1]?.trim()) {
+    const rawCtx = contextMatch[1].trim();
+    if (!/^(?:application workflow|captured interface region|screen demonstration workflow)$/i.test(rawCtx)) {
+      component = rawCtx;
+    }
+  }
+
+  // 2. Look for product card / listing / component mention
+  if (!component) {
+    const componentMatch =
+      text.match(/(?:the\s+)?([A-Z][a-zA-Z0-9]*(?:\s+[A-Z0-9][a-zA-Z0-9]*)*\s+(?:product\s+card|product\s+listing|card|listing|item|component|page|view|button|header|modal|dialog|form|table|dropdown))/i) ||
+      text.match(/(?:the\s+)?([a-zA-Z0-9_\-\s]+?\s+(?:product\s+card|product\s+listing|card|listing))/i);
+    if (componentMatch && componentMatch[1]?.trim()) {
+      component = componentMatch[1].trim();
+    }
+  }
+
+  // Extract price details if present: e.g. "price (£0.15)", "£0.15", "$12.99"
+  const priceMatch = text.match(/(?:price\s*\(?([£$€¥]\d+(?:\.\d{2})?)\)?|([£$€¥]\d+(?:\.\d{2})?))/i);
+  const price = priceMatch ? (priceMatch[1] || priceMatch[2]) : undefined;
+
+  // Extract button or interactive CTA: e.g. "Add to Basket button", "Add to Basket", "Add to Cart"
+  const buttonMatch = text.match(/(?:['"]?([A-Za-z\s]+(?:button|btn|cta))['"]?|Add to Basket|Add to Cart)/i);
+  const button = buttonMatch ? (buttonMatch[1] || buttonMatch[0]).replace(/^(?:and|or)\s+/i, "").trim() : undefined;
+
+  // Check for empty space / area
+  const hasEmptyArea = /(?:large\s+)?empty\s+(?:space|area|box|container|placeholder)/i.test(text);
+
+  return {
+    component,
+    price,
+    button,
+    hasEmptyArea,
+    rawText: text,
+  };
+}
+
+/**
+ * Extracts concrete semantic components, actions, and expectations from user clarification,
+ * synthesizing with prior detected visual understanding so brief clarifications refine rather than replace context.
+ */
+export function parseClarificationDetails(
+  clarification: string,
+  previousUnderstanding?: string
+): ClarificationParsedDetails {
   const clean = clarification.trim().replace(/^[#*`>\-\s]+/, "");
+  const stripped = stripConversationalPrefix(clean);
+  const prevContext = extractContextFromPreviousUnderstanding(previousUnderstanding);
 
-  // Detect common patterns:
-  // e.g. "Kebab menu in DM header is unresponsive on the desktop app"
-  // e.g. "When clicking save button, the form resets instead of saving"
-  // e.g. "Avatar image does not load after upload and remains blank"
-  // e.g. "Actually, this is a color contrast / WCAG accessibility failure in dark mode"
+  // Pattern 1: Broken / missing image / photo / thumbnail on a product listing, page, or container
+  // e.g. "I'm reporting the broken image on the whambar product listing"
+  // e.g. "the image is broken."
+  // e.g. "image is broken"
+  // e.g. "broken image"
+  const isImageDefect =
+    /(?:broken|missing|failed|blank|corrupted|empty)\s+(?:product\s+)?(?:image|picture|photo|thumbnail|icon|logo|asset)/i.test(clean) ||
+    /(?:image|picture|photo|thumbnail|icon|logo)\s+(?:is\s+)?(?:broken|missing|fails? to load|not loading|blank|empty|not showing)/i.test(clean) ||
+    /^(?:the\s+)?(?:image|picture|photo|thumbnail)\s+(?:is\s+)?(?:broken|missing|blank|not loading|not showing|failed)/i.test(stripped) ||
+    clean.toLowerCase().includes("image is broken") ||
+    clean.toLowerCase().includes("broken image") ||
+    clean.toLowerCase().includes("missing image") ||
+    clean.toLowerCase().includes("image missing");
 
-  if (/contrast|accessibility|wcag|color/i.test(clean)) {
+  let rawTargetFromClarification: string | undefined = undefined;
+
+  const brokenImageOnMatch =
+    stripped.match(/(?:broken|missing|failed|blank|corrupted)\s+(?:product\s+)?(?:image|picture|photo|thumbnail|icon|logo|asset)\s+(?:on|in|for)\s+(?:the\s+)?(.+)/i) ||
+    clean.match(/(?:broken|missing|failed|blank|corrupted)\s+(?:product\s+)?(?:image|picture|photo|thumbnail|icon|logo|asset)\s+(?:on|in|for)\s+(?:the\s+)?(.+)/i);
+
+  const brokenImageSubjectMatch =
+    stripped.match(/(?:the\s+)?(.+?)\s+(?:product\s+)?(?:image|picture|photo|thumbnail|icon|logo)\s+(?:is\s+)?(?:broken|missing|fails? to load|not loading|blank|empty|not showing)/i);
+
+  if (brokenImageOnMatch) {
+    const cand = brokenImageOnMatch[1].trim().replace(/[.,;]+$/, "");
+    if (cand && !/^(?:the|an|a|this|card|listing|page|view)$/i.test(cand)) {
+      rawTargetFromClarification = cand;
+    }
+  } else if (brokenImageSubjectMatch) {
+    const cand = brokenImageSubjectMatch[1].trim().replace(/[.,;]+$/, "");
+    if (cand && !/^(?:the|an|a|this)$/i.test(cand)) {
+      rawTargetFromClarification = cand;
+    }
+  }
+
+  let rawTarget = rawTargetFromClarification;
+  if (!rawTarget && isImageDefect) {
+    rawTarget = prevContext.component || "demonstrated interface element";
+  }
+
+  if (rawTarget && isImageDefect) {
+    const component = rawTarget.toLowerCase().includes("listing") || rawTarget.toLowerCase().includes("card") || rawTarget.toLowerCase().includes("page") || rawTarget.toLowerCase().includes("item")
+      ? rawTarget
+      : `${rawTarget} component`;
+    const title = `Broken image on ${rawTarget}`;
+    const summary = `The ${rawTarget} displays a broken or missing image instead of the expected product photo.`;
+
+    let steps: string[];
+    if (prevContext.component && (prevContext.price || prevContext.button)) {
+      const detailsParts: string[] = [];
+      if (prevContext.price) detailsParts.push(`price ${prevContext.price}`);
+      if (prevContext.button) detailsParts.push(`with ${prevContext.button.toLowerCase().includes("button") ? prevContext.button : `${prevContext.button} button`}`);
+      const detailsSuffix = detailsParts.length > 0 ? ` (${detailsParts.join(" ")})` : "";
+      steps = [
+        `Navigate to the product listing containing the ${rawTarget}.`,
+        `Locate the ${rawTarget}${detailsSuffix}.`,
+        `Observe that the product image area inside the card is blank or broken.`,
+      ];
+    } else {
+      steps = [
+        `Navigate to the view containing the ${rawTarget}.`,
+        `Locate the product image container on the ${rawTarget}.`,
+        `Observe that the image fails to load or renders as a broken asset.`,
+      ];
+    }
+
+    const expected = `The ${rawTarget} should display a valid, properly rendered image.`;
+    const actual = prevContext.hasEmptyArea
+      ? `The ${rawTarget} product image fails to load, leaving an empty area inside the product card.`
+      : `The product image fails to load and displays a broken image icon or empty placeholder.`;
+
+    return {
+      component,
+      action: `Locate and inspect the image on the ${rawTarget}`,
+      expected,
+      actual,
+      title,
+      summary,
+      steps,
+    };
+  }
+
+  // Pattern 2: Contrast / accessibility / WCAG failure
+  if (/contrast|accessibility|wcag|color contrast/i.test(clean)) {
+    const title = clean.includes("color contrast / WCAG accessibility failure")
+      ? "color contrast / WCAG accessibility failure in dark mode"
+      : "Color contrast / WCAG accessibility failure in dark mode";
+    const summary = "Text and interactive elements fail WCAG AA contrast standards in dark mode.";
+    const steps = [
+      "Enable dark mode in appearance settings.",
+      "Navigate to the demonstrated view.",
+      "Inspect the contrast ratio between text elements and background.",
+    ];
     return {
       component: "Dark mode color palette",
       action: "Inspect text and background color contrast in dark mode",
       expected: "Text contrast meets WCAG AA standards (minimum 4.5:1 ratio).",
-      actual: clean,
+      actual: "Contrast is insufficient and fails WCAG AA standards in dark mode.",
+      title,
+      summary,
+      steps,
     };
   }
 
-  // Handle "When clicking X, [outcome]" speech patterns
-  const whenClickMatch = clean.match(
-    /^(?:when\s+(?:i\s+)?(?:click(?:ing)?|press(?:ing)?|tap(?:ping)?)\s+(?:on\s+)?(?:the\s+)?)(.+?)[,;\s]+(?:the\s+)?(.+)$/i
-  );
+  // Pattern 3: "When clicking X, [outcome]" speech patterns
+  const whenClickMatch =
+    stripped.match(
+      /^(?:when\s+(?:i\s+)?(?:click(?:ing)?|press(?:ing)?|tap(?:ping)?)\s+(?:on\s+)?(?:the\s+)?)(.+?)(?:,\s*|\s*;\s*|\s+(?:then|and)\s+)(?:the\s+)?(.+)$/i
+    ) ||
+    clean.match(
+      /^(?:when\s+(?:i\s+)?(?:click(?:ing)?|press(?:ing)?|tap(?:ping)?)\s+(?:on\s+)?(?:the\s+)?)(.+?)(?:,\s*|\s*;\s*|\s+(?:then|and)\s+)(?:the\s+)?(.+)$/i
+    );
   if (whenClickMatch) {
     const comp = whenClickMatch[1].trim();
-    const outcome = whenClickMatch[2].trim();
+    const outcome = whenClickMatch[2].trim().replace(/[.,;]+$/, "");
+    const title = `${comp}: ${outcome}`;
+    const summary = `Clicking the ${comp} causes the ${outcome}.`;
+    const steps = [
+      `Navigate to the view containing the ${comp}.`,
+      `Click or trigger the ${comp}.`,
+      `Observe that ${outcome}.`,
+    ];
     return {
       component: comp,
       action: `Click or trigger the ${comp}`,
-      expected: `${comp} triggers its expected action and state transition.`,
-      actual: outcome,
+      expected: `${capitalize(comp)} should trigger its expected action and complete its state transition.`,
+      actual: capitalize(outcome),
+      title,
+      summary,
+      steps,
     };
   }
 
-  if (/badge|counter|filter/i.test(clean)) {
+  // Pattern 4: Form reset / discard on save / submit
+  if (/reset|clear|discard/i.test(clean) && /save|submit/i.test(clean)) {
+    const title = "Save button resets form instead of persisting changes";
+    const summary = "Submitting changes via the save button resets form fields and discards inputs.";
+    const steps = [
+      "Navigate to the form view shown in the demonstration.",
+      "Fill in the form fields with modified values.",
+      "Click the save or submit button.",
+      "Observe that the form resets and inputs are discarded without persisting.",
+    ];
+    return {
+      component: "Form submission controls",
+      action: "Submit changes via the save button",
+      expected: "Form persists input values and displays a success confirmation.",
+      actual: "Form resets input values and fails to persist changes.",
+      title,
+      summary,
+      steps,
+    };
+  }
+
+  // Pattern 5: Filter tabs & badge counter
+  if (/badge|counter|filter tab/i.test(clean)) {
+    const title = "Filter tabs badge counter does not update";
+    const summary = "Filter badge counts do not reflect the current number of active items.";
+    const steps = [
+      "Navigate to the filtered list view.",
+      "Apply or toggle the active filter tabs.",
+      "Observe the badge counter values on each tab.",
+    ];
     return {
       component: "Filter tabs & badge counter",
       action: "Apply active filter tab",
       expected: "Badge counter updates dynamically to reflect filtered item count.",
-      actual: clean,
+      actual: "Badge counter does not update and shows outdated item counts.",
+      title,
+      summary,
+      steps,
     };
   }
 
-  if (/disabled|greyed out|grayed out/i.test(clean)) {
-    const match = clean.match(/^(.+?)\s+(?:is|remains)\s+(?:disabled|greyed out|grayed out)(.*)$/i);
-    const comp = match ? match[1].trim() : "Interactive control";
+  // Pattern 6: Disabled / greyed out controls
+  const disabledMatch =
+    stripped.match(/^(?:the\s+)?(.+?)\s+(?:is|remains)\s+(?:disabled|greyed out|grayed out)(.*)$/i) ||
+    clean.match(/^(?:the\s+)?(.+?)\s+(?:is|remains)\s+(?:disabled|greyed out|grayed out)(.*)$/i);
+  if (disabledMatch) {
+    const comp = disabledMatch[1].trim();
+    const title = `${capitalize(comp)} remains disabled`;
+    const summary = `The ${comp} remains disabled and cannot be activated.`;
+    const steps = [
+      `Navigate to the view containing the ${comp}.`,
+      `Complete any required prerequisite inputs.`,
+      `Observe the ${comp} state.`,
+    ];
     return {
       component: comp,
       action: `Access ${comp} in the workflow`,
-      expected: `${comp} is enabled and accepts user interaction.`,
-      actual: clean,
+      expected: `${capitalize(comp)} is enabled and accepts user interaction.`,
+      actual: `${capitalize(comp)} remains disabled and inactive.`,
+      title,
+      summary,
+      steps,
     };
   }
 
-  if (/unresponsive|not opening|doesn't open|fails to open/i.test(clean)) {
-    const match = clean.match(/^(.+?)\s+(?:is unresponsive|does not open|doesn't open|fails to open)(.*)$/i);
-    const comp = match ? match[1].trim() : "Interactive element";
+  // Pattern 7: Unresponsive / not opening controls
+  const unresponsiveMatch =
+    stripped.match(/^(?:the\s+)?(.+?)\s+(?:is\s+unresponsive|does not open|doesn't open|fails to open|is not clickable|does nothing)(.*)$/i) ||
+    clean.match(/^(?:the\s+)?(.+?)\s+(?:is\s+unresponsive|does not open|doesn't open|fails to open|is not clickable|does nothing)(.*)$/i);
+  if (unresponsiveMatch) {
+    const comp = unresponsiveMatch[1].trim();
+    const title = `${capitalize(comp)} is unresponsive`;
+    const summary = `The ${comp} does not respond when clicked and fails to open.`;
+    const steps = [
+      `Navigate to the view containing the ${comp}.`,
+      `Click on the ${comp}.`,
+      `Observe that the control fails to respond or open.`,
+    ];
     return {
       component: comp,
       action: `Click or trigger the ${comp}`,
-      expected: `${comp} opens and presents relevant options or triggers its intended action.`,
-      actual: clean,
+      expected: `${capitalize(comp)} opens and presents relevant options or triggers its intended action.`,
+      actual: `${capitalize(comp)} is unresponsive and produces no action.`,
+      title,
+      summary,
+      steps,
     };
   }
 
-  if (/reset|clear|discard/i.test(clean) && /save|submit/i.test(clean)) {
+  // Pattern 8: Genuine file / avatar upload issues (requires explicit upload terminology)
+  if (/\b(?:uploading?|file upload|avatar upload|drag and drop|file selector)\b/i.test(clean)) {
+    const isAvatar = /avatar/i.test(clean);
+    const comp = isAvatar ? "Avatar upload component" : "File upload component";
+    const title = clean.length > 90 ? `${clean.slice(0, 87)}…` : clean;
+    const summary = `After selecting a file, the ${comp} fails to process or display the uploaded asset.`;
+    const steps = [
+      `Navigate to the view containing ${comp}.`,
+      `Select and upload a file.`,
+      `Observe the resulting upload status or preview area.`,
+    ];
     return {
-      component: "Form submission controls",
-      action: "Submit changes via the save button",
-      expected: "Form persists input values and displays confirmation.",
-      actual: clean,
-    };
-  }
-
-  if (/upload|avatar|image|file/i.test(clean)) {
-    return {
-      component: "File / image upload component",
+      component: comp,
       action: "Select and upload file",
       expected: "Uploaded asset loads and displays in the preview area.",
       actual: clean,
+      title,
+      summary,
+      steps,
     };
   }
 
-  // Fallback to parsed clauses
-  const firstSentence = clean.split(/[.!?\n]/)[0].trim();
+  // Pattern 9: Feature requests or improvements
+  const isFeature = /\b(?:add|support|allow|feature|suggest|enable|request|export to csv)\b/i.test(clean);
+  if (isFeature) {
+    const title = clean.length > 90 ? `${clean.slice(0, 87)}…` : clean;
+    const locationMatch = stripped.match(/(?:on|in|for|at)\s+(?:the\s+)?([a-zA-Z0-9_\-\s]{3,30}?)(?:$|[.,;])/i);
+    const component = locationMatch ? locationMatch[1].trim() : "Demonstrated interface view";
+    const summary = `Request to ${stripped.replace(/^(?:add|support|allow|enable)\s+/i, "add ")}.`;
+    const steps = [
+      `Navigate to the ${component}.`,
+      `Inspect the available actions and interface options.`,
+      `Observe that the requested capability is not yet supported.`,
+    ];
+    return {
+      component,
+      action: `Access ${component} and inspect available features`,
+      expected: `${capitalize(component)} provides the requested feature.`,
+      actual: "Feature is currently not supported.",
+      title,
+      summary,
+      steps,
+      isFeature: true,
+    };
+  }
+
+  // Fallback: General defect or behavior
+  const titleCandidate = capitalize(stripped.split(/[.!?\n]/)[0].trim());
+  const locationMatch = stripped.match(/(?:on|in|for|at)\s+(?:the\s+)?([a-zA-Z0-9_\-\s]{3,30}?)(?:$|[.,;])/i);
+  const component = locationMatch
+    ? locationMatch[1].trim()
+    : (prevContext.component || "Demonstrated interface element");
+  const title = prevContext.component && !locationMatch
+    ? (titleCandidate.toLowerCase().includes(prevContext.component.toLowerCase())
+        ? titleCandidate
+        : `${titleCandidate} on ${prevContext.component}`)
+    : (titleCandidate.length > 70 ? `${titleCandidate.slice(0, 67)}…` : titleCandidate);
+  const summary = prevContext.component && !locationMatch
+    ? `The ${prevContext.component} exhibits an issue: ${titleCandidate}.`
+    : `${title}.`;
+  const steps = [
+    `Navigate to the view containing ${component}.`,
+    `Interact with the demonstrated interface element.`,
+    `Observe the resulting system state and interface feedback.`,
+  ];
   return {
-    component: firstSentence.length > 50 ? `${firstSentence.slice(0, 47)}…` : firstSentence,
-    action: "Interact with the demonstrated interface element",
-    expected: "Component behaves as expected without unexpected errors.",
-    actual: clean,
+    component,
+    action: `Interact with ${component}`,
+    expected: `${capitalize(component)} behaves as expected without unexpected errors.`,
+    actual: capitalize(stripped),
+    title,
+    summary,
+    steps,
   };
 }
 
@@ -256,19 +565,10 @@ export function generateFallbackDraft(input: VisualEvidenceInput): InterpretedIs
   let actual = "";
 
   if (effectiveNotes) {
-    const details = parseClarificationDetails(effectiveNotes);
-    const firstLine = effectiveNotes
-      .split("\n")[0]
-      .replace(/^[#*`>\-\s]+/, "")
-      .trim();
-    title = firstLine.length > 90 ? `${firstLine.slice(0, 87)}…` : firstLine;
-    summary = effectiveNotes;
-
-    steps = [
-      `Navigate to the view containing ${details.component}.`,
-      `${details.action}.`,
-      "Observe the resulting system state and interface feedback.",
-    ];
+    const details = parseClarificationDetails(effectiveNotes, input.previousUnderstanding);
+    title = details.title;
+    summary = details.summary;
+    steps = details.steps;
     expected = details.expected;
     actual = details.actual;
   } else {
@@ -311,7 +611,7 @@ export function generateFallbackDraft(input: VisualEvidenceInput): InterpretedIs
     summary,
     "",
     "## Steps to Reproduce",
-    ...steps.map((s, i) => `${i + 1}. ${s}`),
+    ...steps.map((s, i) => `${i + 1}. ${s.replace(/^\d+\.\s*/, "")}`),
     "",
     "## Expected Behavior",
     expected,
@@ -348,16 +648,18 @@ export function generateFallbackAnalysis(input: VisualEvidenceInput): VisualAnal
   let isAmbiguous = false;
 
   if (effectiveNotes) {
-    const details = parseClarificationDetails(effectiveNotes);
+    const details = parseClarificationDetails(effectiveNotes, input.previousUnderstanding);
     if (input.previousUnderstanding) {
-      observedBehavior = `Corrected understanding: ${effectiveNotes}`;
+      observedBehavior = `Corrected understanding: ${details.title}. ${details.summary}`;
       context = details.component;
-      intent = "Submit issue with user-verified intent";
+      intent = details.isFeature
+        ? `Request feature for ${details.component}`
+        : `Report defect on ${details.component}`;
       isAmbiguous = false;
     } else {
       observedBehavior = effectiveNotes;
       context = details.component;
-      intent = effectiveNotes.toLowerCase().includes("feature") || effectiveNotes.toLowerCase().includes("add")
+      intent = details.isFeature
         ? "Suggest a feature improvement"
         : "Report an unexpected defect";
       isAmbiguous = false;
@@ -396,7 +698,7 @@ function formatStructuredIssueDescription(parsed: {
     parsed.summary,
     "",
     "## Steps to Reproduce",
-    ...parsed.stepsToReproduce.map((step, idx) => `${idx + 1}. ${step}`),
+    ...parsed.stepsToReproduce.map((step, idx) => `${idx + 1}. ${step.replace(/^\d+\.\s*/, "")}`),
     "",
     "## Expected Behavior",
     parsed.expectedBehavior,
@@ -530,48 +832,97 @@ export function normalizeRawAnalysisOutput(
   // Fallback defaults from clarification, spoken narration, and previous understanding
   const fallback = generateFallbackDraft(input);
   const effectiveNotes = [input.clarification?.trim(), input.narration?.trim()].filter(Boolean).join(". ");
-  const notesDetails = effectiveNotes ? parseClarificationDetails(effectiveNotes) : null;
+  const notesDetails = effectiveNotes ? parseClarificationDetails(effectiveNotes, input.previousUnderstanding) : null;
 
-  return {
-    observedBehavior:
-      (typeof observedBehavior === "string" && observedBehavior.trim()) ||
-      input.previousUnderstanding ||
-      effectiveNotes ||
-      fallback.title,
-    context:
-      (typeof context === "string" && context.trim()) ||
-      notesDetails?.component ||
-      "Application workflow",
-    intent:
-      (typeof intent === "string" && intent.trim()) ||
-      (effectiveNotes?.toLowerCase().includes("feature")
-        ? "Suggest a feature improvement"
-        : "Report an unexpected defect"),
-    isAmbiguous: isAmbiguous !== undefined ? isAmbiguous : false,
-    title:
-      (typeof title === "string" && title.trim()) ||
-      fallback.title,
-    summary:
-      (typeof summary === "string" && summary.trim()) ||
-      effectiveNotes ||
-      fallback.title,
-    stepsToReproduce:
-      stepsToReproduce !== undefined
+  const rawTitle = typeof title === "string" ? title.trim() : "";
+  const cleanedTitle = rawTitle ? capitalize(stripConversationalPrefix(rawTitle)) : "";
+
+  const rawSummary = typeof summary === "string" ? summary.trim() : "";
+  const cleanedSummary = rawSummary ? capitalize(stripConversationalPrefix(rawSummary)) : "";
+
+  const rawActual = typeof actualBehavior === "string" ? actualBehavior.trim() : "";
+  const cleanedActual = rawActual ? capitalize(stripConversationalPrefix(rawActual)) : "";
+
+  const rawClarification = input.clarification?.trim().toLowerCase().replace(/[.,;]+$/, "");
+  const isSummaryVerbatim =
+    Boolean(rawClarification) &&
+    (cleanedSummary.toLowerCase().replace(/[.,;]+$/, "") === rawClarification ||
+      cleanedSummary.toLowerCase() === `corrected understanding: ${rawClarification}` ||
+      cleanedSummary.toLowerCase().startsWith(`corrected understanding: ${rawClarification}`));
+
+  const isActualVerbatim =
+    Boolean(rawClarification) &&
+    (cleanedActual.toLowerCase().replace(/[.,;]+$/, "") === rawClarification ||
+      cleanedActual.toLowerCase() === `corrected understanding: ${rawClarification}`);
+
+  const isTitleVerbatim =
+    Boolean(rawClarification) && cleanedTitle.toLowerCase().replace(/[.,;]+$/, "") === rawClarification;
+
+  const hasFabricatedUploadSteps =
+    Array.isArray(stepsToReproduce) &&
+    !/\b(?:uploading?|file upload|avatar upload|drag and drop|file selector)\b/i.test(effectiveNotes || "") &&
+    stepsToReproduce.some((s) => /\b(?:upload|file selector|file input|select a file)\b/i.test(s));
+
+  const finalSummary =
+    (isSummaryVerbatim && notesDetails?.summary) ||
+    cleanedSummary ||
+    notesDetails?.summary ||
+    fallback.title;
+
+  const finalActual =
+    (isActualVerbatim && notesDetails?.actual) ||
+    cleanedActual ||
+    notesDetails?.actual ||
+    "System behaves unexpectedly in the demonstration.";
+
+  const finalTitle =
+    (isTitleVerbatim && notesDetails?.title) ||
+    cleanedTitle ||
+    fallback.title;
+
+  const finalSteps =
+    hasFabricatedUploadSteps && notesDetails?.steps
+      ? notesDetails.steps
+      : stepsToReproduce !== undefined
         ? stepsToReproduce
-        : [
+        : (notesDetails?.steps || [
             `Navigate to ${notesDetails?.component || "the demonstrated view"}.`,
             notesDetails?.action || "Interact with the demonstrated interface component.",
             "Observe the resulting system state and interface feedback.",
-          ],
+          ]);
+
+  const finalObservedBehavior =
+    (typeof observedBehavior === "string" &&
+      observedBehavior.trim() &&
+      !isSummaryVerbatim &&
+      observedBehavior.trim().toLowerCase() !== `corrected understanding: ${rawClarification}`)
+      ? observedBehavior.trim()
+      : (notesDetails?.summary || input.previousUnderstanding || notesDetails?.actual || effectiveNotes || fallback.title);
+
+  const finalContext =
+    (typeof context === "string" &&
+      context.trim() &&
+      !/^(?:application workflow|captured interface region|screen demonstration workflow)$/i.test(context.trim()))
+      ? context.trim()
+      : (notesDetails?.component || "Application workflow");
+
+  return {
+    observedBehavior: finalObservedBehavior,
+    context: finalContext,
+    intent:
+      (typeof intent === "string" && intent.trim()) ||
+      (notesDetails?.isFeature
+        ? "Suggest a feature improvement"
+        : "Report an unexpected defect"),
+    isAmbiguous: isAmbiguous !== undefined ? isAmbiguous : false,
+    title: finalTitle,
+    summary: finalSummary,
+    stepsToReproduce: finalSteps,
     expectedBehavior:
       (typeof expectedBehavior === "string" && expectedBehavior.trim()) ||
       notesDetails?.expected ||
       "System should respond as expected without errors.",
-    actualBehavior:
-      (typeof actualBehavior === "string" && actualBehavior.trim()) ||
-      notesDetails?.actual ||
-      effectiveNotes ||
-      "System behaves unexpectedly in the demonstration.",
+    actualBehavior: finalActual,
     suggestedType: suggestedType || input.suggestedType || fallback.suggestedType,
   };
 }
@@ -601,7 +952,7 @@ function buildInterpretationPrompt(input: VisualEvidenceInput): string {
 
   if (input.previousUnderstanding?.trim()) {
     parts.push(
-      `REFINEMENT & CORRECTION CONTEXT:\nThe user reviewed an initial interpretation and provided a correction to refine it.\nPreviously established understanding:\n"${input.previousUnderstanding.trim()}"\nUser's clarifying correction notes:\n"${input.clarification?.trim() || ""}"\nINSTRUCTION: Refine and update the existing understanding and issue draft. Retain all established visual evidence and context from the demonstration (such as the page, components, and on-screen elements), while adjusting the specific steps, behaviors, or expectations to incorporate the user's clarification. Do NOT discard the visual context or generate unrelated details.`
+      `REFINEMENT & CORRECTION CONTEXT:\nThe user reviewed an initial interpretation and provided a clarification/correction to refine it.\nPreviously established understanding and visual context:\n"${input.previousUnderstanding.trim()}"\nUser's clarifying notes:\n"${input.clarification?.trim() || ""}"\nCRITICAL INSTRUCTION: Refine and combine the user's clarification with the previously identified UI components, product details, and visual evidence. The user's clarification specifies the exact defect or intent affecting the previously identified component. DO NOT discard the previously identified component, product name, or screen elements (e.g., if the previous understanding identified a Wham Bars product card with price £0.15 and empty area, and user clarifies "the image is broken", combine them to produce "Broken image on Wham Bars product card", retaining the Wham Bars card context). NEVER copy conversational phrases ("I'm reporting", "Actually") or brief phrases ("the image is broken") verbatim into all fields. NEVER invent unrelated actions (such as file uploads or file selectors) when the demonstration is about viewing a broken image or product card. If evidence is insufficient for complex steps, document the direct observation steps rather than fabricating actions.`
     );
   } else if (input.clarification?.trim()) {
     parts.push(

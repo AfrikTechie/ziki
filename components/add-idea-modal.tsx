@@ -305,6 +305,7 @@ export function AddIdeaModal({
   const [aiError, setAiError] = useState<string | null>(null);
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [showClarifyInput, setShowClarifyInput] = useState(false);
+  const lastAnalyzedClarificationRef = useRef<string>("");
 
   // Review form state
   const availableTypes = types.length > 0 ? types : FALLBACK_TYPES;
@@ -432,6 +433,7 @@ export function AddIdeaModal({
     setTitle("");
     setDescription("");
     setClarification("");
+    lastAnalyzedClarificationRef.current = "";
     setNarration("");
     setIsEditingNarration(false);
     setEditedNarration("");
@@ -507,40 +509,17 @@ export function AddIdeaModal({
       });
       streamRef.current = stream;
 
-      // Combine video track with microphone audio track (and system audio track if present)
-      let mixedAudioStream: MediaStream | null = null;
+      // Prioritize microphone audio track for direct, uncompressed voice narration recording
       const micAudioTracks =
         micStream && typeof micStream.getAudioTracks === "function" ? micStream.getAudioTracks() : [];
       const sysAudioTracks =
         typeof stream.getAudioTracks === "function" ? stream.getAudioTracks() : [];
 
-      if (micAudioTracks.length > 0 && sysAudioTracks.length > 0 && typeof window !== "undefined") {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          if (AudioContextClass) {
-            const ctx = new AudioContextClass();
-            if (ctx.state === "suspended") {
-              ctx.resume().catch(() => {});
-            }
-            const destination = ctx.createMediaStreamDestination();
-            const micSource = ctx.createMediaStreamSource(micStream!);
-            micSource.connect(destination);
-            const sysSource = ctx.createMediaStreamSource(new MediaStream(sysAudioTracks));
-            sysSource.connect(destination);
-            mixedAudioStream = destination.stream;
-            audioContextRef.current = ctx;
-          }
-        } catch {
-          // Fallback to mic audio
-        }
+      const micTrack = micAudioTracks[0];
+      if (micTrack) {
+        micTrack.enabled = true;
       }
-
-      const audioTracks: MediaStreamTrack[] = mixedAudioStream
-        ? mixedAudioStream.getAudioTracks()
-        : micAudioTracks.length > 0
-          ? micAudioTracks
-          : sysAudioTracks;
+      const audioTracks: MediaStreamTrack[] = micTrack ? [micTrack] : sysAudioTracks;
 
       const hasAudio = audioTracks.length > 0;
       let recordingStream = stream;
@@ -561,6 +540,7 @@ export function AddIdeaModal({
         if (SpeechRec) {
           speechActive = true;
           let accumulatedFinals = "";
+          let lastSessionFinal = "";
 
           const initSpeechRec = () => {
             if (!speechActive) return;
@@ -572,19 +552,22 @@ export function AddIdeaModal({
 
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               rec.onresult = (e: any) => {
-                let currentFinal = "";
-                let currentInterim = "";
+                let sessionFinal = "";
+                let sessionInterim = "";
                 for (let i = 0; i < e.results.length; i++) {
+                  const transcript = e.results[i][0]?.transcript || "";
                   if (e.results[i].isFinal) {
-                    currentFinal += e.results[i][0].transcript + " ";
+                    sessionFinal += transcript + " ";
                   } else {
-                    currentInterim += e.results[i][0].transcript + " ";
+                    sessionInterim += transcript + " ";
                   }
                 }
-                if (currentFinal) {
-                  accumulatedFinals = (accumulatedFinals + " " + currentFinal).replace(/\s+/g, " ").trim();
-                }
-                const combined = (accumulatedFinals + " " + currentInterim).replace(/\s+/g, " ").trim();
+                lastSessionFinal = sessionFinal;
+                const combined = [accumulatedFinals, sessionFinal, sessionInterim]
+                  .filter(Boolean)
+                  .join(" ")
+                  .replace(/\s+/g, " ")
+                  .trim();
                 if (combined) {
                   setNarration(combined);
                 }
@@ -597,6 +580,10 @@ export function AddIdeaModal({
 
               rec.onend = () => {
                 if (speechActive && recorderRef.current && recorderRef.current.state === "recording") {
+                  if (lastSessionFinal) {
+                    accumulatedFinals = [accumulatedFinals, lastSessionFinal].filter(Boolean).join(" ").trim();
+                    lastSessionFinal = "";
+                  }
                   try {
                     rec.start();
                   } catch {
@@ -1021,6 +1008,7 @@ export function AddIdeaModal({
       const currentTypeName = availableTypes.find((t) => t.id === selectedType)?.name;
       const effectiveClarification =
         typeof explicitClarification === "string" ? explicitClarification.trim() : clarification.trim();
+      lastAnalyzedClarificationRef.current = effectiveClarification;
 
       const actionStartTime = performance.now();
 
@@ -1081,9 +1069,9 @@ export function AddIdeaModal({
       } else {
         // Preserve existing understanding if an update attempt fails
         setAiError(formatUserFriendlyAiError(result.error));
-        if (!understanding && result.fallbackDraft) {
-          if (!title) setTitle(result.fallbackDraft.title);
-          if (!description) setDescription(result.fallbackDraft.description);
+        if (result.fallbackDraft) {
+          setTitle(result.fallbackDraft.title);
+          setDescription(result.fallbackDraft.description);
         }
       }
     } catch (err: unknown) {
@@ -1105,7 +1093,10 @@ export function AddIdeaModal({
     handleRunAnalysis();
   };
 
-  const handleConfirmUnderstanding = () => {
+  const handleConfirmUnderstanding = async () => {
+    if (clarification.trim() && clarification.trim() !== lastAnalyzedClarificationRef.current) {
+      await handleRunAnalysis(clarification.trim());
+    }
     setStep("review");
   };
 
@@ -1560,6 +1551,8 @@ export function AddIdeaModal({
                         src={media.url}
                         controls
                         playsInline
+                        muted={false}
+                        autoPlay={false}
                         className="max-h-[340px] w-full object-contain"
                       />
                     </div>
@@ -1799,20 +1792,70 @@ export function AddIdeaModal({
                 )}
               </div>
             ) : withAudio && media?.type === "video" ? (
-              <div className="flex items-center justify-between rounded-xl border border-zk-border bg-zk-chip/20 p-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-zk-accent/20 text-zk-accent">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                      <line x1="12" x2="12" y1="19" y2="22" />
-                    </svg>
-                  </span>
-                  <div>
-                    <span className="text-xs font-semibold text-zk-text">Voice narration recorded</span>
-                    <p className="text-[11px] text-zk-muted">Audio track is active and audible during video playback</p>
+              <div className="flex flex-col space-y-2 rounded-xl border border-zk-border bg-zk-chip/20 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-zk-accent/20 text-zk-accent">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" x2="12" y1="19" y2="22" />
+                      </svg>
+                    </span>
+                    <div>
+                      <span className="text-xs font-semibold text-zk-text">Voice narration recorded</span>
+                      <p className="text-[11px] text-zk-muted">Audio track is active and audible during video playback</p>
+                    </div>
                   </div>
+                  {!isEditingNarration && !isInterpreting && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingNarration(true);
+                        setEditedNarration("");
+                      }}
+                      className="text-xs font-semibold text-zk-accent hover:underline"
+                    >
+                      + Add spoken notes
+                    </button>
+                  )}
                 </div>
+
+                {isEditingNarration && (
+                  <div className="space-y-2 pt-1">
+                    <textarea
+                      rows={3}
+                      value={editedNarration}
+                      onChange={(e) => setEditedNarration(e.target.value)}
+                      disabled={isInterpreting}
+                      aria-label="Add voice narration notes"
+                      placeholder="Type what you explained in your voice narration..."
+                      className="block w-full resize-none rounded-lg border border-zk-border bg-zk-surface p-2.5 text-xs text-zk-text placeholder:text-zk-muted focus:border-zk-accent focus:outline-hidden"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingNarration(false)}
+                        className="rounded-md px-2.5 py-1 text-xs font-semibold text-zk-muted hover:text-zk-text"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = editedNarration.trim();
+                          setNarration(updated);
+                          setIsEditingNarration(false);
+                          handleRunAnalysis(undefined, updated);
+                        }}
+                        disabled={!editedNarration.trim() || isInterpreting}
+                        className="inline-flex items-center rounded-md bg-zk-accent px-3 py-1 text-xs font-semibold text-white transition hover:opacity-95 disabled:opacity-50"
+                      >
+                        Add &amp; analyze
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : null}
 
@@ -2199,6 +2242,9 @@ export function AddIdeaModal({
                         <video
                           src={media.url}
                           controls
+                          playsInline
+                          autoPlay={false}
+                          muted={false}
                           className="max-h-[180px] w-full rounded-lg object-contain"
                         />
                         <div className="absolute top-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-mono font-bold text-white">

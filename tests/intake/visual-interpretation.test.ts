@@ -58,6 +58,35 @@ describe("visual-interpretation", () => {
       expect(result.suggestedType).toBe("Improvement");
       expect(result.title).toBe("Add an export to CSV feature on the table header");
     });
+
+    it("context-specifically interprets broken image on existing product listing without copying conversational text or generating file-upload steps", () => {
+      const input: VisualEvidenceInput = {
+        mediaType: "video",
+        durationSeconds: 10,
+        clarification: "I'm reporting the broken image on the whambar product listing",
+      };
+
+      const result = generateFallbackDraft(input);
+      // Title must be concise and objective without conversational prefixes
+      expect(result.title).toBe("Broken image on whambar product listing");
+      expect(result.title).not.toContain("I'm reporting");
+
+      // Description must contain context-specific product listing steps, not file upload
+      expect(result.description).toContain("whambar product listing");
+      expect(result.description).not.toContain("upload");
+      expect(result.description).not.toContain("Upload");
+
+      // Verify sections are distinct and each serves its intended purpose
+      expect(result.description).toContain("## Summary");
+      expect(result.description).toContain("The whambar product listing displays a broken or missing image");
+      expect(result.description).toContain("## Steps to Reproduce");
+      expect(result.description).toContain("Navigate to the view containing the whambar product listing.");
+      expect(result.description).toContain("## Expected Behavior");
+      expect(result.description).toContain("The whambar product listing should display a valid, properly rendered image.");
+      expect(result.description).toContain("## Actual Behavior");
+      expect(result.description).toContain("The product image fails to load and displays a broken image icon");
+      expect(result.description).not.toContain("I'm reporting");
+    });
   });
 
   describe("generateFallbackAnalysis & understanding review", () => {
@@ -97,6 +126,70 @@ describe("visual-interpretation", () => {
       expect(result.understanding.observedBehavior).toContain("Corrected understanding");
       expect(result.understanding.observedBehavior).toContain("color contrast / WCAG accessibility failure");
       expect(result.draft.title).toContain("color contrast / WCAG accessibility failure");
+    });
+
+    it("refines understanding and draft for broken product image correction without copying conversational phrases", () => {
+      const input: VisualEvidenceInput = {
+        mediaType: "video",
+        durationSeconds: 8,
+        previousUnderstanding: "User clicked on product listing. Context: Products page. Intent: View product details.",
+        clarification: "I'm reporting the broken image on the whambar product listing",
+      };
+
+      const result = generateFallbackAnalysis(input);
+      expect(result.understanding.context).toBe("whambar product listing");
+      expect(result.draft.title).toBe("Broken image on whambar product listing");
+      expect(result.draft.title).not.toContain("I'm reporting");
+      expect(result.draft.description).toContain("## Steps to Reproduce");
+      expect(result.draft.description).toContain("whambar product listing");
+      expect(result.draft.description).not.toContain("file upload");
+      expect(result.draft.description).not.toContain("upload");
+    });
+
+    it("preserves Wham Bars product card context when user provides brief 'the image is broken.' clarification", () => {
+      const input: VisualEvidenceInput = {
+        mediaType: "video",
+        durationSeconds: 10,
+        previousUnderstanding:
+          "Observed behavior: Wham Bars product card with description, price (£0.15), and Add to Basket button has a large empty space. Context: Wham Bars product card. Intent: Ambiguous intent.",
+        clarification: "the image is broken.",
+      };
+
+      const result = generateFallbackAnalysis(input);
+
+      // Context must be preserved from previous understanding
+      expect(result.understanding.context).toBe("Wham Bars product card");
+      expect(result.understanding.isAmbiguous).toBe(false);
+
+      // Title must combine defect with identified component
+      expect(result.draft.title).toBe("Broken image on Wham Bars product card");
+      expect(result.draft.title).not.toBe("The image is broken");
+
+      // Summary must describe the defect in context, not echo user text verbatim
+      expect(result.draft.description).toContain("## Summary");
+      expect(result.draft.description).toContain(
+        "The Wham Bars product card displays a broken or missing image instead of the expected product photo."
+      );
+      expect(result.draft.description).not.toMatch(/^## Summary\s*\nthe image is broken/i);
+
+      // Reproduction steps must navigate to listing and card with price/button, not invent file uploads
+      expect(result.draft.description).toContain("## Steps to Reproduce");
+      expect(result.draft.description).toContain("Navigate to the product listing containing the Wham Bars product card.");
+      expect(result.draft.description).toContain("Locate the Wham Bars product card (price £0.15 with Add to Basket button).");
+      expect(result.draft.description).toContain("Observe that the product image area inside the card is blank or broken.");
+      expect(result.draft.description).not.toContain("upload");
+      expect(result.draft.description).not.toContain("file selector");
+
+      // Expected and actual must be context-specific
+      expect(result.draft.description).toContain("## Expected Behavior");
+      expect(result.draft.description).toContain(
+        "The Wham Bars product card should display a valid, properly rendered image."
+      );
+      expect(result.draft.description).toContain("## Actual Behavior");
+      expect(result.draft.description).toContain(
+        "The Wham Bars product image fails to load, leaving an empty area inside the product card."
+      );
+      expect(result.draft.description).not.toMatch(/^## Actual Behavior\s*\nthe image is broken/i);
     });
   });
 
