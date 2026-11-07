@@ -159,6 +159,7 @@ export default async function ProjectSettingsPage({
 
           {section === "github" ? (
             <div className="flex flex-col gap-4">
+              <Link href="/projects/readiness" className="self-start text-sm font-semibold text-zk-accent underline">Check repository readiness for this organisation</Link>
               {github === "error" ? <p role="alert" className="rounded-[14px] bg-zk-warn-bg p-3 text-sm text-zk-warn-fg">GitHub setup could not be completed. Start the connection again from this page.</p> : null}
               {github === "connected" ? <p role="status" className="rounded-[14px] bg-zk-ok-bg p-3 text-sm text-zk-ok-fg">GitHub App installation connected.</p> : null}
               {github === "unavailable" ? <p role="alert" className="rounded-[14px] bg-zk-warn-bg p-3 text-sm text-zk-warn-fg">The GitHub App is not configured. Set GITHUB_APP_SLUG before connecting it.</p> : null}
