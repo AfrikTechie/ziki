@@ -4,11 +4,10 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type SkillItem } from "./skills-data";
+import { buildSmartSkillPrompt, type AgentInfo } from "./skills-prompt-builder";
 
-export interface AgentOption {
-  id: string;
-  name: string;
-}
+export type AgentOption = AgentInfo;
+
 
 interface SkillsDirectoryProps {
   skills: SkillItem[];
@@ -85,19 +84,27 @@ export function SkillsDirectory({
     });
   }, [skills, selectedCategory, searchQuery]);
 
-  async function copyPrompt(skill: SkillItem) {
+  async function copyPrompt(skill: SkillItem, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    e?.preventDefault();
     const targetAgent = cardSelectedAgents[skill.id];
-    const targeted = Boolean(targetAgent && targetAgent !== "all");
-    const promptText = targeted
-      ? `Target Agent: ${targetAgent}\n\n${skill.prompt}`
-      : skill.prompt;
+    const promptText = buildSmartSkillPrompt(skill, targetAgent, agents);
 
     try {
       await navigator.clipboard.writeText(promptText);
+      const targetAgentObj = agents.find((a) => a.name === targetAgent);
+      const displayName = targetAgentObj
+        ? targetAgentObj.username
+          ? `${targetAgentObj.name} (@${targetAgentObj.username})`
+          : targetAgentObj.name
+        : targetAgent && targetAgent !== "all"
+        ? targetAgent
+        : "your agent";
+
       showToast(
-        targeted
-          ? `Copied "${skill.title}" prompt for ${targetAgent}!`
-          : `Copied "${skill.title}" prompt to clipboard!`,
+        targetAgent && targetAgent !== "all"
+          ? `Copied prompt with auto-sync for ${displayName}!`
+          : `Copied "${skill.title}" prompt to clipboard!`
       );
     } catch {
       showToast("Unable to copy to clipboard.");
@@ -221,7 +228,7 @@ export function SkillsDirectory({
                 tabIndex={0}
                 onClick={(e) => {
                   const target = e.target as HTMLElement | null;
-                  if (target?.closest("button, a, select, input, label")) {
+                  if (target?.closest("button, a, select, input, label, [data-prevent-card-click]")) {
                     return;
                   }
                   router.push(`/skills/${skill.slug}`);
@@ -289,10 +296,11 @@ export function SkillsDirectory({
                 </div>
 
                 {/* Bottom Actions: Agent Dropdown & Copy Prompt */}
-                <div className="space-y-2.5 border-t border-zk-divider pt-4">
+                <div className="space-y-2.5 border-t border-zk-divider pt-4" data-prevent-card-click="true">
                   {/* Agent Target Dropdown */}
                   <div className="relative">
                     <select
+                      onClick={(e) => e.stopPropagation()}
                       value={selectedAgent}
                       onChange={(e) =>
                         setCardSelectedAgents((prev) => ({
@@ -308,7 +316,7 @@ export function SkillsDirectory({
                           <option value="all">For: All My Agents</option>
                           {agents.map((agent) => (
                             <option key={agent.id} value={agent.name}>
-                              For: {agent.name}
+                              For: {agent.name}{agent.username ? ` (@${agent.username})` : ""}
                             </option>
                           ))}
                         </>
@@ -328,7 +336,7 @@ export function SkillsDirectory({
                   {/* Copy Button */}
                   <button
                     type="button"
-                    onClick={() => copyPrompt(skill)}
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); copyPrompt(skill, e); }}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-zk-border bg-zk-surface hover:bg-zk-chip py-2.5 text-xs font-bold text-zk-text shadow-xs hover:border-zk-border-hover transition"
                   >
                     <svg className="h-3.5 w-3.5 text-zk-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
