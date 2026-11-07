@@ -5,7 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationIdFor } from "@/lib/organisation-context";
-import { orgHomePath, projectPath, projectRef, type ProjectRef } from "@/lib/project-paths";
+import { orgHomePath, projectPath, projectRef, withoutFlightMarker, type ProjectRef } from "@/lib/project-paths";
 
 /**
  * The project a page shows comes from its URL, `/<org>/<project>/…`
@@ -51,7 +51,7 @@ function decode(segment: string): string {
 /** This request's own address (path and query), set by middleware.ts, to come back to after switching organisation. */
 async function requestPath(fallback: string): Promise<string> {
   const path = (await headers()).get("x-ziki-url");
-  return path && path.startsWith("/") && !path.startsWith("//") ? path : fallback;
+  return path && path.startsWith("/") && !path.startsWith("//") ? withoutFlightMarker(path) : fallback;
 }
 
 /** The organisations someone may open: null means any (the site super admin). */

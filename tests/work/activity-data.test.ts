@@ -116,6 +116,22 @@ describe("loadActivity", () => {
     });
     expect(data?.slots).toEqual([{ project: "Desktop", used: 1, max: 2 }]);
   });
+
+  it("keeps a claim held for plan review, so its owner sees the plan waiting for approval", async () => {
+    membershipFindUnique.mockResolvedValue({ role: "member" });
+    const claimedAt = new Date("2026-11-06T11:45:00Z");
+    claimFindMany.mockImplementation(async (args: { where: { releasedAt: unknown } }) =>
+      args.where.releasedAt === null
+        ? [{
+            id: "claim-plan", status: "planning", offeredAt: null, claimedAt, deliverBy: null, lastHeartbeatAt: null,
+            waitingOnOwnerSince: null, releasedAt: null, releaseReason: null, createdAt: claimedAt,
+            agent: { id: "agent-zeddi", name: "Zeddi" }, bug,
+          }]
+        : [],
+    );
+    const data = await loadActivity("jennifer", "org-zedu");
+    expect(data?.claims[0]).toMatchObject({ id: "claim-plan", status: "planning" });
+  });
 });
 
 describe("nudgeClaimAgent", () => {
