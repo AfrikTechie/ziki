@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 /** What Claude is doing while an idea is structured (#idea-intake), typed out one after another. */
-const STEPS = [
+const DEFAULT_STEPS = [
   "Sending your idea to Claude…",
   "Reading what you wrote…",
   "Working out what you're asking for…",
@@ -23,17 +23,26 @@ const HOLD_MS = 1100;
  * seconds) visibly shows work happening. The last step stays until the page
  * moves on. Screen readers hear one plain sentence instead of the typing.
  */
-export function ClaudeWorking({ className = "" }: { className?: string }) {
+export function ClaudeWorking({
+  className = "",
+  steps = DEFAULT_STEPS,
+  statusText = "Claude is writing up your idea.",
+}: {
+  className?: string;
+  steps?: string[];
+  statusText?: string;
+}) {
   const [step, setStep] = useState(0);
   const [typed, setTyped] = useState(0);
-  const line = STEPS[step];
+  const activeSteps = steps.length > 0 ? steps : DEFAULT_STEPS;
+  const line = activeSteps[Math.min(step, activeSteps.length - 1)];
 
   useEffect(() => {
     if (typed < line.length) {
       const timer = setTimeout(() => setTyped((count) => count + 1), TYPE_MS);
       return () => clearTimeout(timer);
     }
-    if (step < STEPS.length - 1) {
+    if (step < activeSteps.length - 1) {
       const timer = setTimeout(() => {
         setStep((current) => current + 1);
         setTyped(0);
@@ -41,11 +50,11 @@ export function ClaudeWorking({ className = "" }: { className?: string }) {
       return () => clearTimeout(timer);
     }
     return undefined;
-  }, [typed, line.length, step]);
+  }, [typed, line.length, step, activeSteps.length]);
 
   return (
     <div className={`flex items-start gap-2.5 rounded-xl bg-zk-tint px-3 py-2.5 ${className}`}>
-      <span className="sr-only" role="status">Claude is writing up your idea.</span>
+      <span className="sr-only" role="status">{statusText}</span>
       <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-zk-accent motion-safe:animate-pulse">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Z" />
@@ -53,7 +62,7 @@ export function ClaudeWorking({ className = "" }: { className?: string }) {
       </span>
       <div aria-hidden="true" className="min-w-0 flex-1 font-mono text-[12.5px] leading-5 text-zk-text2">
         {/* The steps already done stay, faded, above the one being typed. */}
-        {STEPS.slice(Math.max(0, step - 2), step).map((done) => (
+        {activeSteps.slice(Math.max(0, step - 2), step).map((done) => (
           <p key={done} className="m-0 text-zk-muted">
             <span className="text-zk-ok-fg">✓</span> {done.replace(/…$/, "")}
           </p>

@@ -51,7 +51,7 @@ const nextConfig: NextConfig = {
       },
       {
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+        value: "camera=(), microphone=(self), geolocation=(), interest-cohort=()",
       },
       {
         key: "Content-Security-Policy",
@@ -130,6 +130,9 @@ const nextConfig: NextConfig = {
   experimental: {
     // #447: lets a page answer 403 with `forbidden()` and app/forbidden.tsx.
     authInterrupts: true,
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
   },
   webpack: (config, { nextRuntime }) => {
     // instrumentation.ts imports the ledger backfill only on Node. The edge
