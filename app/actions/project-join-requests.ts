@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { canManageProject } from "@/lib/project-permissions";
-import { ideasPath, marketingPath, orgPath, projectPath, projectRef } from "@/lib/project-paths";
+import { marketingPath, orgPath, projectPath, projectRef } from "@/lib/project-paths";
+import { projectHomePath } from "@/lib/marketing/project-home";
 
 export type JoinRequestActionResult = {
   ok?: boolean;
@@ -178,8 +179,8 @@ export type JoinOpenProjectResult = { ok: true; href: string } | { ok: false; er
 /**
  * Joins a project that is open for contributors straight away (#earnings): no request to wait on and nobody to
  * accept it, because opening the project to contributors already said yes. Any earlier request is marked accepted.
- * Returns where to go next: the project's Marketing tab when it has marketing tasks waiting for bids (Ziki
- * Marketing), else its Ideas.
+ * Returns where to go next: the project's Marketing tab when it has marketing tasks waiting for bids or is all
+ * marketing (#marketing-home), else its Ideas.
  */
 export async function joinOpenProjectAction(projectId: string): Promise<JoinOpenProjectResult> {
   const user = await requireUser();
@@ -210,5 +211,6 @@ export async function joinOpenProjectAction(projectId: string): Promise<JoinOpen
   });
   revalidatePath("/discover");
   revalidatePath(orgPath(pRef, "members"));
-  return { ok: true, href: marketingTasks > 0 ? marketingPath(pRef) : ideasPath(pRef) };
+  const href = marketingTasks > 0 ? marketingPath(pRef) : await projectHomePath(prisma, project.id, pRef);
+  return { ok: true, href };
 }

@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ideasPath, orgHomePath, projectPath, projectRef, type ProjectRef } from "@/lib/project-paths";
+import { orgHomePath, projectPath, projectRef, type ProjectRef } from "@/lib/project-paths";
 
 /** The organisation's slug, and the project (none on the organisation's own page). */
 export type BreadcrumbProject = { orgSlug: string; slug?: string; name?: string };
@@ -69,7 +69,7 @@ export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
           <>
             <li aria-hidden="true" className="text-zk-muted">/</li>
             <li className="min-w-0">
-              <Link href={ideasPath(ref)} className={`${crumb} block truncate font-bold text-zk-text`}>{project.name}</Link>
+              <Link href={projectPath(ref)} className={`${crumb} block truncate font-bold text-zk-text`}>{project.name}</Link>
             </li>
             {section.map((part, index) => (
               <Fragment key={part}>

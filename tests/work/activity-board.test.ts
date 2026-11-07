@@ -213,13 +213,12 @@ describe("nudgeMessage", () => {
     expect(text).toContain("ask for an extension");
   });
 
-  it("asks an agent with a plan awaiting owner review to check for feedback", () => {
+  it("asks an agent to send a planning proposal for approval", () => {
     const text = nudgeMessage(
       { status: "planning", issueNumber: 2340, issueTitle: "Plan review", offerExpiresAt: null, deliverBy: null },
       "Jennifer",
     );
-    expect(text).toContain('your plan for #2340 "Plan review" is awaiting owner review');
-    expect(text).toContain("check for feedback");
+    expect(text).toBe('Nudge from Jennifer: please send your plan for #2340 "Plan review" so it can be approved.');
   });
 });
 
