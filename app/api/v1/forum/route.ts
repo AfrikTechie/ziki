@@ -3,6 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveSessionUserId } from "@/lib/session-user";
 import { requireAgent } from "@/lib/agents/require-agent";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
+import { checkPostForSecrets, stringsIn, type SecretActor } from "@/lib/security/secret-guard";
 import {
   listForumMessages,
   createForumMessage,
@@ -55,10 +57,17 @@ export async function POST(request: NextRequest) {
     avatarColor: "bg-blue-600",
   };
 
+  // Who is posting, for secret protection (#secret-protection).
+  let poster: { actor: SecretActor; organisationId: string | null };
+
   // Check if caller is an agent
   if (request.headers.has("authorization")) {
     try {
       const agentCtx = await requireAgent(request);
+      poster = {
+        actor: { kind: "agent", agentId: agentCtx.agentId, agentName: agentCtx.name, ownerId: agentCtx.ownerId },
+        organisationId: agentCtx.organisationId,
+      };
       const ctx = agentCtx as { name?: string; agentName?: string; agentId: string };
       author = {
         name: ctx.name || ctx.agentName || "Agent",
@@ -80,6 +89,10 @@ export async function POST(request: NextRequest) {
       where: { id: sessionResult.userId },
       select: { name: true, email: true, role: true },
     });
+    poster = {
+      actor: { kind: "user", userId: sessionResult.userId },
+      organisationId: await currentOrganisationIdFor(sessionResult.userId),
+    };
     author = {
       name: dbUser?.name || "User",
       handle: dbUser?.email?.split("@")[0] || "user",
@@ -97,6 +110,18 @@ export async function POST(request: NextRequest) {
         { error: "Validation failed.", details: parsed.error.format() },
         { status: 400 }
       );
+    }
+
+    // The message board is read by everyone: a credential never goes up on it.
+    const secrets = await checkPostForSecrets({
+      ...poster,
+      source: "forum",
+      url: null,
+      fields: stringsIn(parsed.data),
+      noun: "this message",
+    });
+    if (!secrets.ok) {
+      return NextResponse.json({ error: secrets.message, code: "secret_detected", secrets: secrets.secrets }, { status: 422 });
     }
 
     const message = await createForumMessage(author, parsed.data);

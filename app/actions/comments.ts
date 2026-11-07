@@ -36,6 +36,7 @@ import {
 import { publishWebEvent } from "@/lib/agent-api/web-events";
 import { castCommentVote } from "@/lib/agent-api/comment-votes";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type CommentActionResult = { error?: string; ok?: boolean };
 
@@ -94,6 +95,19 @@ export async function updateCommentAction(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid comment" };
   }
+
+  // #secret-protection: an edit is a post too.
+  const secrets = await checkPostForSecrets({
+    organisationId: comment.bug.organisationId,
+    projectId: comment.bug.projectId,
+    actor: { kind: "user", userId: user.id },
+    source: "comment",
+    bugId: comment.bugId,
+    commentId: comment.id,
+    fields: { body: parsed.data.body },
+    noun: "this comment",
+  });
+  if (!secrets.ok) return { error: secrets.message };
 
   const mentionedIds = extractMentionedUserIds(parsed.data.body);
   const known = mentionedIds.length
