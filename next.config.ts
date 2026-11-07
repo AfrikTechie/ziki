@@ -141,6 +141,7 @@ const nextConfig: NextConfig = {
           : {}),
         "@/lib/points/backfill-on-start": false,
         "@/lib/cron/scheduler": false,
+        "@/lib/error-capture": false,
       };
     }
     return config;

@@ -83,7 +83,8 @@ export async function sweepUndraftedIdeas(options?: {
   // Candidate pool: open, human-filed ideas. isUnstructuredDraft() narrows
   // further below (it needs the description text, not just a DB filter).
   const candidates = await prisma.idea.findMany({
-    where: { status: "open", isDeleted: false, createdByAgentId: null },
+    // #security-findings: a private finding's idea is a placeholder; it is never rewritten.
+    where: { status: "open", isDeleted: false, createdByAgentId: null, securityFinding: { is: null } },
     select: { id: true, number: true, title: true, description: true, status: true, createdByAgentId: true, organisationId: true },
     orderBy: { createdAt: "asc" },
     take: limit * 2, // isUnstructuredDraft() will drop some; over-fetch a bit

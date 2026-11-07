@@ -18,9 +18,13 @@ export function attachmentIdsInMarkdown(text: string | null | undefined): string
 
 /**
  * What a file is attached to: an issue (and maybe one of its comments or
- * confirmation entries), or an idea (#idea-table).
+ * confirmation entries), an idea (#idea-table), or a private security finding
+ * (#security-findings), whose files only the people who may see it can read.
  */
-export type AttachmentTarget = { bugId: string; commentId?: string | null; confirmationId?: string | null } | { ideaId: string };
+export type AttachmentTarget =
+  | { bugId: string; commentId?: string | null; confirmationId?: string | null }
+  | { ideaId: string }
+  | { securityFindingId: string };
 
 /**
  * Links freshly uploaded files to the issue, comment or idea being saved (#215).
@@ -33,11 +37,13 @@ export async function linkAttachments(
 ): Promise<number> {
   if (ids.length === 0) return 0;
   const result = await db.attachment.updateMany({
-    where: { id: { in: ids }, uploaderId, bugId: null, ideaId: null, commentId: null, confirmationId: null },
+    where: { id: { in: ids }, uploaderId, bugId: null, ideaId: null, commentId: null, confirmationId: null, securityFindingId: null },
     data:
-      "ideaId" in target
-        ? { ideaId: target.ideaId }
-        : { bugId: target.bugId, commentId: target.commentId ?? null, confirmationId: target.confirmationId ?? null },
+      "securityFindingId" in target
+        ? { securityFindingId: target.securityFindingId }
+        : "ideaId" in target
+          ? { ideaId: target.ideaId }
+          : { bugId: target.bugId, commentId: target.commentId ?? null, confirmationId: target.confirmationId ?? null },
   });
   return result.count;
 }

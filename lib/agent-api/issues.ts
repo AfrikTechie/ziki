@@ -33,6 +33,7 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { latestPullRequestReport, pullRequestStateView } from "@/lib/agent-api/pull-request-report";
 import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 import { entrySummary } from "@/lib/agent-api/entry-fields";
+import { findingForBug, findingView, type FindingRow, type FindingViewer } from "@/lib/security-findings";
 import { searchWorkItems } from "@/lib/search-index";
 
 export { IssueApiError };
@@ -299,6 +300,25 @@ const confirmationSelect = {
   updatedAt: true,
 } satisfies Prisma.IssueConfirmationSelect;
 
+/**
+ * #security-findings: a private finding's block on an issue or idea read. Always its
+ * severity and whether it is disclosed; the real title, summary, description and
+ * files only when the asking agent may see them (`canView`).
+ */
+export function securityJson(row: FindingRow | null, viewer: FindingViewer | null) {
+  if (!row) return null;
+  const view = findingView(row, viewer);
+  return {
+    severity: view.severity,
+    disclosed: view.disclosed,
+    disclosedAt: view.disclosedAt,
+    canView: view.canView,
+    details: view.details
+      ? { ...view.details, attachments: view.details.attachments.map((file) => ({ ...file, url: agentAttachmentUrl(file.id) })) }
+      : null,
+  };
+}
+
 /** The issue's plan as the issue read shows it: the entry's fields without its revisions and replies. */
 async function planSummary(bugId: string) {
   const plan = await currentPlan(bugId);
@@ -309,7 +329,7 @@ async function planSummary(bugId: string) {
   return summary;
 }
 
-export async function readAgentIssue(scope: Scope, id: string) {
+export async function readAgentIssue(scope: Scope, id: string, viewer: FindingViewer | null = null) {
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
   const ref = parseIssueRef(id);
   const issue = await prisma.bug.findFirst({
@@ -346,6 +366,8 @@ export async function readAgentIssue(scope: Scope, id: string) {
     plan: await planSummary(issue.id),
     // #pr-reports: the latest independent report on the linked pull request, with who filed it and its age, or null.
     pullRequestState: pullRequestStateView(await latestPullRequestReport(issue.id, issue.pullRequestUrl)),
+    // #security-findings: null for an ordinary issue.
+    security: securityJson(await findingForBug(issue.id), viewer),
   };
 }
 

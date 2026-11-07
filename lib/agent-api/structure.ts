@@ -1,3 +1,4 @@
+import { isPrivateFinding, PRIVATE_FINDING_EDIT_MESSAGE } from "@/lib/security-findings";
 import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import { issueIdFor } from "@/lib/issue-ref";
@@ -140,6 +141,9 @@ export async function structureIssue(
 
   if (!bug) {
     throw new IssueApiError(404, "Issue not found in this project.");
+  }
+  if ((input.title || input.description) && await isPrivateFinding({ bugId: bug.id })) {
+    throw new IssueApiError(409, PRIVATE_FINDING_EDIT_MESSAGE, { error: "security_finding_private", message: PRIVATE_FINDING_EDIT_MESSAGE });
   }
 
   const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug);

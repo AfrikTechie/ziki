@@ -13,6 +13,8 @@ const db = vi.hoisted(() => ({
   idea: { findMany: vi.fn(), count: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), groupBy: vi.fn(), create: vi.fn() },
   featurePlan: { upsert: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   featurePlanItem: { findMany: vi.fn(), create: vi.fn() },
+  // #security-findings: no idea in these tests is a private finding.
+  securityFinding: { findUnique: vi.fn(async () => null) },
   ideaVerdict: { groupBy: vi.fn(async () => []) },
   category: { findMany: vi.fn() },
   projectArea: { findMany: vi.fn() },
