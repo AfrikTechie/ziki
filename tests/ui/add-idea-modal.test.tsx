@@ -502,6 +502,66 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     expect(narrationSwitch.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("captures audio and enables voice narration when toggle is activated", async () => {
+    const user = userEvent.setup();
+
+    const mockVideoTrack = { stop: vi.fn(), onended: null };
+    const mockAudioTrack = { stop: vi.fn(), onended: null, enabled: true };
+    const mockScreenStream = {
+      getTracks: vi.fn(() => [mockVideoTrack]),
+      getVideoTracks: vi.fn(() => [mockVideoTrack]),
+      getAudioTracks: vi.fn(() => []),
+    };
+    const mockMicStream = {
+      getTracks: vi.fn(() => [mockAudioTrack]),
+      getAudioTracks: vi.fn(() => [mockAudioTrack]),
+    };
+
+    const getUserMediaMock = vi.fn().mockResolvedValue(mockMicStream);
+    const getDisplayMediaMock = vi.fn().mockResolvedValue(mockScreenStream);
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: getDisplayMediaMock,
+        getUserMedia: getUserMediaMock,
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const narrationSwitch = screen.getByRole("switch", { name: /Toggle voice narration/i });
+    await user.click(narrationSwitch);
+
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+
+    expect(getUserMediaMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audio: expect.objectContaining({
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }),
+        video: false,
+      })
+    );
+    expect(mockAudioTrack.enabled).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Voice narration recorded")).toBeTruthy();
+    });
+  });
+
   it("displays transparent AI error notice and allows retry or manual draft when AI analysis fails", async () => {
     const user = userEvent.setup();
 

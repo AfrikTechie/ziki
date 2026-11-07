@@ -42,13 +42,35 @@ const VISUAL_WITH_NARRATION_STEPS = [
 ];
 
 /**
+ * Helper to snapshot a clean frame from an HTMLVideoElement onto an offscreen canvas.
+ */
+function captureVideoElementFrame(video: HTMLVideoElement, label: string): KeyframeSample | null {
+  try {
+    if (!video.videoWidth || !video.videoHeight) return null;
+    const canvas = document.createElement("canvas");
+    const width = Math.min(video.videoWidth || 1024, 1024);
+    const aspect = (video.videoHeight || 576) / (video.videoWidth || 1024);
+    canvas.width = width;
+    canvas.height = Math.round(width * (aspect || 0.5625));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+    return { label, dataUrl };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extracts lightweight keyframes across the recording timeline using an offscreen canvas.
  * Held purely in temporary browser memory.
  */
 async function extractVideoKeyframes(
   blob: Blob,
   hasNarration: boolean = false,
-  explicitCount?: number
+  explicitCount?: number,
+  knownDuration?: number
 ): Promise<KeyframeSample[]> {
   return new Promise((resolve) => {
     try {
@@ -67,10 +89,18 @@ async function extractVideoKeyframes(
       const timer = setTimeout(() => {
         URL.revokeObjectURL(url);
         resolve(frames);
-      }, 4000);
+      }, 5000);
 
       video.onloadedmetadata = () => {
-        const duration = Math.max(1, video.duration || 1);
+        // Chromium MediaRecorder WebM blobs report video.duration as Infinity.
+        // Use knownDuration from recorder timer when available and finite.
+        const effectiveDuration =
+          knownDuration && isFinite(knownDuration) && knownDuration > 0
+            ? knownDuration
+            : isFinite(video.duration) && video.duration > 0
+              ? video.duration
+              : 1;
+        const duration = Math.max(1, effectiveDuration);
         let samplePoints: Array<{ label: string; time: number }> = [];
 
         if (hasNarration) {
@@ -79,7 +109,10 @@ async function extractVideoKeyframes(
           samplePoints = [
             { label: "Initial state / Context", time: Math.min(0.5, duration * 0.1) },
             ...(duration > 10 ? [{ label: "Demonstrated action", time: duration * 0.5 }] : []),
-            { label: "Observed outcome / Defect", time: Math.max(0.5, duration * 0.95) },
+            {
+              label: "Observed outcome / Defect",
+              time: Math.max(0.5, Math.min(duration - 0.2, duration * 0.95)),
+            },
           ];
         } else {
           // Without voice narration, sample 4 keyframes to visually reconstruct the action sequence.
@@ -87,7 +120,10 @@ async function extractVideoKeyframes(
             { label: "Start of recording", time: Math.min(0.5, duration * 0.1) },
             { label: "Early action", time: duration * 0.35 },
             { label: "Mid-interaction", time: duration * 0.65 },
-            { label: "Observed outcome", time: Math.max(0.5, duration * 0.95) },
+            {
+              label: "Observed outcome",
+              time: Math.max(0.5, Math.min(duration - 0.2, duration * 0.95)),
+            },
           ];
         }
 
@@ -96,18 +132,9 @@ async function extractVideoKeyframes(
         }
 
         let currentIndex = 0;
+        let perFrameTimer: NodeJS.Timeout | null = null;
 
-        const captureCurrentPoint = () => {
-          if (currentIndex >= samplePoints.length) {
-            clearTimeout(timer);
-            URL.revokeObjectURL(url);
-            resolve(frames);
-            return;
-          }
-          video.currentTime = samplePoints[currentIndex].time;
-        };
-
-        video.onseeked = () => {
+        const captureFrameFromCanvas = () => {
           try {
             const canvas = document.createElement("canvas");
             const width = Math.min(video.videoWidth || 1024, 1024);
@@ -124,6 +151,41 @@ async function extractVideoKeyframes(
           } catch {
             // ignore frame error
           }
+        };
+
+        const captureCurrentPoint = () => {
+          if (currentIndex >= samplePoints.length) {
+            if (perFrameTimer) clearTimeout(perFrameTimer);
+            clearTimeout(timer);
+            URL.revokeObjectURL(url);
+            resolve(frames);
+            return;
+          }
+
+          const targetTime = Math.max(0, Math.min(duration - 0.1, samplePoints[currentIndex].time));
+
+          if (perFrameTimer) clearTimeout(perFrameTimer);
+          perFrameTimer = setTimeout(() => {
+            captureFrameFromCanvas();
+            currentIndex++;
+            captureCurrentPoint();
+          }, 800);
+
+          try {
+            video.currentTime = targetTime;
+          } catch {
+            captureFrameFromCanvas();
+            currentIndex++;
+            captureCurrentPoint();
+          }
+        };
+
+        video.onseeked = () => {
+          if (perFrameTimer) {
+            clearTimeout(perFrameTimer);
+            perFrameTimer = null;
+          }
+          captureFrameFromCanvas();
           currentIndex++;
           captureCurrentPoint();
         };
@@ -204,6 +266,9 @@ export function AddIdeaModal({
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const liveFramesRef = useRef<KeyframeSample[]>([]);
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const speechRecRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -271,6 +336,16 @@ export function AddIdeaModal({
       }
       speechRecRef.current = null;
     }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    if (liveVideoRef.current) {
+      liveVideoRef.current.pause();
+      liveVideoRef.current.srcObject = null;
+      liveVideoRef.current = null;
+    }
+    liveFramesRef.current = [];
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach((track) => track.stop());
       micStreamRef.current = null;
@@ -332,6 +407,13 @@ export function AddIdeaModal({
           // ignore
         }
       }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+      }
+      if (liveVideoRef.current) {
+        liveVideoRef.current.pause();
+        liveVideoRef.current.srcObject = null;
+      }
       if (micStreamRef.current) {
         micStreamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -380,12 +462,34 @@ export function AddIdeaModal({
     }
 
     try {
-      // If voice narration is enabled, request microphone permission
+      // Clear previous frames and resources
+      liveFramesRef.current = [];
+      if (liveVideoRef.current) {
+        liveVideoRef.current.pause();
+        liveVideoRef.current.srcObject = null;
+        liveVideoRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+
+      // If voice narration is enabled, request microphone permission with enhancement constraints
       let micStream: MediaStream | null = null;
       if (withAudio && navigator.mediaDevices?.getUserMedia) {
         try {
-          micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: false,
+          });
           micStreamRef.current = micStream;
+          micStream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
           setMicActive(true);
         } catch {
           // Microphone was denied or unavailable - notify user and proceed with video recording
@@ -396,56 +500,173 @@ export function AddIdeaModal({
 
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: "browser" },
-        audio: false,
+        audio: true,
       });
       streamRef.current = stream;
 
-      // Use combined stream if microphone audio is active, otherwise use screen stream
-      const recordingStream =
-        micStream && typeof MediaStream !== "undefined"
-          ? new MediaStream([
-              ...stream.getVideoTracks(),
-              ...micStream.getAudioTracks(),
-            ])
-          : stream;
+      // Combine video track with microphone audio track (and system audio track if present)
+      let mixedAudioStream: MediaStream | null = null;
+      const micAudioTracks =
+        micStream && typeof micStream.getAudioTracks === "function" ? micStream.getAudioTracks() : [];
+      const sysAudioTracks =
+        typeof stream.getAudioTracks === "function" ? stream.getAudioTracks() : [];
+
+      if (micAudioTracks.length > 0 && sysAudioTracks.length > 0 && typeof window !== "undefined") {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass) {
+            const ctx = new AudioContextClass();
+            if (ctx.state === "suspended") {
+              ctx.resume().catch(() => {});
+            }
+            const destination = ctx.createMediaStreamDestination();
+            const micSource = ctx.createMediaStreamSource(micStream!);
+            micSource.connect(destination);
+            const sysSource = ctx.createMediaStreamSource(new MediaStream(sysAudioTracks));
+            sysSource.connect(destination);
+            mixedAudioStream = destination.stream;
+            audioContextRef.current = ctx;
+          }
+        } catch {
+          // Fallback to mic audio
+        }
+      }
+
+      const audioTracks: MediaStreamTrack[] = mixedAudioStream
+        ? mixedAudioStream.getAudioTracks()
+        : micAudioTracks.length > 0
+          ? micAudioTracks
+          : sysAudioTracks;
+
+      const hasAudio = audioTracks.length > 0;
+      let recordingStream = stream;
+      if (hasAudio && typeof MediaStream !== "undefined") {
+        try {
+          const videoTracks = typeof stream.getVideoTracks === "function" ? stream.getVideoTracks() : [];
+          recordingStream = new MediaStream([...videoTracks, ...audioTracks]);
+        } catch {
+          recordingStream = stream;
+        }
+      }
 
       // Start live speech recognition for live narration transcription if available
+      let speechActive = false;
       if (micStream && typeof window !== "undefined") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         if (SpeechRec) {
-          try {
-            const rec = new SpeechRec();
-            rec.continuous = true;
-            rec.interimResults = true;
-            rec.lang = typeof navigator !== "undefined" ? navigator.language : "en-US";
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            rec.onresult = (e: any) => {
-              let text = "";
-              for (let i = 0; i < e.results.length; i++) {
-                text += e.results[i][0].transcript + " ";
-              }
-              if (text.trim()) setNarration(text.trim());
-            };
-            rec.start();
-            speechRecRef.current = rec;
-          } catch {
-            // Speech recognition optional fallback
-          }
+          speechActive = true;
+          let accumulatedFinals = "";
+
+          const initSpeechRec = () => {
+            if (!speechActive) return;
+            try {
+              const rec = new SpeechRec();
+              rec.continuous = true;
+              rec.interimResults = true;
+              rec.lang = typeof navigator !== "undefined" ? navigator.language : "en-US";
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              rec.onresult = (e: any) => {
+                let currentFinal = "";
+                let currentInterim = "";
+                for (let i = 0; i < e.results.length; i++) {
+                  if (e.results[i].isFinal) {
+                    currentFinal += e.results[i][0].transcript + " ";
+                  } else {
+                    currentInterim += e.results[i][0].transcript + " ";
+                  }
+                }
+                if (currentFinal) {
+                  accumulatedFinals = (accumulatedFinals + " " + currentFinal).replace(/\s+/g, " ").trim();
+                }
+                const combined = (accumulatedFinals + " " + currentInterim).replace(/\s+/g, " ").trim();
+                if (combined) {
+                  setNarration(combined);
+                }
+              };
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              rec.onerror = () => {
+                // Non-fatal (e.g. no-speech when silent). Let onend restart if still active.
+              };
+
+              rec.onend = () => {
+                if (speechActive && recorderRef.current && recorderRef.current.state === "recording") {
+                  try {
+                    rec.start();
+                  } catch {
+                    setTimeout(() => {
+                      if (speechActive && recorderRef.current && recorderRef.current.state === "recording") {
+                        initSpeechRec();
+                      }
+                    }, 200);
+                  }
+                }
+              };
+
+              rec.start();
+              speechRecRef.current = rec;
+            } catch {
+              // Speech recognition fallback
+            }
+          };
+
+          initSpeechRec();
         }
       }
 
-      // Detect supported mimeType
+      // Prioritize video+audio MIME types when audio tracks exist so Opus audio track is preserved
+      const preferredMimeTypes = hasAudio
+        ? [
+            "video/webm;codecs=vp9,opus",
+            "video/webm;codecs=vp8,opus",
+            "video/webm;codecs=h264,opus",
+            "video/webm",
+            "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+            "video/mp4",
+          ]
+        : [
+            "video/webm;codecs=vp9",
+            "video/webm;codecs=vp8",
+            "video/webm",
+            "video/mp4",
+          ];
+
       const mimeType =
-        [
-          "video/webm;codecs=vp9",
-          "video/webm;codecs=vp8",
-          "video/webm",
-          "video/mp4",
-        ].find((type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) || "";
+        preferredMimeTypes.find(
+          (type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)
+        ) || "";
 
       const recorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
       recorderRef.current = recorder;
+
+      // Setup offscreen video element for real-time keyframe capture (browser environments only)
+      if (
+        typeof document !== "undefined" &&
+        typeof navigator !== "undefined" &&
+        !/jsdom/i.test(navigator.userAgent)
+      ) {
+        try {
+          const liveVideo = document.createElement("video");
+          liveVideo.muted = true;
+          liveVideo.playsInline = true;
+          liveVideo.srcObject = stream;
+          liveVideoRef.current = liveVideo;
+          liveVideo.play().catch(() => {});
+
+          // Sample initial context keyframe at 400ms
+          setTimeout(() => {
+            if (liveVideoRef.current && recorderRef.current?.state === "recording") {
+              const frame = captureVideoElementFrame(liveVideoRef.current, "Start of recording (t=0s)");
+              if (frame) liveFramesRef.current.push(frame);
+            }
+          }, 400);
+        } catch {
+          // Offscreen preview optional in headless/test environments
+        }
+      }
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (event) => {
@@ -458,6 +679,7 @@ export function AddIdeaModal({
       startTimeRef.current = start;
 
       recorder.onstop = () => {
+        speechActive = false;
         if (timerRef.current) {
           clearInterval(timerRef.current);
           timerRef.current = null;
@@ -470,6 +692,15 @@ export function AddIdeaModal({
           }
           speechRecRef.current = null;
         }
+        if (audioContextRef.current) {
+          audioContextRef.current.close().catch(() => {});
+          audioContextRef.current = null;
+        }
+        if (liveVideoRef.current) {
+          liveVideoRef.current.pause();
+          liveVideoRef.current.srcObject = null;
+          liveVideoRef.current = null;
+        }
         if (micStreamRef.current) {
           micStreamRef.current.getTracks().forEach((track) => track.stop());
           micStreamRef.current = null;
@@ -477,7 +708,8 @@ export function AddIdeaModal({
         setMicActive(false);
 
         const elapsed = Math.max(1, Math.floor((Date.now() - start) / 1000));
-        const blob = new Blob(chunks, { type: mimeType || "video/webm" });
+        const outputMimeType = recorder.mimeType || (hasAudio ? "video/webm" : mimeType || "video/webm");
+        const blob = new Blob(chunks, { type: outputMimeType });
         const url = URL.createObjectURL(blob);
         setMedia({ type: "video", blob, url, duration: elapsed });
         setRecordState("recorded");
@@ -491,6 +723,14 @@ export function AddIdeaModal({
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.onended = () => {
+          if (liveVideoRef.current && recorder.state === "recording") {
+            const elapsed = Math.max(1, Math.floor((Date.now() - start) / 1000));
+            const frame = captureVideoElementFrame(
+              liveVideoRef.current,
+              `Observed outcome / Defect (t=${elapsed}s)`
+            );
+            if (frame) liveFramesRef.current.push(frame);
+          }
           if (recorder.state === "recording") {
             recorder.stop();
           }
@@ -504,6 +744,22 @@ export function AddIdeaModal({
       timerRef.current = setInterval(() => {
         const elapsed = Math.floor((Date.now() - start) / 1000);
         setRecordSeconds(elapsed);
+
+        // Sample intermediate interaction keyframe every 5 seconds
+        if (elapsed > 0 && elapsed % 5 === 0 && liveVideoRef.current) {
+          const frame = captureVideoElementFrame(
+            liveVideoRef.current,
+            `Demonstrated interaction (t=${elapsed}s)`
+          );
+          if (frame) {
+            if (liveFramesRef.current.length >= 3) {
+              liveFramesRef.current.splice(1, 1, frame);
+            } else {
+              liveFramesRef.current.push(frame);
+            }
+          }
+        }
+
         // Cap recording at 60 seconds for memory preservation
         if (elapsed >= 60) {
           if (recorder.state === "recording") {
@@ -519,6 +775,15 @@ export function AddIdeaModal({
           // ignore
         }
         speechRecRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      if (liveVideoRef.current) {
+        liveVideoRef.current.pause();
+        liveVideoRef.current.srcObject = null;
+        liveVideoRef.current = null;
       }
       if (micStreamRef.current) {
         micStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -537,6 +802,14 @@ export function AddIdeaModal({
   };
 
   const stopRecording = () => {
+    if (liveVideoRef.current && recorderRef.current && recorderRef.current.state === "recording") {
+      const elapsed = Math.max(1, Math.floor((Date.now() - startTimeRef.current) / 1000));
+      const frame = captureVideoElementFrame(
+        liveVideoRef.current,
+        `Observed outcome / Defect (t=${elapsed}s)`
+      );
+      if (frame) liveFramesRef.current.push(frame);
+    }
     if (recorderRef.current && recorderRef.current.state === "recording") {
       recorderRef.current.stop();
     }
@@ -551,6 +824,16 @@ export function AddIdeaModal({
       }
       speechRecRef.current = null;
     }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    if (liveVideoRef.current) {
+      liveVideoRef.current.pause();
+      liveVideoRef.current.srcObject = null;
+      liveVideoRef.current = null;
+    }
+    liveFramesRef.current = [];
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach((track) => track.stop());
       micStreamRef.current = null;
@@ -709,7 +992,23 @@ export function AddIdeaModal({
       } else if (media.type === "video") {
         const hasNarration = Boolean(effectiveNarration);
         const targetFrames = hasNarration ? 2 : 4;
-        const sampledFrames = await extractVideoKeyframes(media.blob, hasNarration, targetFrames);
+        let sampledFrames: KeyframeSample[] = [];
+
+        // Use real-time frames captured directly from active recording stream if available
+        if (liveFramesRef.current && liveFramesRef.current.length > 0) {
+          sampledFrames = liveFramesRef.current.slice(0, targetFrames);
+        }
+
+        // Fallback to offscreen extraction using known recording duration
+        if (sampledFrames.length === 0) {
+          sampledFrames = await extractVideoKeyframes(
+            media.blob,
+            hasNarration,
+            targetFrames,
+            media.duration
+          );
+        }
+
         if (sampledFrames && sampledFrames.length > 0) {
           frames = sampledFrames;
         }
@@ -722,12 +1021,12 @@ export function AddIdeaModal({
 
       const actionStartTime = performance.now();
 
-      // 25-second timeout safeguard to prevent unresponsiveness
+      // 45-second timeout safeguard to allow full multimodal model inference
       let timeoutId: NodeJS.Timeout | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          reject(new Error("Analysis took longer than expected (timed out after 25s). You can retry or draft manually."));
-        }, 25000);
+          reject(new Error("Analysis took longer than expected (timed out after 45s). You can retry or draft manually."));
+        }, 45000);
       });
 
       const analysisPromise = interpretVisualEvidenceAction({
@@ -1430,7 +1729,7 @@ export function AddIdeaModal({
             )}
 
             {/* Voice narration transcript */}
-            {narration && (
+            {narration ? (
               <div className="flex flex-col space-y-2 rounded-xl border border-zk-border bg-zk-chip/30 p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
@@ -1496,7 +1795,23 @@ export function AddIdeaModal({
                   <p className="text-xs text-zk-text italic leading-relaxed">&ldquo;{narration}&rdquo;</p>
                 )}
               </div>
-            )}
+            ) : withAudio && media?.type === "video" ? (
+              <div className="flex items-center justify-between rounded-xl border border-zk-border bg-zk-chip/20 p-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-zk-accent/20 text-zk-accent">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="22" />
+                    </svg>
+                  </span>
+                  <div>
+                    <span className="text-xs font-semibold text-zk-text">Voice narration recorded</span>
+                    <p className="text-[11px] text-zk-muted">Audio track is active and audible during video playback</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             {/* AI Progress Indicator when interpreting */}
             {isInterpreting && (

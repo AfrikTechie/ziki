@@ -146,6 +146,21 @@ describe("visual-interpretation", () => {
       expect(result.understanding.observedBehavior).toContain("Kebab menu in DM header is unresponsive");
       expect(result.draft.title).toContain("Kebab menu in DM header is unresponsive");
     });
+
+    it("grounds fallback drafts in spoken voice narration when clarification is absent", () => {
+      const input: VisualEvidenceInput = {
+        mediaType: "video",
+        durationSeconds: 15,
+        narration: "When clicking the delete button on the comment, the modal does not appear",
+      };
+
+      const result = generateFallbackAnalysis(input);
+      expect(result.success).toBe(true);
+      expect(result.understanding.observedBehavior).toContain("delete button on the comment");
+      expect(result.draft.title).toContain("delete button on the comment");
+      expect(result.draft.description).toContain("delete button on the comment");
+      expect(result.draft.description).not.toContain("Locate the target interface control shown in the recording");
+    });
   });
 
   describe("AI provider selection & Google Gemini integration", () => {

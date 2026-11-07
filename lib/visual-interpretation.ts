@@ -164,11 +164,37 @@ function parseClarificationDetails(clarification: string): {
     };
   }
 
+  // Handle "When clicking X, [outcome]" speech patterns
+  const whenClickMatch = clean.match(
+    /^(?:when\s+(?:i\s+)?(?:click(?:ing)?|press(?:ing)?|tap(?:ping)?)\s+(?:on\s+)?(?:the\s+)?)(.+?)[,;\s]+(?:the\s+)?(.+)$/i
+  );
+  if (whenClickMatch) {
+    const comp = whenClickMatch[1].trim();
+    const outcome = whenClickMatch[2].trim();
+    return {
+      component: comp,
+      action: `Click or trigger the ${comp}`,
+      expected: `${comp} triggers its expected action and state transition.`,
+      actual: outcome,
+    };
+  }
+
   if (/badge|counter|filter/i.test(clean)) {
     return {
       component: "Filter tabs & badge counter",
       action: "Apply active filter tab",
       expected: "Badge counter updates dynamically to reflect filtered item count.",
+      actual: clean,
+    };
+  }
+
+  if (/disabled|greyed out|grayed out/i.test(clean)) {
+    const match = clean.match(/^(.+?)\s+(?:is|remains)\s+(?:disabled|greyed out|grayed out)(.*)$/i);
+    const comp = match ? match[1].trim() : "Interactive control";
+    return {
+      component: comp,
+      action: `Access ${comp} in the workflow`,
+      expected: `${comp} is enabled and accepts user interaction.`,
       actual: clean,
     };
   }
@@ -218,6 +244,8 @@ function parseClarificationDetails(clarification: string): {
  */
 export function generateFallbackDraft(input: VisualEvidenceInput): InterpretedIssueDraft {
   const clarification = input.clarification?.trim();
+  const narration = input.narration?.trim();
+  const effectiveNotes = [clarification, narration].filter(Boolean).join(". ");
   const isVideo = input.mediaType === "video";
   const durationText = input.durationSeconds && input.durationSeconds > 0 ? ` (${input.durationSeconds}s)` : "";
 
@@ -227,14 +255,14 @@ export function generateFallbackDraft(input: VisualEvidenceInput): InterpretedIs
   let expected = "";
   let actual = "";
 
-  if (clarification) {
-    const details = parseClarificationDetails(clarification);
-    const firstLine = clarification
+  if (effectiveNotes) {
+    const details = parseClarificationDetails(effectiveNotes);
+    const firstLine = effectiveNotes
       .split("\n")[0]
       .replace(/^[#*`>\-\s]+/, "")
       .trim();
     title = firstLine.length > 90 ? `${firstLine.slice(0, 87)}…` : firstLine;
-    summary = clarification;
+    summary = effectiveNotes;
 
     steps = [
       `Navigate to the view containing ${details.component}.`,
@@ -244,17 +272,27 @@ export function generateFallbackDraft(input: VisualEvidenceInput): InterpretedIs
     expected = details.expected;
     actual = details.actual;
   } else {
-    // No user clarification: generate grounded details based on media type
+    // No user clarification or spoken narration: generate grounded details based on media type and keyframes
     if (isVideo) {
       title = `Issue observed during screen recording${durationText}`;
-      summary = `Screen recording demonstrates an issue during user workflow${durationText}.`;
-      steps = [
-        "Open the application view shown at the start of the demonstration.",
-        "Locate the target interface control shown in the recording.",
-        "Click or trigger the control and observe the outcome.",
-      ];
-      expected = "The targeted control should respond to user input and complete its state transition.";
-      actual = "The control does not respond as expected and fails to complete the demonstrated action.";
+      if (input.frames && input.frames.length > 0) {
+        summary = `Screen recording demonstrates an issue during user workflow${durationText} across ${input.frames.length} keyframes.`;
+        steps = input.frames.map(
+          (f, idx) =>
+            `${idx === 0 ? "Navigate to view shown at" : "Perform demonstrated interaction at"} ${f.label.replace(/\s*\(t=\d+s\)/, "")}.`
+        );
+        expected = "Application workflow should transition smoothly between states without unexpected errors.";
+        actual = "Demonstrated action sequence fails or produces an unexpected defect.";
+      } else {
+        summary = `Screen recording demonstrates an issue during user workflow${durationText}.`;
+        steps = [
+          "Open the application view shown at the start of the demonstration.",
+          "Locate the target interface control shown in the recording.",
+          "Click or trigger the control and observe the outcome.",
+        ];
+        expected = "The targeted control should respond to user input and complete its state transition.";
+        actual = "The control does not respond as expected and fails to complete the demonstrated action.";
+      }
     } else {
       title = "Visual defect captured in area screenshot";
       summary = "Targeted area screenshot captures an interface defect in the selected region.";
@@ -283,9 +321,9 @@ export function generateFallbackDraft(input: VisualEvidenceInput): InterpretedIs
   ].join("\n");
 
   const isFeature =
-    clarification?.toLowerCase().includes("feature") ||
-    clarification?.toLowerCase().includes("improve") ||
-    clarification?.toLowerCase().includes("add");
+    effectiveNotes?.toLowerCase().includes("feature") ||
+    effectiveNotes?.toLowerCase().includes("improve") ||
+    effectiveNotes?.toLowerCase().includes("add");
 
   return {
     title: title.slice(0, 200),
@@ -301,23 +339,25 @@ export function generateFallbackAnalysis(input: VisualEvidenceInput): VisualAnal
   const isVideo = input.mediaType === "video";
   const durationText = input.durationSeconds && input.durationSeconds > 0 ? ` (${input.durationSeconds}s)` : "";
   const clarification = input.clarification?.trim();
+  const narration = input.narration?.trim();
+  const effectiveNotes = [clarification, narration].filter(Boolean).join(". ");
 
   let observedBehavior = "";
   let context = "";
   let intent = "";
   let isAmbiguous = false;
 
-  if (clarification) {
-    const details = parseClarificationDetails(clarification);
+  if (effectiveNotes) {
+    const details = parseClarificationDetails(effectiveNotes);
     if (input.previousUnderstanding) {
-      observedBehavior = `Corrected understanding: ${clarification}`;
+      observedBehavior = `Corrected understanding: ${effectiveNotes}`;
       context = details.component;
       intent = "Submit issue with user-verified intent";
       isAmbiguous = false;
     } else {
-      observedBehavior = clarification;
+      observedBehavior = effectiveNotes;
       context = details.component;
-      intent = clarification.toLowerCase().includes("feature") || clarification.toLowerCase().includes("add")
+      intent = effectiveNotes.toLowerCase().includes("feature") || effectiveNotes.toLowerCase().includes("add")
         ? "Suggest a feature improvement"
         : "Report an unexpected defect";
       isAmbiguous = false;
@@ -487,23 +527,24 @@ export function normalizeRawAnalysisOutput(
     unwrapped.type ??
     unwrapped.classification;
 
-  // Fallback defaults from clarification and previous understanding
+  // Fallback defaults from clarification, spoken narration, and previous understanding
   const fallback = generateFallbackDraft(input);
-  const clarificationDetails = input.clarification ? parseClarificationDetails(input.clarification) : null;
+  const effectiveNotes = [input.clarification?.trim(), input.narration?.trim()].filter(Boolean).join(". ");
+  const notesDetails = effectiveNotes ? parseClarificationDetails(effectiveNotes) : null;
 
   return {
     observedBehavior:
       (typeof observedBehavior === "string" && observedBehavior.trim()) ||
       input.previousUnderstanding ||
-      input.clarification ||
+      effectiveNotes ||
       fallback.title,
     context:
       (typeof context === "string" && context.trim()) ||
-      clarificationDetails?.component ||
+      notesDetails?.component ||
       "Application workflow",
     intent:
       (typeof intent === "string" && intent.trim()) ||
-      (input.clarification?.toLowerCase().includes("feature")
+      (effectiveNotes?.toLowerCase().includes("feature")
         ? "Suggest a feature improvement"
         : "Report an unexpected defect"),
     isAmbiguous: isAmbiguous !== undefined ? isAmbiguous : false,
@@ -512,24 +553,24 @@ export function normalizeRawAnalysisOutput(
       fallback.title,
     summary:
       (typeof summary === "string" && summary.trim()) ||
-      input.clarification ||
+      effectiveNotes ||
       fallback.title,
     stepsToReproduce:
       stepsToReproduce !== undefined
         ? stepsToReproduce
         : [
-            `Navigate to ${clarificationDetails?.component || "the demonstrated view"}.`,
-            clarificationDetails?.action || "Interact with the demonstrated interface component.",
+            `Navigate to ${notesDetails?.component || "the demonstrated view"}.`,
+            notesDetails?.action || "Interact with the demonstrated interface component.",
             "Observe the resulting system state and interface feedback.",
           ],
     expectedBehavior:
       (typeof expectedBehavior === "string" && expectedBehavior.trim()) ||
-      clarificationDetails?.expected ||
+      notesDetails?.expected ||
       "System should respond as expected without errors.",
     actualBehavior:
       (typeof actualBehavior === "string" && actualBehavior.trim()) ||
-      clarificationDetails?.actual ||
-      input.clarification ||
+      notesDetails?.actual ||
+      effectiveNotes ||
       "System behaves unexpectedly in the demonstration.",
     suggestedType: suggestedType || input.suggestedType || fallback.suggestedType,
   };
@@ -554,7 +595,7 @@ function buildInterpretationPrompt(input: VisualEvidenceInput): string {
 
   if (input.narration?.trim()) {
     parts.push(
-      `User's spoken voice narration during recording:\n"${input.narration.trim()}"\n(NOTE: Synthesize the user's spoken words with the on-screen keyframes to establish what happened.)`
+      `SPOKEN VOICE NARRATION (RECORDED LIVE VIA MICROPHONE):\n"${input.narration.trim()}"\nCRITICAL INSTRUCTION: The user narrated this demonstration out loud while interacting with the application. You MUST synthesize their spoken words directly with the sequential visual keyframes. Extract the exact UI components, button labels, page headers, navigation paths, and defective behaviors mentioned in their narration and shown in the keyframes. Ground the title, summary, steps to reproduce, expected behavior, and actual behavior in these concrete details. DO NOT use generic placeholder steps or generic phrases.`
     );
   }
 
