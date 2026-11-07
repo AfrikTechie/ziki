@@ -26,9 +26,12 @@ const findFirst = vi.hoisted(() => vi.fn());
 const upsert = vi.hoisted(() => vi.fn());
 const auditCreate = vi.hoisted(() => vi.fn());
 const transaction = vi.hoisted(() => vi.fn());
+const notFound = vi.hoisted(() => vi.fn(() => { throw new Error("not-found"); }));
+const readinessGitHub = vi.hoisted(() => vi.fn());
 
 vi.mock("next/cache", () => ({ revalidatePath, updateTag }));
-vi.mock("next/navigation", () => ({ redirect }));
+vi.mock("next/navigation", () => ({ redirect, notFound }));
+vi.mock("@/lib/github/client", async (original) => ({ ...await original<typeof import("@/lib/github/client")>(), githubClientFor: readinessGitHub }));
 vi.mock("@/lib/auth-helpers", () => ({ requireUser }));
 vi.mock("@/lib/project-route", () => ({ requireProject }));
 vi.mock("@/lib/marketing/settings", () => ({ assertMarketingSettingsAccess, updateMarketingSettings }));
@@ -69,6 +72,8 @@ import {
   workflowSettingsSchema,
   workflowValues } from "@/lib/workflow-config";
 import { projectRef } from "@/lib/project-paths";
+import { recheckRepositories, checkDelivery } from "@/app/(app)/projects/readiness/actions";
+import { loadRepositoryReadiness } from "@/lib/github/repository-readiness-query";
 
 function form(values: Record<string, string | number | boolean> = {}) {
   const data = new FormData();
@@ -107,6 +112,87 @@ function form(values: Record<string, string | number | boolean> = {}) {
 }
 
 const WEB = projectRef("acme", "web");
+
+describe("organisation repository readiness access", () => {
+  const input = { projectId: "p1", pullRequestUrl: "https://github.com/acme/mobile/pull/9" };
+  const project = { id: "p1", name: "Mobile", slug: "mobile", repoUrl: "https://github.com/acme/mobile", githubInstallationId: "17", repositories: [], bugs: [] };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireUser.mockResolvedValue({ id: "admin" });
+    currentOrganisationIdFor.mockResolvedValue("org1");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    projectFindMany.mockResolvedValue([]);
+    findFirst.mockResolvedValue(null);
+    readinessGitHub.mockRejectedValue(new Error("unexpected GitHub request"));
+  });
+
+  it("requires a signed-in user for the page and both actions before reading projects", async () => {
+    requireUser.mockRejectedValue(new Error("redirect:/login"));
+    for (const run of [loadRepositoryReadiness, recheckRepositories, () => checkDelivery(input)]) {
+      await expect(run()).rejects.toThrow("redirect:/login");
+    }
+    expect(currentOrganisationIdFor).not.toHaveBeenCalled();
+    expect(projectFindMany).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("denies non-admin members on the page, recheck and delivery actions before reading data", async () => {
+    isAdminOfOrganisation.mockResolvedValue(false);
+    for (const run of [loadRepositoryReadiness, recheckRepositories, () => checkDelivery(input)]) {
+      await expect(run()).rejects.toThrow("not-found");
+    }
+    expect(projectFindMany).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("redirects a user with no organisation before any repository lookup", async () => {
+    currentOrganisationIdFor.mockResolvedValue(null);
+    await expect(loadRepositoryReadiness()).rejects.toThrow("redirect:/organisations");
+    expect(projectFindMany).not.toHaveBeenCalled();
+  });
+
+  it("loads only active projects of the current organisation and returns a safe empty report", async () => {
+    await expect(recheckRepositories()).resolves.toMatchObject({ ok: true, report: { organisationId: "org1", projects: [] } });
+    expect(projectFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organisationId: "org1", archivedAt: null } }));
+  });
+
+  it("keeps remote failures on their project instead of losing the entire report", async () => {
+    projectFindMany.mockResolvedValue([project, { ...project, id: "p2", repoUrl: null }]);
+    const result = await loadRepositoryReadiness();
+    expect(result).toMatchObject({ ok: true, report: { projects: [
+      { id: "p1", repositories: [{ checks: expect.arrayContaining([expect.objectContaining({ state: "fail" })]) }] },
+      { id: "p2", repositories: [{ checks: [expect.objectContaining({ code: "invalid_repository" })] }] },
+    ] } });
+    expect(JSON.stringify(result)).not.toContain("unexpected GitHub request");
+  });
+
+  it("does not allow an archived or different organisation's project ID to reach GitHub", async () => {
+    await expect(checkDelivery(input)).resolves.toMatchObject({ ok: false });
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "p1", organisationId: "org1", archivedAt: null } }));
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed action input before querying a project", async () => {
+    await expect(checkDelivery({ projectId: "", pullRequestUrl: "" })).resolves.toMatchObject({ ok: false });
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it("checks a delivery against the organisation-scoped project's configuration", async () => {
+    findFirst.mockResolvedValue({ ...project, repoUrl: "https://github.com/acme/desktop" });
+    await expect(checkDelivery(input)).resolves.toMatchObject({ ok: true, delivery: { check: { code: "wrong_repository", state: "fail" } } });
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("does not expose database errors through either action", async () => {
+    projectFindMany.mockRejectedValue(new Error("private database details"));
+    findFirst.mockRejectedValue(new Error("private database details"));
+    const results = [await recheckRepositories(), await checkDelivery(input)];
+    expect(results.every((result) => !result.ok)).toBe(true);
+    expect(JSON.stringify(results)).not.toContain("private database details");
+  });
+});
 
 describe("updateProjectWorkflowAction (#595)", () => {
   beforeEach(() => {

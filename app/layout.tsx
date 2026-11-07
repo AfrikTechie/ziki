@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DEFAULT_OG_IMAGES, SITE_DESCRIPTION, SITE_NAME, SITE_OG, TITLE_TEMPLATE } from "@/lib/seo/site";
+import { DEFAULT_OG_IMAGES, SITE_DESCRIPTION, SITE_NAME, SITE_OG, siteVerification, TITLE_TEMPLATE } from "@/lib/seo/site";
 import localFont from "next/font/local";
 import { ConsentBanner } from "@/components/consent-banner";
 import { getSiteUrl } from "@/lib/site-url";
@@ -67,6 +67,8 @@ export const metadata: Metadata = {
     images: [SHARE_IMAGE.url],
   },
   formatDetection: { telephone: false, email: false, address: false },
+  // #855: Search Console and Bing Webmaster verification, when their codes are set.
+  verification: siteVerification(),
 };
 
 /**

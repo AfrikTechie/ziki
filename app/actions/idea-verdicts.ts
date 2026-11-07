@@ -184,7 +184,8 @@ async function ideaDecision(formData: FormData, decide: "approve" | "reject"): P
       const issue = await prisma.bug.findUnique({ where: { id: converted.issueId }, select: { number: true } });
       issueNumber = issue?.number ?? null;
     } else {
-      await rejectIdea(context, idea.projectId, idea.id);
+      const reason = formData.get("reason")?.toString().trim() || formData.get("rejectReason")?.toString().trim() || null;
+      await rejectIdea(context, idea.projectId, idea.id, reason);
     }
   } catch (error) {
     if (!(error instanceof IssueApiError)) console.error(`[idea-${decide}] failed`, error);

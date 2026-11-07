@@ -1,4 +1,5 @@
 import { SavedIssueViews } from "@/components/saved-issue-views";
+import { IssuePriorityBadge } from "@/components/issue-priority-badge";
 import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { IdeasWelcome } from "@/components/ideas-welcome";
 import { IdeaChat } from "@/components/idea-chat";
@@ -565,6 +566,7 @@ export async function IssuesList({
         project: { select: { slug: true, organisation: { select: { slug: true } } } },
         isDeleted: true,
         isBoosted: true,
+        priority: true,
         duplicateOf: showDuplicates ? { select: { number: true } } : false,
         createdAt: true,
         updatedAt: true,
@@ -625,7 +627,7 @@ export async function IssuesList({
     // The index is eventually consistent. If validation drops a stale hit, use the established query for this request rather than render a short page.
     listed = await prisma.bug.findMany({ where, select: {
       id: true, number: true, title: true, status: true, substatus: true, closeReason: true, voteCount: true,
-      projectId: true, project: { select: { slug: true, organisation: { select: { slug: true } } } }, isDeleted: true, isBoosted: true, createdAt: true, updatedAt: true,
+      projectId: true, project: { select: { slug: true, organisation: { select: { slug: true } } } }, isDeleted: true, isBoosted: true, priority: true, createdAt: true, updatedAt: true,
       pullRequestUrl: true, type: { select: { name: true } }, reporter: { select: { name: true, role: true, image: true } },
       assignee: { select: { name: true, role: true, image: true } },
       claims: { where: { status: { in: ["active", "offered", "planning"] }, releasedAt: null }, select: { status: true, claimedAt: true, createdAt: true, deliverBy: true, beneficiaryUserId: true, beneficiary: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 2 },
@@ -1110,7 +1112,7 @@ export async function IssuesList({
           {isDeletedView || allProjects || !isFirstRun ? (
             <div className="flex flex-wrap items-center gap-2">
               {/* Desktop: Add Idea at the far left of the toolbar. */}
-              {!isDeletedView && !isFirstRun ? <IdeaChat projectId={project.id} className="max-md:hidden" /> : null}
+              {!isDeletedView && !isFirstRun ? <IdeaChat projectId={project.id} types={tagTypes} className="max-md:hidden" /> : null}
               {isDeletedView ? (
                 <span className="rounded-md bg-zk-bad-bg px-2 py-0.5 text-[11px] font-bold text-zk-bad-fg">Admin view</span>
               ) : null}
@@ -1133,7 +1135,7 @@ export async function IssuesList({
           />
           {/* Phones: the + beside the title, since the tools row is collapsed there.
               Desktop has it at the far left of the toolbar, except on a first run. */}
-          {!isDeletedView ? <IdeaChat projectId={project.id} className={isFirstRun ? "" : "md:hidden"} /> : null}
+          {!isDeletedView ? <IdeaChat projectId={project.id} types={tagTypes} className={isFirstRun ? "" : "md:hidden"} /> : null}
         </div>
       </div>
       {!isIdeasView ? (
@@ -1388,6 +1390,7 @@ export async function IssuesList({
                                   <path d={isSecurity ? "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" : isFeature ? FEATURE_ICON_PATH : BUG_ICON_PATH} />
                                 </svg>
                               </span>
+                              <IssuePriorityBadge priority={bug.priority} />
                               {(bug._count?.comments ?? 0) > 0 ? (
                                 <span className="inline-flex items-center gap-1" title={`Conversation: ${bug._count?.comments}`}>
                                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>

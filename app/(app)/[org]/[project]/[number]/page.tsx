@@ -20,6 +20,7 @@ import { issueHref, issuePath, queryString } from "@/lib/issue-ref";
 import { findProjectIssue, parseIssueNumber } from "@/lib/project-issue";
 import { resolveSessionUserId } from "@/lib/session-user";
 import { LocalTime } from "@/components/local-time";
+import { IssuePrioritySelect } from "@/components/issue-priority-select";
 import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicate-controls";
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
@@ -124,6 +125,8 @@ import { LiveFlow } from "@/components/live-flow";
 import { latestPullRequestReport, gateReport, pullRequestStateView, type PullRequestStateView } from "@/lib/agent-api/pull-request-report";
 import { prGate, reportWanted } from "@/lib/agent-api/pr-gate";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { mergeChecklist } from "@/lib/merge-checklist";
+import { MergeChecklistCard } from "@/components/merge-checklist";
 import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { DecisionCard } from "@/components/decision-card";
 import { decisionFor } from "@/lib/your-decision";
@@ -1167,6 +1170,21 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const judgementCount = bug.status === "done" && !bug.isDeleted
     ? await loadOptional("judgement count", null, () => countedJudgements(prisma, bug.id))
     : null;
+  // #merge-checklist: while delivered work is judged, reviewed or waiting to
+  // merge, the checks before "good to merge", from the latest pull request report.
+  const checklist = !bug.isDeleted && (bug.status === "done" || bug.status === "merge") && bug.pullRequestUrl
+    ? await loadOptional("merge checklist", null, async () => {
+        const [report, project] = await Promise.all([
+          latestPullRequestReport(bug.id, bug.pullRequestUrl),
+          prisma.project.findUnique({ where: { id: bug.projectId }, select: { repoUrl: true } }),
+        ]);
+        return mergeChecklist(report, {
+          pullRequestUrl: bug.pullRequestUrl ?? null,
+          pullRequestHeadSha: bug.pullRequestHeadSha ?? null,
+          repo: parseGitHubRepoUrl(project?.repoUrl),
+        });
+      })
+    : null;
   // #live-check: on a Live issue, where its fix really is, from the latest
   // independent check of its pull request rather than the Live label.
   const liveFix = bug.status === "resolved" && !bug.isDeleted
@@ -1951,6 +1969,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <span className={`${issueChipBaseClass} bg-zk-chip text-zk-text2`}>{bug.type.name}</span>
               </p>
             ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <IssuePrioritySelect bugId={bug.id} priority={bug.priority} />
+            </div>
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 self-start print:hidden">
@@ -2334,6 +2355,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               </form>
             ) : null}
           </section>
+          {checklist ? <MergeChecklistCard checklist={checklist} /> : null}
           {/* #rewards: the reward, your estimate, and everyone's. */}
           {rewardRow ? (
             <IssueRewardPanel

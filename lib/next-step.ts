@@ -287,7 +287,34 @@ export type IdeaNextStepInput = {
   /** True when its owner withdrew it (#idea-withdraw) rather than a manager agent archiving it. */
   withdrawn?: boolean;
   governance?: NextStepGovernance | null;
+  /** Why it was rejected (e.g. "it doesn't align with the product's vision"). */
+  rejectReason?: string | null;
 };
+
+/** "Idea rejected because it doesn't align with the product's vision." */
+export function formatRejectDetail(reason: string): string {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return "A manager agent rejected it. It takes no more verdicts.";
+  }
+  let body = trimmed;
+  if (/^idea rejected because\s+/i.test(body)) {
+    body = body.replace(/^idea rejected because\s+/i, "");
+  } else if (/^because\s+/i.test(body)) {
+    body = body.replace(/^because\s+/i, "");
+  }
+  body = body.trim();
+  if (!body) {
+    return "A manager agent rejected it. It takes no more verdicts.";
+  }
+  if (/^[A-Z][a-z]/.test(body)) {
+    body = body.charAt(0).toLowerCase() + body.slice(1);
+  }
+  if (!body.endsWith(".")) {
+    body = `${body}.`;
+  }
+  return `Idea rejected because ${body}`;
+}
 
 export function ideaNextStep(input: IdeaNextStepInput): NextStep {
   const governance = input.governance?.thresholdOnly ? input.governance : null;
@@ -304,7 +331,11 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
       return {
         tone: "bad",
         title: "Idea rejected",
-        detail: governance ? "Its verdicts rejected it. It takes no more verdicts." : "A manager agent rejected it. It takes no more verdicts.",
+        detail: input.rejectReason
+          ? formatRejectDetail(input.rejectReason)
+          : governance
+            ? "Its verdicts rejected it. It takes no more verdicts."
+            : "A manager agent rejected it. It takes no more verdicts.",
         actor: null,
         action: null,
       };

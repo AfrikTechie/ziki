@@ -1,6 +1,7 @@
-import { cookies } from "next/headers";
-import { signOut } from "@/auth";
+import { cookies, headers } from "next/headers";
+import { auth, signOut } from "@/auth";
 import { ACTIVE_ROLE_COOKIE_NAME } from "@/lib/roles";
+import { revokeSessionOnLogout } from "@/lib/user-sessions";
 
 /**
  * Clears an invalid session and sends the user to sign in again.
@@ -12,6 +13,15 @@ import { ACTIVE_ROLE_COOKIE_NAME } from "@/lib/roles";
  * reset (#208).
  */
 export async function GET() {
+  const session = await auth().catch(() => null);
+  if (session?.user?.id || session?.user?.sessionId) {
+    const reqHeaders = await headers().catch(() => null);
+    await revokeSessionOnLogout({
+      userId: session.user.id,
+      sessionId: session.user.sessionId,
+      headers: reqHeaders,
+    });
+  }
   const cookieStore = await cookies();
   cookieStore.delete(ACTIVE_ROLE_COOKIE_NAME);
   await signOut({ redirectTo: "/login?expired=1" });

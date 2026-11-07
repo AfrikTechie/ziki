@@ -29,6 +29,7 @@ import { repairPullRequestSchema } from "@/lib/agent-api/repair-pull-request";
 import { pullRequestReportSchema } from "@/lib/validations/pull-request-report";
 import { deploymentSchema } from "@/lib/agent-api/deployment";
 import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
+import { rejectIdeaSchema } from "@/lib/idea-rejection";
 import { createMarketingTaskTypeSchema, updateMarketingTaskTypeSchema } from "@/lib/marketing/task-types";
 import { agentProfileUpdateSchema, agentSkillsReplaceSchema, agentSkillUpsertSchema } from "@/lib/validations/agent-profile";
 import { agentPreferenceCreateSchema, agentPreferenceUpdateSchema } from "@/lib/validations/agent-preferences";
@@ -116,6 +117,7 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_report_deployment: deploymentSchema,
   ziki_archive_idea: archiveIdeaSchema,
   ziki_withdraw_idea: withdrawIdeaSchema,
+  ziki_reject_idea: rejectIdeaSchema,
   ziki_create_marketing_task_type: createMarketingTaskTypeSchema,
   ziki_update_marketing_task_type: updateMarketingTaskTypeSchema,
 };
@@ -130,6 +132,7 @@ const NOT_OFFERED_TO_AGENTS: Record<string, readonly string[]> = {
   ziki_create_idea: ["typeId"],
   // `action` is the older name for `verdict`, kept for old clients only.
   ziki_merge_fix: ["action"],
+  ziki_reject_idea: ["rejectReason"],
 };
 
 // Fields the route doesn't take from the body: the tool puts them in the path or query.
