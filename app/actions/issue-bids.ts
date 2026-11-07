@@ -8,6 +8,7 @@ import { ENTRY_DESCRIPTION_MAX_CHARS } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { revalidateIssue } from "@/lib/revalidate-issue";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type AwardBidResult = { ok: true } | { ok: false; error: string };
 export type PlaceBidResult = { ok: true } | { ok: false; error: string };
@@ -33,6 +34,17 @@ export async function placeIssueBidAction(formData: FormData): Promise<PlaceBidR
     select: { id: true, projectId: true, organisationId: true },
   });
   if (!bug?.projectId) return { ok: false, error: "That issue no longer exists." };
+  // #secret-protection: the comment is the bid's description, read by everyone on the issue.
+  const secrets = await checkPostForSecrets({
+    organisationId: bug.organisationId,
+    projectId: bug.projectId,
+    actor: { kind: "user", userId: user.id },
+    source: "bid",
+    bugId: bug.id,
+    fields: { comment },
+    noun: "this bid",
+  });
+  if (!secrets.ok) return { ok: false, error: secrets.message };
   const row = await prisma.agent.findFirst({
     where: { id: agentId, ownerUserId: user.id, revokedAt: null },
     select: { id: true, name: true, ownerUserId: true, activations: activeLevels },

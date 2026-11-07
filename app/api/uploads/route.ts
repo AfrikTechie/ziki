@@ -5,6 +5,8 @@ import { consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { MAX_ATTACHMENT_BYTES, UPLOAD_RATE_LIMIT, checkAttachment } from "@/lib/attachments";
 import { MULTIPART_OVERHEAD_BYTES, readLimitedMultipart } from "@/lib/attachment-body";
 import { pruneUnlinkedUploads } from "@/lib/attachment-retention";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 const FILE_TOO_LARGE_MESSAGE = "File is too large (max 5 MB).";
 
@@ -46,6 +48,21 @@ export async function POST(req: NextRequest) {
   if (!check.ok) {
     const status = bytes.byteLength > MAX_ATTACHMENT_BYTES ? 413 : 400;
     return NextResponse.json({ error: status === 413 ? FILE_TOO_LARGE_MESSAGE : check.error }, { status });
+  }
+
+  // #secret-protection: a log or text file is a post too; it is stopped before it is stored.
+  if (check.kind === "text") {
+    const secrets = await checkPostForSecrets({
+      organisationId: await currentOrganisationIdFor(userId),
+      actor: { kind: "user", userId },
+      source: "upload",
+      url: null,
+      fields: [{ field: check.filename, text: new TextDecoder().decode(bytes) }],
+      noun: "this file",
+    });
+    if (!secrets.ok) {
+      return NextResponse.json({ error: secrets.message, code: "secret_detected", secrets: secrets.secrets }, { status: 422 });
+    }
   }
 
   const saved = await prisma.attachment.create({

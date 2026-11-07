@@ -841,6 +841,7 @@ model Organisation {
   jobs               Job[]
   goals              Goal[]
   supportThreads     SupportThread[]
+  secretAlerts       SecretAlert[]
 }
 
 /// A project inside an organisation (organisation), e.g. Zedu Web or Zedu Desktop.
@@ -1053,6 +1054,55 @@ model TotpBackupCode {
 }
 
 /// Changes to how a person signs in: second factor on or off, codes made or used.
+/// A credential found in something posted to the organisation (#secret-protection,
+/// lib/security/secrets.ts): stopped before it was saved, or found in a post that
+/// was already up. The secret itself is never stored: a keyed fingerprint to
+/// recognise it again, and a masked preview to show.
+model SecretAlert {
+  id               String       @id @default(cuid())
+  organisationId   String
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// The project the post is in, when it is in one.
+  projectId        String?
+  /// What it is, e.g. "github_token" (`SecretKind`).
+  kind             String
+  /// HMAC-SHA256 of the secret (`fingerprintSecret`). Never the secret.
+  fingerprint      String
+  /// The masked form, e.g. "ghp_…3f9a".
+  preview          String
+  /// blocked: stopped before it was posted. exposed: found in a post that was
+  /// already saved, and still needs someone. revoked: turned off (Ziki revokes
+  /// its own agent keys). redacted: removed from the post. dismissed: not a real secret.
+  state            String       @default("blocked")
+  /// Where it was: "idea", "issue", "comment", "upload", or the agent route's action ("comments.create").
+  source           String
+  /// The post's page inside Ziki, when it has one.
+  url              String?
+  /// The saved post it is in, for exposed alerts: one of these. A private
+  /// security report (`SecurityFinding`) is public once its fix is live.
+  bugId            String?
+  ideaId           String?
+  commentId        String?
+  findingId        String?
+  /// The field and line it was on, e.g. "description", 3.
+  field            String?
+  line             Int?
+  /// Who posted it: a person, or an agent. Kept as ids so the alert outlives them.
+  actorUserId      String?
+  actorAgentId     String?
+  /// The Ziki agent key that matched (`AgentApiKey.id`), which Ziki revokes.
+  agentApiKeyId    String?
+  /// How many times the same secret was sent while it was being stopped.
+  attempts         Int          @default(1)
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  lastSeenAt       DateTime     @default(now())
+
+  @@index([organisationId, state, lastSeenAt])
+  @@index([organisationId, fingerprint])
+}
+
 model SecurityAuditEvent {
   id        String   @id @default(cuid())
   userId    String

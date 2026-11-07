@@ -10,6 +10,7 @@ import { redirect } from "next/navigation";
 import { ideaPath, projectPath, refOf } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type IdeaVerdictActionResult = {
   ok?: true;
@@ -75,6 +76,18 @@ export async function giveIdeaVerdictAction(
     if (issue?.path[0] === "opinion") return { error: "Pick good, bad or neutral." };
     return { error: issue?.message ?? "Check your verdict and try again." };
   }
+
+  // #secret-protection: a verdict is posted on the idea for everyone to read.
+  const secrets = await checkPostForSecrets({
+    organisationId,
+    projectId: idea.projectId,
+    actor: { kind: "user", userId },
+    source: "idea_verdict",
+    ideaId: idea.id,
+    fields: { summary: parsed.data.summary, description: parsed.data.description },
+    noun: "this verdict",
+  });
+  if (!secrets.ok) return { error: secrets.message };
 
   try {
     const given = await giveIdeaVerdict({ organisationId, userId }, idea.projectId, idea.id, parsed.data);

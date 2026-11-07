@@ -116,6 +116,7 @@ import { ideaPath, refOf } from "@/lib/project-paths";
 import { moveTo } from "@/lib/issue-substatus";
 import { entrySubstatus } from "@/lib/marketing/track";
 import { createFinding, isSecuritySeverity, placeholderTitle, PLACEHOLDER_DESCRIPTION, PLACEHOLDER_SUMMARY, isPrivateFinding, PRIVATE_FINDING_EDIT_MESSAGE } from "@/lib/security-findings";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type ActionResult = {
   error?: string;
@@ -278,6 +279,20 @@ export async function createBugAction(
 
   if (!(await canContributeToProject(user, projectId, organisationId))) {
     return { error: "You must be a member of this project to submit issues." };
+  }
+
+  // #secret-protection: checked before anything else reads it, the idea-writing model included.
+  const secrets = await checkPostForSecrets({
+    organisationId,
+    projectId,
+    actor: { kind: "user", userId },
+    source: "idea",
+    url: null,
+    fields: { title: parsed.data.title, description: parsed.data.description, rationale, proofLinks: parsed.data.proofLinks.join("\n") },
+    noun: "this idea",
+  });
+  if (!secrets.ok) {
+    return fieldError(secrets.field === "description" || secrets.field === "proofLinks" || secrets.field === "rationale" ? secrets.field : "title", secrets.message);
   }
 
   if (typeId) {
@@ -1046,6 +1061,17 @@ export async function editBugContentAction(
     return fromZodError(parsed.error);
   }
 
+  // #secret-protection: an edit is a post too.
+  const secrets = await checkPostForSecrets({
+    organisationId: existing.organisationId,
+    actor: { kind: "user", userId },
+    source: "issue",
+    bugId: existing.id,
+    fields: { title: parsed.data.title, description: parsed.data.description },
+    noun: "this issue",
+  });
+  if (!secrets.ok) return fieldError(secrets.field === "title" ? "title" : "description", secrets.message);
+
   const normalizedDescription = await resolveOrganisationMentions(prisma, existing.organisationId, parsed.data.description);
   const changedFields = getChangedEditFields(existing, {
     title: parsed.data.title,
@@ -1606,6 +1632,18 @@ export async function addCommentAction(
   if (!(await canContributeToProject(currentUser, bug.projectId, bug.organisationId))) {
     return { error: "You must be a member of this project to comment." };
   }
+
+  // #secret-protection: stopped before it is saved, or sent to anyone watching.
+  const secrets = await checkPostForSecrets({
+    organisationId: bug.organisationId,
+    projectId: bug.projectId,
+    actor: { kind: "user", userId },
+    source: "comment",
+    bugId: bug.id,
+    fields: { body: parsed.data.body },
+    noun: "this comment",
+  });
+  if (!secrets.ok) return fieldError("body", secrets.message);
 
   // One rule for where a comment may go, as for agents (lib/comment-placement.ts).
   let placement: CommentPlacement;
