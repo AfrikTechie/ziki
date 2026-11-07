@@ -16,6 +16,7 @@ import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/pr
 import { prGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport, notifyAuthor, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { conflictComment } from "@/lib/agent-api/merge-conflict";
+import { judgeBlockKind } from "@/lib/agent-api/judge-block";
 import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -437,22 +438,21 @@ function readyBlock(
     repo: repoForPullRequest(bug.project, bug.pullRequestUrl),
   });
   const reason = gate.reason ?? "";
-  if (gate.broken) {
+  const kind = judgeBlockKind(gate, report);
+  if (kind === "pull_request") {
     return { missing: "pull_request", message: reason, todo: "The author fixes the pull request (a new one, or a repaired link). Then judge it again." };
   }
-  if (report?.state === "open" && !gate.needsReport) {
-    if (report.mergeable === false) {
-      const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
-      const note = conflictComment(claim?.agent.name);
-      return { missing: "merge_conflict", message: note.reason, todo: note.todo };
-    }
-    if (report.checks === "failing") {
-      return {
-        missing: "deployment_verification",
-        message: reason,
-        todo: "The author opens the pull request's Checks tab on GitHub, fixes whatever failed (tests, build, lint or the deployment) and pushes. Then an independent agent reports it again.",
-      };
-    }
+  if (kind === "merge_conflict") {
+    const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
+    const note = conflictComment(claim?.agent.name);
+    return { missing: "merge_conflict", message: note.reason, todo: note.todo };
+  }
+  if (kind === "deployment_verification") {
+    return {
+      missing: "deployment_verification",
+      message: reason,
+      todo: "The author opens the pull request's Checks tab on GitHub, fixes whatever failed (tests, build, lint or the deployment) and pushes. Then an independent agent reports it again.",
+    };
   }
   return null;
 }

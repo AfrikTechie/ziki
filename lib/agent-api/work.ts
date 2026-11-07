@@ -28,6 +28,8 @@ import { abandonTally } from "@/lib/agent-api/abandon";
 import { findIdleInProgress } from "@/lib/agent-api/idle";
 import { findStrandedDeliveries, type StrandedIssue } from "@/lib/agent-api/stranded-delivery";
 import { prGate, reportWanted, type PrGate } from "@/lib/agent-api/pr-gate";
+import { judgeBlockKind } from "@/lib/agent-api/judge-block";
+import { MERGE_CONFLICT_MESSAGE } from "@/lib/agent-api/merge-conflict";
 import { gateReport, latestPullRequestReports, reportedAt, reporterName, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 
@@ -292,6 +294,8 @@ export type ProjectWork = {
   toReportPr: (PrIssue & { why: string })[];
   /** What the gate makes of each linked pull request In progress or later, by issue id. */
   prGates: Map<string, PrGate>;
+  /** Why testers can't judge a delivered pull request yet (#864), by issue id: a conflict, failing checks or a broken link. */
+  judgeBlocks: Map<string, string>;
   jobs: { id: string; brief: string; pointsPerAccepted: number; open: number }[];
   facts: Map<string, IssueFacts>;
   ideaFacts: Map<string, IdeaFacts>;
@@ -411,8 +415,8 @@ async function buildProjectWork(organisationId: string, project: FeedProject, tr
     openBids(organisationId, project.id, workflow.managerVoteWeight, workflow.offerWindowSeconds, track),
   ]);
   const toAward = await awardableIssues(bids, workflow.offerWindowSeconds);
-  const { toReconcile, toAwaitRelease, toRepair, toReportPr, prGates } = isMarketing
-    ? { toReconcile: [], toAwaitRelease: [], toRepair: [], toReportPr: [], prGates: new Map<string, PrGate>() }
+  const { toReconcile, toAwaitRelease, toRepair, toReportPr, prGates, judgeBlocks } = isMarketing
+    ? { toReconcile: [], toAwaitRelease: [], toRepair: [], toReportPr: [], prGates: new Map<string, PrGate>(), judgeBlocks: new Map<string, string>() }
     : await pullRequestWork(organisationId, project.id);
   const { toInvestigate, comments } = await openIssueComments(organisationId, project.id, ready, track);
   const ids = new Set([
@@ -456,6 +460,7 @@ async function buildProjectWork(organisationId: string, project: FeedProject, tr
     toRepair,
     toReportPr,
     prGates,
+    judgeBlocks,
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
@@ -650,7 +655,7 @@ async function pullRequestWork(
   organisationId: string,
   projectId: string,
   now = Date.now(),
-): Promise<Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates">> {
+): Promise<Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates" | "judgeBlocks">> {
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } });
   const rows = await prisma.bug.findMany({
     where: {
@@ -665,12 +670,13 @@ async function pullRequestWork(
     select: { id: true, number: true, title: true, status: true, pullRequestUrl: true, pullRequestHeadSha: true },
   });
   const reports = await latestPullRequestReports(rows);
-  const work: Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates"> = {
+  const work: Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates" | "judgeBlocks"> = {
     toReconcile: [],
     toAwaitRelease: [],
     toRepair: [],
     toReportPr: [],
     prGates: new Map(),
+    judgeBlocks: new Map(),
   };
   for (const row of rows) {
     const report = reports.get(row.id) ?? null;
@@ -678,6 +684,10 @@ async function pullRequestWork(
     const gate = prGate(gateReport(report), { pullRequestUrl: row.pullRequestUrl, pullRequestHeadSha: row.pullRequestHeadSha, repo: repoForPullRequest(project, row.pullRequestUrl) });
     const issue: PrIssue = { id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl!, gate, report };
     work.prGates.set(row.id, gate);
+    const block = judgeBlockKind(gate, report);
+    if (block === "merge_conflict") work.judgeBlocks.set(row.id, `${MERGE_CONFLICT_MESSAGE} The author has to resolve it before anyone can judge it.`);
+    else if (block === "deployment_verification") work.judgeBlocks.set(row.id, gate.reason ?? "The pull request's checks are failing. The author has to fix them before anyone can judge it.");
+    else if (block === "pull_request") work.judgeBlocks.set(row.id, gate.reason ?? "The pull request link is broken. The author has to repair it before anyone can judge it.");
     if (gate.canReconcile) work.toReconcile.push(issue);
     if (gate.awaitingRelease) work.toAwaitRelease.push(issue);
     if (gate.broken === "old_repository" || gate.broken === "other_repository") work.toRepair.push({ ...issue, linkState: gate.broken });
@@ -1272,9 +1282,9 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "test_fix",
       key: `test_fix:${test.id}:${test.pullRequestUrl ?? ""}`,
       title: `Judge the delivered work for #${test.number}`,
-      detail: "Check out the delivered pull request, test it, and judge whether it is good to merge: a summary of at most two sentences and a full description of what you tested. Read the delivery receipt first (GET test-results carries it as `receipt`): test what the deliverer says it did not verify, and follow its reviewerShould steps. Enough good judgements make it Done; enough not-good ones send it back to Open.",
+      detail: "Check out the delivered pull request, test it, and judge whether it is good to merge: a summary of at most two sentences and a full description of what you tested. Read the delivery receipt first (GET test-results carries it as `receipt`): test what the deliverer says it did not verify, and follow its reviewerShould steps. Enough good judgements make it Done; enough not-good ones send it back to Open. List the changed files you judged (`files`: a path and optional lines); a verdict without them is refused.",
       minimumRole: "working",
-      canAct: true,
+      ...(work.judgeBlocks.has(test.id) ? { canAct: false, blockedReason: work.judgeBlocks.get(test.id) } : { canAct: true }),
       issue: issueRef(test),
       actions: [{ name: "submit_test_result", minimumRole: "working", method: "POST", path: apiPath(test.id, "test-results", pid), cli: `submit-test-result --id ${test.id} --good-to-merge true|false --summary <your verdict> --description <what you tested and why>` }],
     });
