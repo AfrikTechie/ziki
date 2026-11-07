@@ -89,6 +89,7 @@ type LockedIdea = {
   projectId: string;
   status: string;
   track: WorkTrack;
+  source: string;
   score: number;
   reporterId: string;
   beneficiaryUserId: string;
@@ -103,7 +104,7 @@ async function lockedIdea(tx: Tx, scope: Scope, ref: string): Promise<LockedIdea
   const byNumber = parsed.kind === "number" ? parsed.number : null;
   const byId = parsed.kind === "id" ? parsed.id : null;
   const rows = await tx.$queryRaw<LockedIdea[]>`
-    SELECT i."id", i."number", i."organisationId", i."projectId", i."status"::text AS "status", i."track"::text AS "track", i."score",
+    SELECT i."id", i."number", i."organisationId", i."projectId", i."status"::text AS "status", i."track"::text AS "track", i."source", i."score",
            i."reporterId", i."beneficiaryUserId", a."ownerUserId" AS "createdByOwnerId"
     FROM "Idea" i
     LEFT JOIN "Agent" a ON a."id" = i."createdByAgentId"
@@ -429,7 +430,9 @@ export async function convertLocked(
       difficulty,
       track: locked.track,
       ...moveTo(rules.convertsTo),
-      watches: { create: { userId: idea.reporterId } },
+      // A guest report's synthetic reporter cannot sign in and must not become
+      // a watcher. The private tracking URL is the guest's status channel.
+      ...(locked.source === "public" ? {} : { watches: { create: { userId: idea.reporterId } } }),
       activities: {
         create: {
           actorId: idea.reporterId,
@@ -442,7 +445,7 @@ export async function convertLocked(
     },
     select: { id: true, number: true },
   });
-  if (rules.reporterPaidOn === "conversion") {
+  if (rules.reporterPaidOn === "conversion" && locked.source !== "public") {
     const reporterId = idea.beneficiaryUserId ?? idea.reporterId;
     const rewardConfig = await getProjectRewardConfig(tx, projectId);
     await award(tx, {

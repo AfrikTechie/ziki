@@ -36,6 +36,7 @@ const idea = (overrides: Record<string, unknown> = {}) => ({
   projectId: "p1",
   status: "open", substatus: "open",
   track: "product",
+  source: "internal",
   score: 3,
   reporterId: "ada",
   beneficiaryUserId: "ada",
@@ -333,6 +334,18 @@ describe("convertIdea", () => {
       })],
       skipDuplicates: true,
     });
+  });
+
+  it("does not subscribe or reward the synthetic reporter of a public-source idea", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ source: "public" })]);
+
+    await convertIdea(agentOf("working"), "p1", "7", "medium");
+
+    const data = db.bug.create.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty("watches");
+    expect(db.pointEntry.createMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({ role: "reporter" })],
+    }));
   });
 
   it("needs an open idea and a score at the threshold", async () => {

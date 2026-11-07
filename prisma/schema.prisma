@@ -871,6 +871,9 @@ model Project {
   visibility            ProjectVisibility     @default(private)
   /// Whether the project is open for external contributors to apply to join.
   isOpenForContributors Boolean               @default(false)
+  /// Whether signed-out visitors may file public ideas and receive a private tracking link.
+  /// This is independent of contributor access: guests never join, vote, bid or claim.
+  acceptsGuestIdeas     Boolean               @default(false)
   /// Optional guidelines shown to applicants when requesting to join.
   contributorGuidelines String?
   createdAt             DateTime              @default(now())
@@ -1683,6 +1686,10 @@ model Idea {
   /// Required when an agent files a report; null on reports filed before it existed.
   summary            String?
   description        String
+  /// `public` for signed-out intake; `internal` for member and agent submissions.
+  source             String           @default("internal")
+  /// SHA-256 of the unguessable token in a guest's tracking URL. The token itself is never stored.
+  publicTrackingTokenHash String?      @unique
   /// Why it is worth doing. Required on marketing ideas, by validation.
   rationale          String?
   /// Product or marketing work (`WorkTrack`). Converting copies it to the issue.

@@ -85,6 +85,7 @@ export async function updateProjectAction(
   const visibilityRaw = (formData.get("visibility") as string | null)?.trim();
   const visibility = visibilityRaw === "public" ? "public" : "private";
   const isOpenForContributors = visibility === "public" && (formData.get("isOpenForContributors") === "true" || formData.get("isOpenForContributors") === "on");
+  const acceptsGuestIdeas = visibility === "public" && (formData.get("acceptsGuestIdeas") === "true" || formData.get("acceptsGuestIdeas") === "on");
   // The schema trims it and turns an empty box into null; it must be given a string.
   const contributorGuidelines = (formData.get("contributorGuidelines") as string | null) ?? "";
 
@@ -96,13 +97,14 @@ export async function updateProjectAction(
     siteUrl: formData.get("siteUrl") ?? "",
     visibility,
     isOpenForContributors,
+    acceptsGuestIdeas,
     contributorGuidelines,
   });
   if (!parsed.success) return fromZodError(parsed.error, "Check the project settings.");
   const slug = String(formData.get("slug") ?? "").trim();
   const project = await prisma.project.findFirst({
     where: { organisationId, slug },
-    select: { id: true, name: true, goal: true, repoUrl: true, stagingUrl: true, siteUrl: true, visibility: true, isOpenForContributors: true, contributorGuidelines: true, rewardConfig: true },
+    select: { id: true, name: true, goal: true, repoUrl: true, stagingUrl: true, siteUrl: true, visibility: true, isOpenForContributors: true, acceptsGuestIdeas: true, contributorGuidelines: true, rewardConfig: true },
   });
   if (!project) return { error: "Project not found." };
 
@@ -111,7 +113,7 @@ export async function updateProjectAction(
   const rewardConfig = rawReward ? parseProjectRewardConfig(rawReward, platformBase) : undefined;
 
   const changes: Record<string, { from: unknown; to: unknown }> = {};
-  for (const field of ["name", "goal", "repoUrl", "stagingUrl", "siteUrl", "visibility", "isOpenForContributors", "contributorGuidelines"] as const) {
+  for (const field of ["name", "goal", "repoUrl", "stagingUrl", "siteUrl", "visibility", "isOpenForContributors", "acceptsGuestIdeas", "contributorGuidelines"] as const) {
     if (project[field] !== parsed.data[field]) {
       changes[field] = { from: project[field], to: parsed.data[field] };
     }
@@ -246,6 +248,7 @@ export async function createProjectAction(
   const visibilityRaw = (formData.get("visibility") as string | null)?.trim();
   const visibility: "public" | "private" = visibilityRaw === "public" ? "public" : "private";
   const isOpenForContributors = visibility === "public" && (formData.get("isOpenForContributors") === "true" || formData.get("isOpenForContributors") === "on");
+  const acceptsGuestIdeas = visibility === "public" && (formData.get("acceptsGuestIdeas") === "true" || formData.get("acceptsGuestIdeas") === "on");
   // The schema trims it and turns an empty box into null; it must be given a string.
   const contributorGuidelines = (formData.get("contributorGuidelines") as string | null) ?? "";
 
@@ -257,6 +260,7 @@ export async function createProjectAction(
     siteUrl: formData.get("siteUrl") ?? "",
     visibility,
     isOpenForContributors,
+    acceptsGuestIdeas,
     contributorGuidelines,
   });
   if (!parsed.success) return fromZodError(parsed.error, "Check the project settings.");
@@ -286,6 +290,7 @@ export async function createProjectAction(
         stagingUrl: parsed.data.stagingUrl,
         visibility,
         isOpenForContributors,
+        acceptsGuestIdeas,
         contributorGuidelines: parsed.data.contributorGuidelines,
         rewardConfig: rewardConfig ?? undefined,
         workflow: { create: {} },

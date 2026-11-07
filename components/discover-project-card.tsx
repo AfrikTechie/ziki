@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { joinOpenProjectAction } from "@/app/actions/project-join-requests";
 import { projectPath, projectRef } from "@/lib/project-paths";
+import { publicReportPath } from "@/lib/public-project-paths";
 
 export type DiscoverableProject = {
   id: string;
@@ -16,6 +17,7 @@ export type DiscoverableProject = {
   siteUrl: string | null;
   repoUrl: string | null;
   isOpenForContributors: boolean;
+  acceptsGuestIdeas: boolean;
   contributorGuidelines: string | null;
   organisation: {
     id: string;
@@ -34,6 +36,7 @@ export function DiscoverProjectCard({ project }: { project: DiscoverableProject 
   const router = useRouter();
   const [joining, startJoining] = useTransition();
   const [joinError, setJoinError] = useState<string | null>(null);
+  const publicRef = { orgSlug: project.organisation.slug, projectSlug: project.slug };
   // Open projects take you in straight away (#earnings): no request, no waiting, then on to its work.
   const join = () =>
     startJoining(async () => {
@@ -53,7 +56,10 @@ export function DiscoverProjectCard({ project }: { project: DiscoverableProject 
                 {project.organisation.name}
               </span>
               <h3 className="text-lg font-bold text-zk-text">
-                <Link href={projectPath(projectRef(project.organisation.slug, project.slug))} className="hover:text-zk-accent hover:underline">
+                <Link
+                  href={projectPath(projectRef(project.organisation.slug, project.slug))}
+                  className="hover:text-zk-accent hover:underline"
+                >
                   {project.name}
                 </Link>
               </h3>
@@ -124,7 +130,14 @@ export function DiscoverProjectCard({ project }: { project: DiscoverableProject 
             ) : null}
           </div>
 
-          <div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {project.acceptsGuestIdeas ? (
+              <Link href={publicReportPath(publicRef)}>
+                <Button variant="secondary" className="text-xs font-semibold">
+                  Report issue
+                </Button>
+              </Link>
+            ) : null}
             {currentStatus === "guest" ? (
               project.isOpenForContributors ? (
                 <Link href={`/login?callbackUrl=${encodeURIComponent("/discover")}`}>

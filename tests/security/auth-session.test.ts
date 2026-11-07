@@ -45,7 +45,7 @@ import { SESSION_EXPIRED_MESSAGE, resolveSessionUserId } from "@/lib/session-use
 import { acceptedSessionRefresh, sessionRefreshFor } from "@/lib/session-refresh";
 import { resetPasswordAction, signupAction } from "@/app/actions/auth";
 import { GET as sessionExpired } from "@/app/session-expired/route";
-import "@/middleware";
+import { isPublicPath } from "@/middleware";
 
 const mockAuth = auth as unknown as ReturnType<typeof vi.fn>;
 const db = prisma as unknown as {
@@ -170,5 +170,22 @@ describe("shared issue login destinations", () => {
   it("returns a signed-in person to their original issue", () => {
     const request = Object.assign(new NextRequest("https://ziki.dev/login?callbackUrl=%2Fziki%2Fapp%2F482%3Fcomment%3Dc42"), { auth: { user: { id: "u" } } });
     expect(middleware.handler!(request).headers.get("location")).toBe("https://ziki.dev/ziki/app/482?comment=c42");
+  });
+});
+
+describe("signed-out public project routes (#3464)", () => {
+  it.each([
+    "/zedu/web",
+    "/zedu/web/report",
+    "/zedu/web/track/private-token",
+    "/api/public/projects/zedu/web/ideas",
+  ])("allows %s through session middleware", (path) => {
+    expect(isPublicPath(path)).toBe(true);
+  });
+
+  it("does not make similarly named private routes public", () => {
+    expect(isPublicPath("/projects/zedu/web")).toBe(false);
+    expect(isPublicPath("/zedu/web/reporter")).toBe(false);
+    expect(isPublicPath("/api/projects/zedu/web/ideas")).toBe(false);
   });
 });

@@ -19,6 +19,7 @@ const updateTag = vi.hoisted(() => vi.fn());
 const invalidateWorkflow = vi.hoisted(() => vi.fn());
 const projectFindMany = vi.hoisted(() => vi.fn());
 const projectCreate = vi.hoisted(() => vi.fn());
+const projectUpdate = vi.hoisted(() => vi.fn());
 const organisationFindUnique = vi.hoisted(() => vi.fn());
 const redirect = vi.hoisted(() => vi.fn((to: string) => { throw new Error(`redirect:${to}`); }));
 const findFirst = vi.hoisted(() => vi.fn());
@@ -42,7 +43,7 @@ vi.mock("@/lib/organisation-context", () => ({
 vi.mock("@/lib/workflow", () => ({ invalidateWorkflow }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst, findMany: projectFindMany, create: projectCreate },
+    project: { findFirst, findMany: projectFindMany, create: projectCreate, update: projectUpdate },
     organisation: { findUnique: organisationFindUnique },
     projectWorkflow: { upsert },
     projectAuditEvent: { create: auditCreate },
@@ -54,7 +55,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-import { createProjectAction } from "@/app/(app)/projects/actions";
+import { createProjectAction, updateProjectAction } from "@/app/(app)/projects/actions";
 import { updateProjectWorkflowAction } from "@/app/(app)/projects/[slug]/settings/workflow-actions";
 import {
   createMarketingIssueTypeAction,
@@ -223,6 +224,85 @@ describe("createProjectAction", () => {
     await expect(createProjectAction(undefined, data)).rejects.toThrow("redirect:");
     expect(projectCreate).toHaveBeenCalledOnce();
     expect(projectCreate.mock.calls[0][0].data).toMatchObject({ name: "Mobile app", slug: "mobile-app", contributorGuidelines: null });
+  });
+});
+
+describe("public issue intake project setting (#3464)", () => {
+  function settingsForm(visibility: "public" | "private") {
+    const data = new FormData();
+    data.set("slug", "web");
+    data.set("name", "Web");
+    data.set("goal", "Build the public web application.");
+    data.set("repoUrl", "https://github.com/acme/web");
+    data.set("stagingUrl", "https://staging.acme.test");
+    data.set("siteUrl", "https://acme.test");
+    data.set("visibility", visibility);
+    data.set("acceptsGuestIdeas", "true");
+    data.set("contributorGuidelines", "Read CONTRIBUTING.md first.");
+    return data;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireUser.mockResolvedValue({ id: "admin", role: "user" });
+    currentOrganisationIdFor.mockResolvedValue("organisation-1");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    findFirst.mockResolvedValue({
+      id: "project-1",
+      name: "Web",
+      goal: "Build the public web application.",
+      repoUrl: "https://github.com/acme/web",
+      stagingUrl: "https://staging.acme.test",
+      siteUrl: "https://acme.test",
+      visibility: "private",
+      isOpenForContributors: false,
+      acceptsGuestIdeas: false,
+      contributorGuidelines: "Read CONTRIBUTING.md first.",
+      rewardConfig: null,
+    });
+    transaction.mockImplementation(async (run: (tx: unknown) => unknown) => run({
+      project: { update: projectUpdate },
+      projectAuditEvent: { create: auditCreate },
+    }));
+  });
+
+  it("lets an admin opt a public project into signed-out reports and audits the change", async () => {
+    await expect(updateProjectAction(undefined, settingsForm("public"))).resolves.toEqual({});
+
+    expect(projectUpdate).toHaveBeenCalledWith({
+      where: { id: "project-1" },
+      data: expect.objectContaining({ visibility: "public", acceptsGuestIdeas: true }),
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "settings.updated",
+        changes: expect.objectContaining({
+          visibility: { from: "private", to: "public" },
+          acceptsGuestIdeas: { from: false, to: true },
+        }),
+      }),
+    });
+  });
+
+  it("forces signed-out reporting off when a project becomes private", async () => {
+    findFirst.mockResolvedValueOnce({
+      id: "project-1",
+      name: "Web",
+      goal: "Build the public web application.",
+      repoUrl: "https://github.com/acme/web",
+      stagingUrl: "https://staging.acme.test",
+      siteUrl: "https://acme.test",
+      visibility: "public",
+      isOpenForContributors: false,
+      acceptsGuestIdeas: true,
+      contributorGuidelines: "Read CONTRIBUTING.md first.",
+      rewardConfig: null,
+    });
+
+    await expect(updateProjectAction(undefined, settingsForm("private"))).resolves.toEqual({});
+    expect(projectUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ visibility: "private", acceptsGuestIdeas: false }),
+    }));
   });
 });
 

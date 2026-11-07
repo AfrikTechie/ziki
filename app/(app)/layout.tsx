@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { isLinkPreviewBot } from "@/lib/link-preview";
 import { isPublicAgentPath } from "@/lib/public-agent-paths";
 import { projectOverviewSegments } from "@/lib/project-slug";
+import { publicIntakeSegments } from "@/lib/public-project-paths";
 import { AppHeader } from "@/components/app-header";
 import { getUnreadCount } from "@/lib/lookups";
 import { MAIN_CONTENT_ID, SkipLink } from "@/components/skip-link";
@@ -58,7 +59,8 @@ export default async function AppLayout({
   }
 
   const reqPath = (await headers()).get("x-ziki-path") ?? "";
-  const overviewSegments = !session?.user ? projectOverviewSegments(reqPath) : null;
+  const intakeSegments = !session?.user ? publicIntakeSegments(reqPath) : null;
+  const overviewSegments = !session?.user ? projectOverviewSegments(reqPath) ?? intakeSegments : null;
   const overviewProject = overviewSegments
     ? await prisma.project.findFirst({
         where: {
@@ -68,6 +70,7 @@ export default async function AppLayout({
           // the shell doesn't tell outsiders which private projects exist.
           visibility: "public",
           archivedAt: null,
+          ...(intakeSegments?.kind === "report" ? { acceptsGuestIdeas: true } : {}),
           organisation: { slug: overviewSegments.orgSlug, archivedAt: null },
         },
         select: { id: true },
