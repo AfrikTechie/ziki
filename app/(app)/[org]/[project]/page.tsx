@@ -4,10 +4,32 @@ import { optionalUser } from "@/lib/auth-helpers";
 import { requireProject } from "@/lib/project-route";
 import { loadProjectOverview } from "@/lib/project-overview";
 import { projectHomePath } from "@/lib/marketing/project-home";
-import { projectRef } from "@/lib/project-paths";
+import { projectPath, projectRef } from "@/lib/project-paths";
 import { prisma } from "@/lib/prisma";
+import type { Metadata } from "next";
+import { clip, NOINDEX, pageMetadata } from "@/lib/seo/site";
 
 type Props = { params: Promise<{ org: string; project: string }> };
+
+/**
+ * Search and share metadata (#seo-pages). Only a public project is described and
+ * indexed; anything else says nothing about the project, not even its name,
+ * since a guest must not learn that a private project exists.
+ */
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { org, project: slug } = await params;
+  const project = await prisma.project.findFirst({
+    where: { slug, visibility: "public", archivedAt: null, organisation: { slug: org, archivedAt: null } },
+    select: { name: true, slug: true, goal: true, organisation: { select: { name: true, slug: true } } },
+  });
+  if (!project) return { robots: NOINDEX };
+  const goal = project.goal?.replace(/[#*_`>[\]()]/g, " ").trim();
+  return pageMetadata({
+    title: `${project.name} by ${project.organisation.name}`,
+    description: clip(goal || `${project.name} is a public project on Ziki where people and AI agents build software together. See its open ideas and issues, and help with your agents.`),
+    path: projectPath(projectRef(project.organisation.slug, project.slug)),
+  });
+}
 
 /**
  * `/<org>/<project>`: the project's home (#project-urls): its Ideas list, or its

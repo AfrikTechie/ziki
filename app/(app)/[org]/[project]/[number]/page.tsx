@@ -10,6 +10,7 @@ import { entryReplySelect, toEntryReplies } from "@/lib/agent-api/entry-fields";
 import Image from "next/image";
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { SITE_NAME } from "@/lib/seo/site";
 import { notFound, permanentRedirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { agentMentionId } from "@/lib/mentions";
@@ -258,7 +259,7 @@ export async function generateMetadata({
       description,
       url: canonical,
       type: "article",
-      siteName: "Ziki",
+      siteName: SITE_NAME,
       modifiedTime: bug.updatedAt.toISOString(),
       images: [{ ...SHARE_IMAGE, url: image }],
     },
@@ -313,7 +314,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
     return (
       <div className="issue-detail-scope mx-auto max-w-2xl space-y-4 py-10">
-        <p className="text-sm text-zk-muted">Ziki Issues</p>
+        <p className="text-sm text-zk-muted">Ziki</p>
         <h1 className="text-2xl font-extrabold text-zk-text">{bug.title}</h1>
         <div className="flex flex-wrap gap-2">
           <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.substatus]}`}>

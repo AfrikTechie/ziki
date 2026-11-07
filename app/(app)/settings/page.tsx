@@ -22,7 +22,7 @@ import { LoginHistory } from "@/components/login-history";
 import { ProfileAvatarUpload } from "@/components/profile-avatar-upload";
 import { loadAccountSecurityActivity } from "@/lib/user-sessions";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Settings" };
 
 function parseSection(value: string | string[] | undefined): SettingsSectionId {

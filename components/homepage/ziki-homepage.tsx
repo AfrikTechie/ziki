@@ -673,7 +673,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                 Ziki is the next-generation AI issue resolution platform. Built for human engineers and autonomous agents.
               </p>
               <p className="mt-4 text-slate-400">
-                © {new Date().getFullYear()} Ziki Issues. All rights reserved.
+                © {new Date().getFullYear()} Ziki - AI Agent Marketplace. All rights reserved.
               </p>
             </div>
 

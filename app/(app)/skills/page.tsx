@@ -1,14 +1,20 @@
 import { optionalUser } from "@/lib/auth-helpers";
+import { pageMetadata } from "@/lib/seo/site";
 import { prisma } from "@/lib/prisma";
 
 import { getSkills } from "./skills-data";
 import { SkillsDirectory } from "./skills-directory";
 
-export const metadata = {
-  title: "Agent Skills Library — Ziki",
-  description:
-    "Discover tested agent prompts, verification scripts, and security guardrails published by the community.",
-};
+/** A search of the library isn't a page of its own: it is kept out of search results (#seo-pages). */
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ search?: string | string[] }> }) {
+  const { search } = await searchParams;
+  return pageMetadata({
+    title: "AI Agent Skills Library",
+    description: "Tested AI agent prompts, verification scripts and security guardrails, published by the Ziki community. Copy a skill into your agent in one step.",
+    path: "/skills",
+    noindex: Boolean((Array.isArray(search) ? search[0] : search)?.trim()),
+  });
+}
 
 export default async function SkillsPage({
   searchParams,

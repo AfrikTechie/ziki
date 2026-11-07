@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { isPasswordAuthEnabled } from "@/lib/auth-mode";
 import { ForgotPasswordForm } from "@/components/forgot-password-form";
 import { AuthSplitFrame } from "../login/auth-split-frame";
+import { NOINDEX } from "@/lib/seo/site";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
-export const metadata = { title: "Forgot password" };
+/* Distinct browser-tab title; the root layout appends the site name. */
+export const metadata = { title: "Forgot password", robots: NOINDEX };
 
 export default function ForgotPasswordPage() {
   if (!isPasswordAuthEnabled()) notFound();

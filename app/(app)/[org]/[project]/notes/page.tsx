@@ -9,7 +9,7 @@ import { NotesDocument } from "./notes-document";
 import { AddNoteButton, NoteCommentComposer, NoteReplyForm } from "./note-comments";
 import { NoteCommentVoteBadge } from "@/components/vote-badge";
 
-export const metadata = { title: "Project notes · Ziki" };
+export const metadata = { title: "Project notes" };
 /** `/<slug>/notes` (#project-urls): the slug picks the project and checks access. */
 export default async function NotesPage({ params: routeParams, searchParams }: { params: Promise<{ org: string; project: string }>; searchParams: Promise<{ cursor?: string; history?: string }> }) {
   const { org, project: slugParam } = await routeParams;

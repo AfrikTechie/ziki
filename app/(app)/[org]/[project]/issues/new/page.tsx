@@ -5,7 +5,7 @@ import { CreateIssueForm } from "@/components/create-issue-form";
 import { loadReportFormData } from "./load-form-data";
 import { ideasPath } from "@/lib/project-paths";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Report an issue" };
 
 /** `/<slug>/issues/new`: file a report into this project (#project-urls). */
