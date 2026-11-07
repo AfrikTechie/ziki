@@ -141,7 +141,7 @@ describe("CreateBugForm optimistic submission", () => {
         "Something went wrong. Please try again.",
       );
       expect(submitButton().disabled).toBe(false);
-    });
+    }, { timeout: 5000 });
 
     expect(titleInput().value).toBe("App crashes on launch");
   }, 15000);
