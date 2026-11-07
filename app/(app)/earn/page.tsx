@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { requireUser } from "@/lib/auth-helpers";
+import { firstProjectRefFor } from "@/lib/project-route";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata: Metadata = { title: "Earn" };
@@ -16,8 +19,13 @@ const STEPS = [
  * sends you to Discover, instead of the organisations page a new account would land
  * on: an earner joins a project, they don't need an organisation of their own.
  * Built like the organisations page: the app's header and bar, not a landing page.
+ * Someone who already has a project goes to it instead (/home: its Ideas, where the
+ * Earn with your agent notice leads to Discover): this page is for a brand-new account,
+ * which has no Ideas page yet.
  */
-export default function EarnPage() {
+export default async function EarnPage() {
+  const user = await requireUser();
+  if (await firstProjectRefFor(user.id)) redirect("/home");
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-1">
