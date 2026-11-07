@@ -1,9 +1,10 @@
 import Link from "next/link";
+import type { SecuritySeverity } from "@prisma/client";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { prisma } from "@/lib/prisma";
 import { loadSecurityDashboard, type DashboardFinding } from "@/lib/security-dashboard";
-import { SECURITY_SEVERITIES, SEVERITY_GUIDE } from "@/lib/security-severity";
+import { SECURITY_SEVERITIES, SEVERITY_GUIDE, SEVERITY_LABEL } from "@/lib/security-severity";
 import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
@@ -17,7 +18,13 @@ export const metadata = { title: "Security" };
  * the ones already disclosed. Owners and admins also choose which agents may
  * read private findings.
  */
-export default async function SecurityPage() {
+type SearchParams = Promise<{ severity?: string }>;
+
+export default async function SecurityPage(props: {
+  searchParams?: SearchParams;
+}) {
+  const params = (await props.searchParams) ?? {};
+  const selectedSeverity = (params.severity?.toLowerCase() || "all") as SecuritySeverity | "all";
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) {
@@ -40,6 +47,14 @@ export default async function SecurityPage() {
         })
       ).map(({ agent, level, securityCleared }) => ({ ...agent, level, securityCleared }))
     : [];
+  const filteredOpen = selectedSeverity === "all"
+    ? dashboard.open
+    : dashboard.open.filter((f) => f.severity === selectedSeverity);
+
+  const filteredDisclosed = selectedSeverity === "all"
+    ? dashboard.disclosed
+    : dashboard.disclosed.filter((f) => f.severity === selectedSeverity);
+
   const openCount = dashboard.open.length;
   const severe = dashboard.openBySeverity.critical + dashboard.openBySeverity.high;
 
@@ -74,11 +89,31 @@ export default async function SecurityPage() {
 
       <section aria-labelledby="open-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="open-heading" className="text-lg font-bold text-zk-text">Open findings</h2>
-          <p className="text-xs text-zk-muted">Worst first, then oldest.</p>
+          <div>
+            <h2 id="open-heading" className="text-lg font-bold text-zk-text">Open findings</h2>
+            <p className="text-xs text-zk-muted">Worst first, then oldest.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by severity">
+            {(["all", ...SECURITY_SEVERITIES] as const).map((level) => {
+              const active = selectedSeverity === level;
+              return (
+                <Link
+                  key={level}
+                  href={level === "all" ? "/security" : `/security?severity=${level}`}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                      : "border border-zk-border text-zk-muted hover:border-slate-400 hover:text-zk-text"
+                  }`}
+                >
+                  {level === "all" ? "All" : SEVERITY_LABEL[level]}
+                </Link>
+              );
+            })}
+          </div>
         </div>
-        {dashboard.open.length ? (
-          <FindingTable findings={dashboard.open} kind="open" />
+        {filteredOpen.length ? (
+          <FindingTable findings={filteredOpen} kind="open" />
         ) : (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
         )}
@@ -86,8 +121,8 @@ export default async function SecurityPage() {
 
       <section aria-labelledby="disclosed-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
         <h2 id="disclosed-heading" className="text-lg font-bold text-zk-text">Disclosed</h2>
-        {dashboard.disclosed.length ? (
-          <FindingTable findings={dashboard.disclosed} kind="disclosed" />
+        {filteredDisclosed.length ? (
+          <FindingTable findings={filteredDisclosed} kind="disclosed" />
         ) : (
           <p className="mt-3 text-sm text-zk-text2">Findings appear here once their fix is live and their details are published.</p>
         )}
@@ -132,6 +167,32 @@ export default async function SecurityPage() {
           )}
         </section>
       ) : null}
+      <section aria-labelledby="policy-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
+        <h2 id="policy-heading" className="text-lg font-bold text-zk-text">Responsible Disclosure & Safe Harbor</h2>
+        <div className="mt-3 space-y-3 text-sm text-zk-text2">
+          <p>
+            We practice coordinated vulnerability disclosure to protect all workspace members. Vulnerabilities reported through
+            the security intake remain strictly confidential until verified and patched.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3 pt-2">
+            <div className="rounded-xl border border-zk-border bg-zk-bg/50 p-3">
+              <span className="block text-xs font-semibold uppercase tracking-wider text-zk-muted">Triage SLA</span>
+              <span className="mt-1 block font-bold text-zk-text">24 Hours</span>
+              <span className="text-xs text-zk-muted">Initial acknowledgment & reproduction.</span>
+            </div>
+            <div className="rounded-xl border border-zk-border bg-zk-bg/50 p-3">
+              <span className="block text-xs font-semibold uppercase tracking-wider text-zk-muted">Critical SLA</span>
+              <span className="mt-1 block font-bold text-zk-text">7 Days</span>
+              <span className="text-xs text-zk-muted">Hotfix deployment & release window.</span>
+            </div>
+            <div className="rounded-xl border border-zk-border bg-zk-bg/50 p-3">
+              <span className="block text-xs font-semibold uppercase tracking-wider text-zk-muted">Disclosure</span>
+              <span className="mt-1 block font-bold text-zk-text">Automatic</span>
+              <span className="text-xs text-zk-muted">Advisory published when the fix goes Live.</span>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
