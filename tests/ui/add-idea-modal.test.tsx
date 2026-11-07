@@ -747,6 +747,139 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     expect(formData.get("description")).toContain("Wham Bars product card");
   });
 
+  it("automatically refines draft before review when user clicks 'Confirm & continue to draft' with pending clarification", async () => {
+    const user = userEvent.setup();
+
+    const mockStream = {
+      getTracks: () => [
+        {
+          stop: vi.fn(),
+          kind: "video",
+          enabled: true,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        },
+      ],
+      getVideoTracks: () => [
+        {
+          stop: vi.fn(),
+          kind: "video",
+          enabled: true,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        },
+      ],
+      getAudioTracks: () => [],
+    };
+
+    class MockMediaRecorder {
+      state = "recording";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      stream: unknown;
+
+      constructor(stream: unknown) {
+        this.stream = stream;
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["video-chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior:
+          "Wham Bars product card with description, price (£0.15), and Add to Basket button has a large empty space",
+        context: "Wham Bars product card",
+        intent: "Ambiguous intent",
+        isAmbiguous: true,
+      },
+      draft: {
+        title: "Wham Bars product card layout",
+        description: "## Summary\nWham Bars product card has an empty area.",
+        suggestedType: "Bug",
+      },
+    });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Wham Bars product card with description, price (£0.15), and Add to Basket button has a large empty space"
+        )
+      ).toBeTruthy();
+    });
+
+    // User opens clarification and types correction
+    await user.click(screen.getByRole("button", { name: /\+ Clarify or correct/i }));
+    const correctionInput = screen.getByPlaceholderText(/Actually, the bug only happens/i);
+    await user.type(correctionInput, "the image is broken.");
+
+    // User directly clicks "Confirm & continue to draft" WITHOUT clicking "Update with correction"
+    mockedInterpretVisual.mockResolvedValueOnce({
+      success: true,
+      understanding: {
+        observedBehavior:
+          "The Wham Bars product card displays a broken or missing image instead of the expected product photo.",
+        context: "Wham Bars product card",
+        intent: "Report defect on Wham Bars product card",
+        isAmbiguous: false,
+      },
+      draft: {
+        title: "Broken image on Wham Bars product card",
+        description: "## Summary\nThe Wham Bars product card displays a broken or missing image.",
+        suggestedType: "Bug",
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: /Confirm & continue to draft/i }));
+
+    await waitFor(() => {
+      expect(mockedInterpretVisual).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Review issue draft")).toBeTruthy();
+    });
+
+    const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
+    expect(titleInput.value).toBe("Broken image on Wham Bars product card");
+  });
+
   it("integrates tenant issue types into the review selector", async () => {
     const user = userEvent.setup();
     const customTypes = [

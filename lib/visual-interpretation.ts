@@ -222,8 +222,8 @@ export function extractContextFromPreviousUnderstanding(previous?: string): Extr
   const price = priceMatch ? (priceMatch[1] || priceMatch[2]) : undefined;
 
   // Extract button or interactive CTA: e.g. "Add to Basket button", "Add to Basket", "Add to Cart"
-  const buttonMatch = text.match(/(?:['"]?([A-Za-z\s]+(?:button|btn|cta))['"]?|Add to Basket|Add to Cart)/i);
-  const button = buttonMatch ? (buttonMatch[1] || buttonMatch[0]).replace(/^(?:and|or)\s+/i, "").trim() : undefined;
+  const buttonMatch = text.match(/(?:['"]?([A-Za-z\s]+?(?:button|btn|cta))['"]?|Add to Basket|Add to Cart)/i);
+  const button = buttonMatch ? (buttonMatch[1] || buttonMatch[0]).trim().replace(/^(?:and|or)\s+/i, "").trim() : undefined;
 
   // Check for empty space / area
   const hasEmptyArea = /(?:large\s+)?empty\s+(?:space|area|box|container|placeholder)/i.test(text);
@@ -317,7 +317,11 @@ export function parseClarificationDetails(
 
     const expected = `The ${rawTarget} should display a valid, properly rendered image.`;
     const actual = prevContext.hasEmptyArea
-      ? `The ${rawTarget} product image fails to load, leaving an empty area inside the product card.`
+      ? (rawTarget.toLowerCase().includes("image")
+          ? `${rawTarget} fails to load, leaving an empty area inside the product card.`
+          : rawTarget.toLowerCase().includes("product")
+            ? `The ${rawTarget} image fails to load, leaving an empty area inside the product card.`
+            : `The ${rawTarget} product image fails to load, leaving an empty area inside the product card.`)
       : `The product image fails to load and displays a broken image icon or empty placeholder.`;
 
     return {

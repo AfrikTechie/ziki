@@ -187,7 +187,7 @@ describe("visual-interpretation", () => {
       );
       expect(result.draft.description).toContain("## Actual Behavior");
       expect(result.draft.description).toContain(
-        "The Wham Bars product image fails to load, leaving an empty area inside the product card."
+        "The Wham Bars product card image fails to load, leaving an empty area inside the product card."
       );
       expect(result.draft.description).not.toMatch(/^## Actual Behavior\s*\nthe image is broken/i);
     });
