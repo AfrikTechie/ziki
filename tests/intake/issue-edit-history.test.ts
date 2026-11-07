@@ -88,7 +88,8 @@ const db = vi.hoisted(() => {
     bugActivity: { create: vi.fn() },
     bugRevision: { create: vi.fn() },
     issueConfirmation: { deleteMany: vi.fn() },
-    pointEntry: { findFirst: vi.fn(), update: vi.fn() },`r`n    agentAuditEvent: { update: vi.fn() },
+    pointEntry: { findFirst: vi.fn(), update: vi.fn() },
+    agentAuditEvent: { update: vi.fn() },
     $queryRaw: vi.fn(async () => [{
       title: "Original Title",
       description: "Original Description",
