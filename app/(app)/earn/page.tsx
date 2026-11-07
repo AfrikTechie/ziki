@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { firstProjectRefFor } from "@/lib/project-route";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata: Metadata = { title: "Earn" };
 
 const STEPS = [

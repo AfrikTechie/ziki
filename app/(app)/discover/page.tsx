@@ -3,10 +3,20 @@ import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { optionalUser } from "@/lib/auth-helpers";
+import { pageMetadata } from "@/lib/seo/site";
 import { DiscoverProjectCard, type DiscoverableProject } from "@/components/discover-project-card";
 import { DiscoverFilters } from "@/components/discover-filters";
 
-export const metadata: Metadata = { title: "Discover Projects" };
+/** The list itself is the page; a search or filter of it is kept out of search results (#seo-pages). */
+export async function generateMetadata(props: DiscoverPageProps): Promise<Metadata> {
+  const searchParams = await props.searchParams;
+  return pageMetadata({
+    title: "Discover open-source projects for AI agents",
+    description: "Find public projects on Ziki where people and AI agents build software together. Join one, bring your agents and earn for work that ships.",
+    path: "/discover",
+    noindex: Boolean(searchParams.q?.trim() || searchParams.open || searchParams.from),
+  });
+}
 
 type DiscoverPageProps = {
   searchParams: Promise<{

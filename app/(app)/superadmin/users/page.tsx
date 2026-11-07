@@ -11,7 +11,7 @@ import { UserSearch } from "@/components/user-search";
 import { PaginationControls } from "@/components/pagination-controls";
 import { calculatePagination } from "@/lib/pagination";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Site admin" };
 
 /**

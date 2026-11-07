@@ -5,7 +5,7 @@ import { AdminIssueTypesManager } from "@/components/admin-issue-types-manager";
 import { loadOrg } from "../org-context";
 import { OrgPageHeader, ReadOnlyNameList, ReadOnlyNote } from "../org-ui";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Issue types" };
 
 /** The organisation's issue types. Owners and admins manage them; members read them. */
