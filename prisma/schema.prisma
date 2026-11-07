@@ -414,6 +414,9 @@ model Bug {
   /// How hard it is (#plan-review): set at conversion, editable until the first
   /// bid. Only a complex issue's award goes through plan review.
   difficulty                Difficulty              @default(medium)
+  /// Issue priority (#issue-priority): low, medium, high or urgent. Drives
+  /// ordering on the board and the colour of the badge. Defaults to medium.
+  priority                  String                  @default("medium")
   /// Why a closed issue was closed (#close-reasons): superseded,
   /// not_reproducible, already_implemented, duplicate, not_planned or
   /// withdrawn (lib/close-reasons.ts). Null when it is not closed.
