@@ -17,6 +17,8 @@ function sampleReport(overrides: Partial<GateReport & { createdAt: Date; checked
     pullRequestUrl: PR,
     headSha: HEAD,
     state: "open",
+    mergedInto: null,
+    inDefaultBranch: null,
     checks: "passing",
     mergeable: true,
     createdAt: new Date("2026-11-06T10:00:00Z"),

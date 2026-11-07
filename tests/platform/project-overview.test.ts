@@ -13,6 +13,7 @@ vi.mock("server-only", () => ({}));
 
 import { loadProjectOverview } from "@/lib/project-overview";
 import { projectOverviewSegments } from "@/lib/project-slug";
+import { publicIntakeSegments } from "@/lib/public-project-paths";
 
 function overviewProject(overrides: Record<string, unknown> = {}) {
   return {
@@ -26,6 +27,7 @@ function overviewProject(overrides: Record<string, unknown> = {}) {
     contributorGuidelines: "Write hermetic tests.",
     visibility: "public" as const,
     isOpenForContributors: true,
+    acceptsGuestIdeas: true,
     organisationId: "org-1",
     organisation: {
       id: "org-1",
@@ -57,7 +59,7 @@ describe("project overview access and data", () => {
   it("shows a public project to visitors and signed-in people outside the organisation", async () => {
     mockProject("public");
     await expect(loadProjectOverview("example", "tracker", null)).resolves.toMatchObject({
-      project: { visibility: "public" },
+      project: { visibility: "public", acceptsGuestIdeas: true },
       openIdeas: 12,
       openIssues: 5,
       deliveredFixes: 28,
@@ -140,5 +142,11 @@ describe("project overview route recognition", () => {
     expect(projectOverviewSegments("/example/tracker/issues")).toBeNull();
     expect(projectOverviewSegments("/example/issues")).toBeNull();
     expect(projectOverviewSegments("/example/123")).toBeNull();
+  });
+
+  it("recognizes only the nested guest report and tracking routes", () => {
+    expect(publicIntakeSegments("/example/tracker/report")).toEqual({ orgSlug: "example", projectSlug: "tracker", kind: "report" });
+    expect(publicIntakeSegments("/example/tracker/track/private-token")).toEqual({ orgSlug: "example", projectSlug: "tracker", kind: "track" });
+    expect(publicIntakeSegments("/example/tracker/issues/12")).toBeNull();
   });
 });

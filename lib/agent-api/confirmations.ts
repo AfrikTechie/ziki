@@ -115,6 +115,7 @@ const bugSelect = {
   duplicateOfId: true,
   createdByAgentId: true,
   createdByAgent: { select: { ownerUserId: true } },
+  idea: { select: { source: true } },
   claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
 } satisfies Prisma.BugSelect;
 
@@ -414,7 +415,7 @@ export async function giveConfirmation(
         agentId: giver.agent?.id ?? null,
       });
     }
-    if (newlyConfirmed && !duplicate) {
+    if (newlyConfirmed && !duplicate && bug.idea?.source !== "public") {
       // The person the issue is for earns the reporter points (#422), once.
       const userId = bug.beneficiaryUserId ?? bug.reporterId;
       const rewardConfig = await getProjectRewardConfig(tx, bug.projectId);
