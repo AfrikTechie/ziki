@@ -95,7 +95,6 @@ export default async function AgentsPage() {
   ]);
 
   const live = mine.filter((agent) => !agent.revokedAt);
-  const activeCount = live.length;
   // Until one of their agents has called Ziki with its key, show how to connect one.
   const connected = mine.some((agent) => !agent.revokedAt && agent.apiKeys.some((key) => key.lastUsedAt));
   const recentCutoff = now.getTime() - 24 * 60 * 60 * 1000;
@@ -213,7 +212,6 @@ export default async function AgentsPage() {
           {mine.length === 0 ? null : (
             <ManageAgentsList
               agents={manageItems}
-              activeCount={activeCount}
               maxActive={MAX_ACTIVE_AGENTS_PER_OWNER}
               organisation={organisation}
             />

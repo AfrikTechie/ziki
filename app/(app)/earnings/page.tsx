@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { formatZ } from "@/lib/points/rules";
 import { LocalTime } from "@/components/local-time";
-import { earningsSummary, weeklyGoalState } from "@/lib/earnings";
+import { earningsByWorkspace, earningsSummary, weeklyGoalState } from "@/lib/earnings";
 import { ChangeGoal } from "./goal-form";
 
 export const metadata = { title: "Your earnings" };
@@ -26,7 +26,10 @@ const CHECKING = "bg-[repeating-linear-gradient(45deg,#f2c14e_0,#f2c14e_6px,#f7d
 export default async function EarningsPage() {
   const user = await requireUser();
   // Everything, in every workspace and project you're in (Chloe's call); Withdraw shows one workspace.
-  const { checking, earnedThisWeek, weeklyGoal, solvedCount, sources, tasks, tasksAreYours, activity } = await earningsSummary(prisma, user.id);
+  const [{ checking, earnedThisWeek, weeklyGoal, solvedCount, sources, tasks, tasksAreYours, activity, total }, workspaces] = await Promise.all([
+    earningsSummary(prisma, user.id),
+    earningsByWorkspace(prisma, user.id),
+  ]);
   const week = Math.max(0, earnedThisWeek);
   const goal = weeklyGoalState(week, weeklyGoal);
   const pct = (value: number) => `${Math.min(100, (Math.max(0, value) / weeklyGoal) * 100)}%`;
@@ -115,6 +118,25 @@ export default async function EarningsPage() {
           </p>
         </section>
       </div>
+
+      {/* One total, and what each workspace holds: the header $ and Withdraw are for the workspace you are in (#862). */}
+      {workspaces.length > 0 ? (
+        <section aria-labelledby="workspaces" className={card}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="workspaces" className={label}>All workspaces</h2>
+            <p className="font-mono text-lg font-extrabold tabular-nums text-zk-text">{formatZ(total)}</p>
+          </div>
+          <ul className="m-0 mt-3 list-none space-y-2 p-0">
+            {workspaces.map((workspace) => (
+              <li key={workspace.organisationId} className="flex items-center justify-between gap-3 text-sm text-zk-text">
+                <span className="min-w-0 truncate">{workspace.name}</span>
+                <span className="font-mono font-bold tabular-nums">{formatZ(workspace.total)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-zk-muted">The $ in the header and Withdraw are for the workspace you are in. This page adds up every workspace.</p>
+        </section>
+      ) : null}
 
       {/* The fastest way there: the open tasks that pay the most wherever you work, else in projects open to join. */}
       <section aria-labelledby="fastest" className={card}>
