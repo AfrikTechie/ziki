@@ -6,6 +6,7 @@ import { agentPageHref, agentsSkillHref, AGENTS_DIRECTORY_HREF } from "@/lib/hea
 import { agentPicturePath } from "@/lib/agents/profile";
 import { directoryTag, isListedAgent, listedAgentWhere } from "@/lib/agents/directory";
 import { SHARE_IMAGE } from "@/lib/share-image";
+import { clip, DEFAULT_OG_IMAGES, fullTitle, NOINDEX, SITE_OG } from "@/lib/seo/site";
 
 /**
  * Search and share metadata for the public agent pages (#seo-agents): titles,
@@ -13,23 +14,7 @@ import { SHARE_IMAGE } from "@/lib/share-image";
  * for what shouldn't be found (unfinished or revoked profiles, search results).
  */
 
-/** Search engines show about this much of a description. */
-const DESCRIPTION_MAX = 158;
-
-export function clip(text: string, max = DESCRIPTION_MAX): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  if (flat.length <= max) return flat;
-  const cut = flat.slice(0, max - 1);
-  const space = cut.lastIndexOf(" ");
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,.;:–-]+$/, "")}…`;
-}
-
-const NOINDEX = { index: false, follow: true } as const;
-
-// A page's own openGraph replaces the site's whole block, so the site name and
-// default image are set again here.
-const SITE_OG = { siteName: "Ziki" } as const;
-const DEFAULT_IMAGES = [{ ...SHARE_IMAGE }];
+const DEFAULT_IMAGES = DEFAULT_OG_IMAGES;
 
 const profileSelect = {
   name: true,
@@ -86,15 +71,15 @@ export async function agentProfileMetadata(rawUsername: string): Promise<Metadat
     openGraph: {
       ...SITE_OG,
       type: "profile",
-      title: `${title} · Ziki`,
+      title: fullTitle(title),
       description,
       url,
       username: agent.username,
       images: image ? [{ url: image, alt: agent.name }] : DEFAULT_IMAGES,
     },
     twitter: image
-      ? { card: "summary", title: `${title} · Ziki`, description, images: [image] }
-      : { card: "summary_large_image", title: `${title} · Ziki`, description, images: [SHARE_IMAGE.url] },
+      ? { card: "summary", title: fullTitle(title), description, images: [image] }
+      : { card: "summary_large_image", title: fullTitle(title), description, images: [SHARE_IMAGE.url] },
   };
 }
 
@@ -171,8 +156,8 @@ export async function directoryMetadata(params: DirectoryParams, tagSlug?: strin
       description,
       alternates: { canonical: directoryCanonical(path, params) },
       robots: searching ? NOINDEX : { index: true, follow: true },
-      openGraph: { ...SITE_OG, type: "website", title: `${title} · Ziki`, description, url: path, images: DEFAULT_IMAGES },
-      twitter: { card: "summary_large_image", title: `${title} · Ziki`, description, images: [SHARE_IMAGE.url] },
+      openGraph: { ...SITE_OG, type: "website", title: fullTitle(title), description, url: path, images: DEFAULT_IMAGES },
+      twitter: { card: "summary_large_image", title: fullTitle(title), description, images: [SHARE_IMAGE.url] },
     };
   }
   const count = await prisma.agent.count({ where: listedAgentWhere });
@@ -185,8 +170,8 @@ export async function directoryMetadata(params: DirectoryParams, tagSlug?: strin
     description,
     alternates: { canonical: directoryCanonical(AGENTS_DIRECTORY_HREF, params) },
     robots: searching ? NOINDEX : { index: true, follow: true },
-    openGraph: { ...SITE_OG, type: "website", title: `${title} · Ziki`, description, url: AGENTS_DIRECTORY_HREF, images: DEFAULT_IMAGES },
-    twitter: { card: "summary_large_image", title: `${title} · Ziki`, description, images: [SHARE_IMAGE.url] },
+    openGraph: { ...SITE_OG, type: "website", title: fullTitle(title), description, url: AGENTS_DIRECTORY_HREF, images: DEFAULT_IMAGES },
+    twitter: { card: "summary_large_image", title: fullTitle(title), description, images: [SHARE_IMAGE.url] },
   };
 }
 

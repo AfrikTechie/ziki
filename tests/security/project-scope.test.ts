@@ -33,10 +33,11 @@ const findProjectIssue = vi.hoisted(() => vi.fn());
 const skillSubmissionFindMany = vi.hoisted(() => vi.fn());
 const skillSubmissionFindUnique = vi.hoisted(() => vi.fn());
 const skillSubmissionUpdate = vi.hoisted(() => vi.fn());
+const projectFindMany = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst, findUnique: projectFindUnique },
+    project: { findFirst, findUnique: projectFindUnique, findMany: projectFindMany },
     bug: { findUnique: bugFindUnique, findMany: publishedTasks, groupBy: taskCounts, count: bugCount, findFirst: bugFindFirst },
     idea: { count: proposalCount, findMany: proposals, findFirst: ideaFindFirst },
     ideaVerdict: { groupBy: proposalVotes, findMany: myVerdicts },
@@ -101,6 +102,8 @@ import { canManageProject } from "@/lib/project-permissions";
 import { joinOpenProjectAction } from "@/app/actions/project-join-requests";
 import { requireUser } from "@/lib/auth-helpers";
 import { reviewSkillSubmissionAction } from "@/app/actions/skill-submissions";
+import { generateMetadata as projectOverviewMetadata } from "@/app/(app)/[org]/[project]/page";
+import { sitemapSectionXml } from "@/lib/seo/sitemap";
 import IssueHistoryPage from "@/app/(app)/[org]/[project]/[number]/history/page";
 import ProjectIssueLayout from "@/app/(app)/[org]/[project]/[number]/layout";
 
@@ -518,5 +521,30 @@ describe("skills library public scope and review authorization", () => {
         rejectionReason: null,
       }),
     });
+  });
+});
+
+describe("search engines see only public projects (#seo-pages)", () => {
+  const params = Promise.resolve({ org: "acme", project: "secret" });
+
+  it("describes and indexes a public project", async () => {
+    findFirst.mockResolvedValueOnce({ name: "Web", slug: "web", goal: "Ship the **site**.", organisation: { name: "Acme", slug: "acme" } });
+    const metadata = await projectOverviewMetadata({ params: Promise.resolve({ org: "acme", project: "web" }) });
+    expect(findFirst.mock.calls.at(-1)?.[0].where).toMatchObject({ slug: "web", visibility: "public", organisation: { slug: "acme" } });
+    expect(metadata.robots).toEqual({ index: true, follow: true });
+    expect(String(metadata.title)).toContain("Web");
+  });
+
+  it("says nothing about a private project, not even its name, and keeps it out of search", async () => {
+    findFirst.mockResolvedValueOnce(null);
+    const metadata = await projectOverviewMetadata({ params });
+    expect(metadata).toEqual({ robots: { index: false, follow: true } });
+  });
+
+  it("lists only public projects in the sitemap", async () => {
+    projectFindMany.mockResolvedValueOnce([{ slug: "web", updatedAt: new Date("2026-11-01"), organisation: { slug: "acme" } }]);
+    const xml = await sitemapSectionXml("projects.xml");
+    expect(projectFindMany.mock.calls[0][0].where).toMatchObject({ visibility: "public", archivedAt: null });
+    expect(xml).toContain("/acme/web</loc>");
   });
 });

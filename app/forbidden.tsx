@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { StatusPage, primaryActionClass } from "@/components/status-page";
+import { NOINDEX } from "@/lib/seo/site";
 
-export const metadata = { title: "No access" };
+export const metadata = { title: "No access", robots: NOINDEX };
 
 /** A page the signed-in person may not open, e.g. the audit log (#447). Sent with status 403. */
 export default function Forbidden() {

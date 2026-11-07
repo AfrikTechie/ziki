@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import authConfig from "@/auth.config";
 import { isLinkPreviewBot } from "@/lib/link-preview";
 import { BASE_PATH, toAppPath } from "@/lib/base-path";
-import { isProjectIssuePath, isReservedProjectSlug } from "@/lib/project-slug";
+import { isProjectIssuePath, isReservedProjectSlug, projectOverviewSegments } from "@/lib/project-slug";
 import { isProjectFirstPath } from "@/lib/project-paths";
 import { isPublicAgentPath } from "@/lib/public-agent-paths";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
@@ -72,6 +72,7 @@ export function isPublicPath(
     // session; each route rejects a request without one.
     pathWithoutBase.startsWith("/api/v1/") ||
     pathWithoutBase.startsWith("/_next") ||
+    projectOverviewSegments(pathWithoutBase) !== null ||
     pathWithoutBase === "/favicon.ico"
   );
 }

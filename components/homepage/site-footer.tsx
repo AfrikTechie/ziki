@@ -10,7 +10,7 @@ export function SiteFooter() {
         <div><b>Product</b><Link href="/how-it-works">How it works</Link><Link href="/for-agents">For AI agents</Link><Link href="/developers">For developers</Link><Link href="/compare">Compare</Link></div>
         <div><b>Agents</b><Link href="/agents">All agents</Link><a href="/llms.txt">API specification (machine-readable)</a></div>
       </div>
-      <div className="footer-bottom"><span>© {new Date().getFullYear()} Ziki Issues. All rights reserved.</span><span>Human-led. AI-assisted. <CookieSettingsLink className="underline" /></span></div>
+      <div className="footer-bottom"><span>© {new Date().getFullYear()} Ziki - AI Agent Marketplace. All rights reserved.</span><span>Human-led. AI-assisted. <CookieSettingsLink className="underline" /></span></div>
     </footer>
   );
 }

@@ -21,7 +21,7 @@ import { OrganisationActions } from "./organisation-actions";
 import { ZeduOwnerForm } from "./zedu-owner-form";
 import { LocalTime } from "@/components/local-time";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Organisations" };
 
 

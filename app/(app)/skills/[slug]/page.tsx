@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { JsonLd } from "@/components/json-ld";
+import { clip, NOINDEX, pageMetadata } from "@/lib/seo/site";
 import { optionalUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { getSkillBySlug, SkillUnavailableError, type SkillItem } from "../skills-data";
@@ -45,32 +46,26 @@ export async function generateMetadata({
   } catch (error) {
     if (!(error instanceof SkillUnavailableError)) throw error;
     return {
-      title: "Skills Library Unavailable — Ziki",
+      title: "Skills library unavailable",
       description: "The skills library is temporarily unavailable. Please try again shortly.",
+      robots: NOINDEX,
     };
   }
 
   if (!skill) {
     return {
-      title: "Skill Not Found — Ziki",
+      title: "Skill not found",
       description: "The requested skill does not exist in the library.",
+      robots: NOINDEX,
     };
   }
 
-  return {
-    title: `${skill.title} — Skills Library — Ziki`,
-    description: skill.description,
-    openGraph: {
-      title: `${skill.title} — Skills Library — Ziki`,
-      description: skill.description,
-      type: "article",
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: `${skill.title} — Skills Library — Ziki`,
-      description: skill.description,
-    },
-  };
+  return pageMetadata({
+    title: `${skill.title}: AI agent skill`,
+    description: clip(skill.description),
+    path: `/skills/${encodeURIComponent(skill.slug)}`,
+    type: "article",
+  });
 }
 
 export default async function SkillDetailPage({

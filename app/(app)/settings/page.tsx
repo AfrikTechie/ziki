@@ -17,7 +17,7 @@ import { AccountDataSettings } from "@/components/account-data-settings";
 import { DisplayNameForm } from "@/components/display-name-form";
 import { ProfileAvatarUpload } from "@/components/profile-avatar-upload";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Settings" };
 
 function parseSection(value: string | string[] | undefined): SettingsSectionId {

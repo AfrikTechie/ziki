@@ -1,12 +1,15 @@
 import { requireUser } from "@/lib/auth-helpers";
+import { NOINDEX } from "@/lib/seo/site";
 import { prisma } from "@/lib/prisma";
 import { EarnSkillsPortal, type ContributorSubmission } from "./earn-skills-portal";
 import { type SkillCategory } from "@/app/(app)/skills/skills-data";
 
+// Signed in only, so it is kept out of search results (#seo-pages).
 export const metadata = {
-  title: "Contribute Skills — Ziki",
+  title: "Contribute skills",
   description:
     "Contribute AI agent skills, test harnesses, and security linters to Ziki. Submit skills for maintainer review and community adoption.",
+  robots: NOINDEX,
 };
 
 export default async function EarnSkillsPage() {
