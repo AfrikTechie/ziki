@@ -9,8 +9,16 @@ import { ideasPath } from "@/lib/project-paths";
 export const metadata = { title: "Report an issue" };
 
 /** `/<slug>/issues/new`: file a report into this project (#project-urls). */
-export default async function NewBugPage({ params }: { params: Promise<{ org: string; project: string }> }) {
+export default async function NewBugPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ org: string; project: string }>;
+  searchParams: Promise<{ security?: string }>;
+}) {
   const { org, project } = await params;
+  // #security-findings: the Security page's "Report a vulnerability" opens the form with it ticked.
+  const security = (await searchParams).security === "1";
   const { user, admin, users, assigneeUsers, types, projectId, projectSlug, canContribute } =
     await loadReportFormData(org, project);
   if (!canContribute) notFound();
@@ -27,10 +35,13 @@ export default async function NewBugPage({ params }: { params: Promise<{ org: st
           </svg>
           Back to issues
         </Link>
-        <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Report an issue</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">
+          {security ? "Report a security vulnerability" : "Report an issue"}
+        </h1>
         <p className="text-sm text-zk-text2">
-          Give the team the full picture: what you did, what you expected, what
-          happened instead.
+          {security
+            ? "Describe the weakness and how to reproduce it. It stays private until the fix is live."
+            : "Give the team the full picture: what you did, what you expected, what happened instead."}
         </p>
       </div>
       <div className="create-issue-card border border-zk-border bg-zk-surface">
@@ -42,6 +53,7 @@ export default async function NewBugPage({ params }: { params: Promise<{ org: st
           currentUserId={user.id}
           projectId={projectId}
           projectSlug={projectSlug}
+          defaultSecurity={security}
         />
       </div>
     </div>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { attachmentResponseHeaders } from "@/lib/attachments";
 import { organisationAccessFor } from "@/lib/organisation-access";
+import { canViewFinding } from "@/lib/security-findings";
 
 /**
  * Serve an attachment (#215) to signed-in users. Files on a deleted issue
@@ -28,11 +29,22 @@ export async function GET(
       idea: { select: { isDeleted: true, organisationId: true, projectId: true, project: { select: { visibility: true } } } },
       comment: { select: { bug: { select: { organisationId: true, isDeleted: true, projectId: true, project: { select: { visibility: true } } } } } },
       redesignProposal: { select: { organisationId: true } },
+      securityFinding: { select: { organisationId: true, reporterId: true, disclosedAt: true } },
     },
   });
 
   const notFound = () => NextResponse.json({ error: "File not found" }, { status: 404 });
   if (!attachment) return notFound();
+  // #security-findings: evidence on a private finding, only for who may see the finding.
+  const finding = attachment.securityFinding;
+  if (finding && !finding.disclosedAt) {
+    const access = await organisationAccessFor(user.id, finding.organisationId, user.role);
+    const member = access.membershipRole !== null;
+    if (!canViewFinding(finding, { kind: "person", userId: user.id, organisationId: member ? finding.organisationId : null, organisationAdmin: access.admin })) {
+      return notFound();
+    }
+    return new NextResponse(new Uint8Array(attachment.data), { status: 200, headers: attachmentResponseHeaders(attachment) });
+  }
   const bug = attachment.bug ?? attachment.idea ?? attachment.comment?.bug;
   if (!bug && !attachment.redesignProposal && attachment.uploaderId !== user.id) return notFound();
   if (attachment.redesignProposal) {

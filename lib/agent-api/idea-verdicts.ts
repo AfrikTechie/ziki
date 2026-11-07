@@ -457,6 +457,8 @@ export async function convertLocked(
   }
   // The report's files come with it; they stay readable from the idea too.
   await tx.attachment.updateMany({ where: { ideaId: locked.id }, data: { bugId: issue.id } });
+  // #security-findings: a private finding follows its idea onto the issue (the issue keeps the placeholder text).
+  await tx.securityFinding.updateMany({ where: { ideaId: locked.id }, data: { bugId: issue.id } });
   await tx.idea.update({
     where: { id: locked.id },
     data: { status: "converted", convertedAt: at, convertedByAgentId: by.agentId, issueId: issue.id },

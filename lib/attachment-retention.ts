@@ -23,7 +23,7 @@ export const SWEEP_BATCH = 500;
 type Db = Pick<PrismaClient, "attachment">;
 
 function unlinkedBefore(cutoff: Date) {
-  return { bugId: null, ideaId: null, commentId: null, redesignProposalId: null, createdAt: { lt: cutoff } };
+  return { bugId: null, ideaId: null, commentId: null, redesignProposalId: null, securityFindingId: null, createdAt: { lt: cutoff } };
 }
 
 /**
