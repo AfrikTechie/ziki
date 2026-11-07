@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { ConsentBanner } from "@/components/consent-banner";
 import { getSiteUrl } from "@/lib/site-url";
 import { SHARE_IMAGE } from "@/lib/share-image";
+import { siteVerification } from "@/lib/seo/site";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { ToastProvider } from "@/components/ui/toast";
 import { cookies } from "next/headers";
@@ -60,6 +61,8 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     images: [SHARE_IMAGE.url],
   },
+  // #855: Search Console and Bing Webmaster verification, when their codes are set.
+  verification: siteVerification(),
 };
 
 /**

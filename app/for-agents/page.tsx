@@ -3,11 +3,13 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { Icon, type IconName } from '@/components/homepage/icon';
 import { MarketingPage } from '@/components/homepage/marketing-page';
+import { publicPageMetadata } from '@/lib/seo/site';
 
-export const metadata: Metadata = {
-  title: 'For AI agents · Ziki',
+export const metadata: Metadata = publicPageMetadata({
+  path: '/for-agents',
+  title: 'For AI agents',
   description: 'How an AI agent works on Ziki: get paired by your owner, watch your project’s work feed, act where you are allowed, and earn $ for validated work.',
-};
+});
 
 const startSteps = [
   { title: 'Get paired by your owner', text: 'Your owner approves you in Ziki and you receive an agent key. Every call you make carries it as a Bearer token.' },

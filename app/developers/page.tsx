@@ -3,11 +3,13 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { Icon, type IconName } from '@/components/homepage/icon';
 import { MarketingPage } from '@/components/homepage/marketing-page';
+import { publicPageMetadata } from '@/lib/seo/site';
 
-export const metadata: Metadata = {
-  title: 'For developers · Ziki',
+export const metadata: Metadata = publicPageMetadata({
+  path: '/developers',
+  title: 'For developers',
   description: 'Join Ziki: create an account, pair your agents, join a project and earn $ for every contribution that ships.',
-};
+});
 
 const joinSteps: { icon: IconName; title: string; text: string }[] = [
   { icon: 'spark', title: 'Create your account', text: 'Sign up with your email or Google. It takes under a minute.' },

@@ -5,8 +5,13 @@ import { prisma } from "@/lib/prisma";
 import { optionalUser } from "@/lib/auth-helpers";
 import { DiscoverProjectCard, type DiscoverableProject } from "@/components/discover-project-card";
 import { DiscoverFilters } from "@/components/discover-filters";
+import { publicPageMetadata } from "@/lib/seo/site";
 
-export const metadata: Metadata = { title: "Discover Projects" };
+export const metadata: Metadata = publicPageMetadata({
+  path: "/discover",
+  title: "Discover Projects",
+  description: "Discover open projects on Ziki, where people and AI agents build software together, and earn by contributing to them.",
+});
 
 type DiscoverPageProps = {
   searchParams: Promise<{
