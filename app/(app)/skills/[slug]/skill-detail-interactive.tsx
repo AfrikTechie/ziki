@@ -1,17 +1,19 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
+import type { SkillItem } from "../skills-data";
+import { buildSmartSkillPrompt, type AgentInfo } from "../skills-prompt-builder";
+
+export { buildSmartSkillPrompt, type AgentInfo };
 
 export interface AgentOption {
   id: string;
   name: string;
+  username?: string;
 }
 
 export interface SkillDetailInteractiveProps {
-  skill: {
-    title: string;
-    prompt: string;
-  };
+  skill: SkillItem;
   agents?: AgentOption[];
   isGuest?: boolean;
 }
@@ -61,18 +63,28 @@ function showToast(message: string) {
   toastTimer = setTimeout(() => setState({ toastMessage: null }), 2000);
 }
 
-async function copySkillPrompt(skill: { title: string; prompt: string }, selectedAgent: string) {
-  const targeted = selectedAgent !== "all";
-  const promptText = targeted
-    ? `Target Agent: ${selectedAgent}\n\n${skill.prompt}`
-    : skill.prompt;
+async function copySkillPrompt(
+  skill: SkillItem,
+  selectedAgent: string,
+  agents: AgentOption[] = []
+) {
+  const promptText = buildSmartSkillPrompt(skill, selectedAgent, agents);
 
   try {
     await navigator.clipboard.writeText(promptText);
+    const targetAgentObj = agents.find((a) => a.name === selectedAgent);
+    const displayName = targetAgentObj
+      ? targetAgentObj.username
+        ? `${targetAgentObj.name} (@${targetAgentObj.username})`
+        : targetAgentObj.name
+      : selectedAgent !== "all"
+      ? selectedAgent
+      : "your agent";
+
     showToast(
-      targeted
-        ? `Copied prompt targeted for ${selectedAgent}!`
-        : `Copied "${skill.title}" prompt to clipboard!`,
+      selectedAgent !== "all"
+        ? `Copied prompt with auto-sync for ${displayName}!`
+        : `Copied "${skill.title}" prompt to clipboard!`
     );
   } catch {
     showToast("Unable to copy to clipboard.");
@@ -131,8 +143,10 @@ export function CopyCommandButton({ command }: { command: string }) {
 
 export function SkillPromptSection({
   skill,
+  agents = [],
 }: {
-  skill: { title: string; prompt: string };
+  skill: SkillItem;
+  agents?: AgentOption[];
 }) {
   const { selectedAgent } = useSkillStore();
 
@@ -148,7 +162,7 @@ export function SkillPromptSection({
           </p>
         </div>
         <button
-          onClick={() => copySkillPrompt(skill, selectedAgent)}
+          onClick={() => copySkillPrompt(skill, selectedAgent, agents)}
           type="button"
           aria-label="Copy instructions"
           className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-xs font-semibold text-zk-text shadow-xs hover:bg-zk-chip transition"
@@ -216,12 +230,12 @@ export function SkillDetailInteractive({
         <option value="all">{allLabel}</option>
         {agents.map((agent) => (
           <option key={agent.id} value={agent.name}>
-            For: {agent.name}
+            For: {agent.name}{agent.username ? ` (@${agent.username})` : ""}
           </option>
         ))}
       </select>
       <button
-        onClick={() => copySkillPrompt(skill, value)}
+        onClick={() => copySkillPrompt(skill, value, agents)}
         type="button"
         className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 transition active:scale-[0.98]"
       >
