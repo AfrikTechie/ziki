@@ -67,6 +67,9 @@ export default {
       if (typeof (user as unknown as { sessionVersion?: number })?.sessionVersion === "number") {
         token.sv = (user as unknown as { sessionVersion?: number }).sessionVersion;
       }
+      if (typeof (user as unknown as { sessionId?: string })?.sessionId === "string") {
+        token.sid = (user as unknown as { sessionId?: string }).sessionId;
+      }
       if (isSuperAdminEmail(token.email as string | undefined)) {
         token.role = "super_admin";
       }
@@ -79,6 +82,9 @@ export default {
           session.user.id = id;
         }
         session.user.sessionVersion = typeof token.sv === "number" ? token.sv : 0;
+        if (typeof token.sid === "string" && token.sid.length > 0) {
+          session.user.sessionId = token.sid;
+        }
         if (isSuperAdminEmail(session.user.email)) {
           session.user.role = "super_admin";
         } else if (

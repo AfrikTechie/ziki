@@ -8,6 +8,8 @@ declare module "next-auth" {
       role: AppRole;
       /** User.sessionVersion when this session was issued (#208). */
       sessionVersion?: number;
+      /** UserSession.id when issued with per-session tracking. */
+      sessionId?: string;
     } & DefaultSession["user"];
   }
 
@@ -15,6 +17,7 @@ declare module "next-auth" {
     id: string;
     role?: AppRole;
     sessionVersion?: number;
+    sessionId?: string;
   }
 }
 
@@ -24,5 +27,7 @@ declare module "next-auth/jwt" {
     role?: AppRole;
     /** User.sessionVersion at sign-in (#208). */
     sv?: number;
+    /** UserSession.id at sign-in. */
+    sid?: string;
   }
 }

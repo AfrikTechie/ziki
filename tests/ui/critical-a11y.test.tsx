@@ -25,7 +25,14 @@ import { MarketingReviewsPanel } from "@/components/marketing/marketing-reviews-
 import { createWebhookAction, listWebhooksAction } from "@/app/actions/webhooks";
 import { OnScreenGuide } from "@/components/support-guide/on-screen-guide";
 import { getPageGuidance, searchSupportAnswers } from "@/components/support-guide/support-guide-data";
+import { ActiveSessions } from "@/components/active-sessions";
+import { LoginHistory } from "@/components/login-history";
 import { projectRef } from "@/lib/project-paths";
+
+vi.mock("@/app/actions/settings", () => ({
+  signOutSessionAction: vi.fn(async () => ({ ok: true })),
+  signOutOtherSessionsAction: vi.fn(async () => ({ ok: true })),
+}));
 
 vi.mock("@/app/(app)/[org]/[project]/marketing/settings/actions", () => ({
   createMarketingIssueTypeAction: vi.fn(),
@@ -77,7 +84,7 @@ vi.mock("@/app/actions/webhooks", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => "/acme/acme/marketing",
   useParams: () => ({ org: "acme", project: "acme" }),
@@ -262,6 +269,72 @@ describe("component accessibility (axe)", () => {
   it("UserSearch has no violations", async () => {
     const { container } = render(<UserSearch />);
     await expectNoA11yViolations(container);
+  });
+
+  it("keeps ActiveSessions and LoginHistory accessible across populated and empty states", async () => {
+    const populated = render(
+      <div>
+        <ActiveSessions
+          initialSessions={[
+            {
+              id: "s1",
+              device: "Chrome on Windows 11",
+              deviceType: "laptop",
+              ipAddress: "102.89.xx.xx",
+              location: "Ikorodu, Lagos, Nigeria",
+              isCurrent: true,
+              lastActiveText: "Active now",
+            },
+            {
+              id: "s2",
+              device: "Chrome on Android (Oppo)",
+              deviceType: "mobile",
+              ipAddress: "105.112.xx.xx",
+              location: "Ikorodu, Lagos, Nigeria",
+              isCurrent: false,
+              lastActiveText: "Last active 5 minutes ago",
+            },
+            {
+              id: "s3",
+              device: "Firefox on Ubuntu 24.04",
+              deviceType: "desktop",
+              ipAddress: "197.210.xx.xx",
+              location: "Lagos, Nigeria",
+              isCurrent: false,
+              lastActiveText: "Last active 3 days ago",
+            },
+          ]}
+        />
+        <LoginHistory
+          totalCount={48}
+          items={[
+            {
+              id: "h1",
+              dateTime: "Nov 4, 2026 · 09:37",
+              status: "successful",
+              statusLabel: "Successful",
+              device: "Chrome · Windows 11",
+              ipAddress: "102.89.xx.xx",
+              location: "Ikorodu, NG",
+            },
+            {
+              id: "h2",
+              dateTime: "Nov 2, 2026 · 21:15",
+              status: "failed_password",
+              statusLabel: "Failed · wrong password",
+              device: "Unknown · Linux",
+              ipAddress: "45.134.xx.xx",
+              location: "Amsterdam, NL",
+            },
+          ]}
+        />
+      </div>,
+    );
+    await expectNoA11yViolations(populated.container);
+    populated.unmount();
+
+    const empty = render(<LoginHistory items={[]} totalCount={0} />);
+    await expectNoA11yViolations(empty.container);
   });
 
   it("keeps the signing-secret dialog modal and restores focus when it closes", async () => {
