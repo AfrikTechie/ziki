@@ -9,6 +9,10 @@ import type { SimilarIssue } from "@/lib/similar-issues";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
+import { moveTo } from "@/lib/issue-substatus";
+import { correct } from "@/lib/points/correct";
+import { pointSourceKey } from "@/lib/points/rules";
 import { z } from "zod";
 
 const idSchema = z.string().trim().min(1).max(191);
@@ -215,6 +219,76 @@ export async function structureIssue(
   }
 
   await prisma.$transaction(async (tx) => {
+    // Structure is for reports that are still Open. Lock and re-read the row
+    // before writing so an issue that started work while we were structuring
+    // cannot be rewritten, and a concurrent edit cannot be lost.
+    const [current] = await tx.$queryRaw<{
+      title: string;
+      description: string;
+      typeId: string | null;
+      duplicateOfId: string | null;
+      status: string;
+      substatus: string;
+    }[]>`
+      SELECT "title", "description", "typeId", "duplicateOfId", "status", "substatus"
+      FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+
+    if (!current) throw new IssueApiError(404, "Issue not found in this project.");
+    if (current.status !== "open") {
+      throw new IssueApiError(409, "Only open issues can be structured.");
+    }
+    if (
+      current.title !== bug.title || current.description !== bug.description ||
+      current.typeId !== bug.typeId ||
+      current.duplicateOfId !== bug.duplicateOfId
+    ) {
+      throw new IssueApiError(409, "The issue changed while it was being structured. Read the latest issue and try again.");
+    }
+
+    const contentChanged = current.title !== queryTitle || current.description !== structuredDesc;
+    const changed =
+      contentChanged ||
+      current.typeId !== resolvedTypeId ||
+      current.duplicateOfId !== resolvedDuplicateOfId;
+
+    if (contentChanged) {
+      // Read confirmation state before the new revision makes prior entries
+      // stop counting. The entries remain in history for auditability.
+      const wasConfirmed = await isConfirmed(bug.id, tx);
+      await tx.bugRevision.create({
+        data: {
+          bugId: bug.id,
+          title: current.title,
+          description: current.description,
+          editedById: agent.ownerId,
+        },
+      });
+
+      // Match the normal edit path: a confirmed report's reporter points are
+      // corrected when its validation is invalidated by a material revision.
+      if (wasConfirmed) {
+        const recipientId = bug.beneficiaryUserId ?? bug.reporterId;
+        if (recipientId) {
+          const entry = await tx.pointEntry.findFirst({
+            where: {
+              organisationId: bug.organisationId,
+              sourceKey: pointSourceKey("reporter", bug.id, recipientId),
+            },
+            select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true },
+          });
+          if (entry) {
+            await correct(tx, { entry });
+            await tx.pointEntry.update({
+              where: { id: entry.id },
+              data: {
+                sourceKey: `${pointSourceKey("reporter", bug.id, recipientId)}:invalidated:${entry.id}`,
+              },
+            });
+          }
+        }
+      }
+    }
+
     await tx.bug.update({
       where: { id: bug.id },
       data: {
@@ -223,6 +297,7 @@ export async function structureIssue(
         typeId: resolvedTypeId,
         duplicateOfId: resolvedDuplicateOfId,
         updatedAt: new Date(),
+        ...(contentChanged && current.substatus === "open" ? moveTo("requires_confirmation") : {}),
       },
     });
 
@@ -233,6 +308,16 @@ export async function structureIssue(
         actorId: agent.ownerId,
         type: "edited",
         summary: "Agent structured issue from report",
+        ...(changed ? {
+          metadata: {
+            fields: [
+              ...(current.title !== queryTitle ? ["title"] : []),
+              ...(current.description !== structuredDesc ? ["description"] : []),
+              ...(current.typeId !== resolvedTypeId ? ["typeId"] : []),
+              ...(current.duplicateOfId !== resolvedDuplicateOfId ? ["duplicateOfId"] : []),
+            ],
+          },
+        } : {}),
       },
     });
 
