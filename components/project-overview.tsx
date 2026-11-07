@@ -4,6 +4,7 @@ import { RichText } from "@/components/rich-text";
 import { ProjectOverviewJoinButton } from "@/components/project-overview-join-button";
 import { Badge } from "@/components/ui/badge";
 import { issuesPath, marketingPath, orgHomePath, projectRef } from "@/lib/project-paths";
+import { publicReportPath } from "@/lib/public-project-paths";
 import { safeHref } from "@/lib/rich-text";
 import type { ProjectOverviewData } from "@/lib/project-overview";
 
@@ -118,6 +119,14 @@ export function ProjectOverviewView({
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {project.acceptsGuestIdeas ? (
+              <Link
+                href={publicReportPath({ orgSlug: project.organisation.slug, projectSlug: project.slug })}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-zk-border bg-zk-surface px-4 py-2 text-sm font-semibold text-zk-text hover:bg-zk-chip"
+              >
+                Report an issue
+              </Link>
+            ) : null}
             {data.canManage ? (
               <Link
                 href={`/projects/${encodeURIComponent(project.slug)}/settings`}

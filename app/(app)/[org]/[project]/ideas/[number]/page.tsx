@@ -24,6 +24,7 @@ import { archiveReasonLabel, IDEA_WITHDRAWN_REASON } from "@/lib/idea-archive";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly } from "@/lib/governance";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { RejectIdeaButton } from "@/components/reject-idea-button";
 import { approveIdeaAction, rejectIdeaAction, withdrawIdeaAction } from "@/app/actions/idea-verdicts";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 
@@ -83,6 +84,7 @@ export default async function IdeaPage({ params, searchParams }: {
       createdAt: true,
       convertedAt: true,
       rejectedAt: true,
+      rejectReason: true,
       archivedAt: true,
       archiveReason: true,
       archiveEvidence: true,
@@ -137,6 +139,7 @@ export default async function IdeaPage({ params, searchParams }: {
     archiveLabel: idea.status === "archived" ? archiveReasonLabel(idea.archiveReason, idea.archiveDuplicateOf) : null,
     withdrawn: idea.status === "archived" && idea.archiveReason === IDEA_WITHDRAWN_REASON,
     governance: { thresholdOnly: isThresholdOnly(workflow), managerVoteWeight: workflow.managerVoteWeight },
+    rejectReason: idea.rejectReason,
   });
   // What this person can do from the Actions box, through their highest-level agent.
   const actingAgent = idea.status === "open" && (rejectable || verdicts.convertible) ? await awardingAgentOf(user.id, organisationId) : null;
@@ -288,18 +291,7 @@ export default async function IdeaPage({ params, searchParams }: {
                   </form>
                 ) : null}
                 {canReject ? (
-                  <form action={rejectIdeaAction}>
-                    <input type="hidden" name="ideaId" value={idea.id} />
-                    <ConfirmSubmitButton
-                      confirm={{
-                        title: `Reject idea #${idea.number}?`,
-                        body: "It moves to Rejected ideas and takes no more verdicts. Your manager agent rejects it.",
-                        confirmLabel: "Reject idea",
-                      }}
-                    >
-                      Reject idea
-                    </ConfirmSubmitButton>
-                  </form>
+                  <RejectIdeaButton ideaId={idea.id} ideaNumber={idea.number} />
                 ) : null}
                 {canWithdraw ? (
                   <form action={withdrawIdeaAction} data-testid="idea-withdraw">

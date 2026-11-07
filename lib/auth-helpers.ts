@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import type { Role } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -14,6 +14,7 @@ import { resolveSessionUserId } from "@/lib/session-user";
 import { isSuperAdminEmail } from "@/lib/super-admin";
 import { ensureZeduOwnerMembership } from "@/lib/organisations";
 import { logger } from "@/lib/logger";
+import { isLegacySessionRevoked, isTrackedSessionValid } from "@/lib/user-sessions";
 
 /** Route handler that clears an invalid session (see app/session-expired/route.ts). */
 export const SESSION_EXPIRED_PATH = "/session-expired";
@@ -46,8 +47,9 @@ export async function requireUser(): Promise<SessionAppUser> {
   let userId: string;
   if ("error" in resolved) {
     const email = session.user.email?.toLowerCase();
-    // A session with an email and no matching row was saved under Google's subject, not User.id.
-    if (!email || isPasswordAuthEnabled()) {
+    // A tracked session that failed validation (revoked or stale version) must
+    // expire immediately rather than re-provisioning a Google user.
+    if (session.user.sessionId || !email || isPasswordAuthEnabled()) {
       redirect(SESSION_EXPIRED_PATH);
     }
     try {
@@ -94,6 +96,26 @@ export async function requireUser(): Promise<SessionAppUser> {
   }
 
   if (session.user.role && session.user.role !== dbUser.role) {
+    redirect(SESSION_EXPIRED_PATH);
+  }
+
+  if (session.user.sessionId) {
+    if (
+      !(await isTrackedSessionValid({
+        sessionId: session.user.sessionId,
+        userId: dbUser.id,
+        userSessionVersion: userVersion,
+      }))
+    ) {
+      redirect(SESSION_EXPIRED_PATH);
+    }
+  } else if (
+    await isLegacySessionRevoked({
+      userId: dbUser.id,
+      userSessionVersion: userVersion,
+      headers: await headers().catch(() => null),
+    })
+  ) {
     redirect(SESSION_EXPIRED_PATH);
   }
 

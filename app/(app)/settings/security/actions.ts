@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import QRCode from "qrcode";
-import { updateSession } from "@/auth";
+import { auth, updateSession } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { sessionRefreshFor } from "@/lib/session-refresh";
+import { resolveCurrentSessionId, syncSessionsAfterVersionBump } from "@/lib/user-sessions";
 import {
   confirmEnrolment,
   confirmIdentity,
@@ -37,6 +39,19 @@ const text = (value: FormDataEntryValue | null) => (typeof value === "string" ? 
  * is signed out along with the others, which is the safe side to fail on.
  */
 async function keepThisSession(userId: string, sessionVersion: number) {
+  const session = await auth().catch(() => null);
+  const reqHeaders = await headers().catch(() => null);
+  const currentSessionId = await resolveCurrentSessionId({
+    userId,
+    sessionId: session?.user?.sessionId,
+    headers: reqHeaders,
+  });
+  await syncSessionsAfterVersionBump({
+    userId,
+    currentSessionId,
+    newSessionVersion: sessionVersion,
+  });
+
   // The jwt callback reads `sessionRefresh`; Auth.js types the update as a Session.
   const data = { sessionRefresh: sessionRefreshFor(userId, sessionVersion) } as unknown as Parameters<typeof updateSession>[0];
   try {

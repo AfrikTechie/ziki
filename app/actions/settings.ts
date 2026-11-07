@@ -1,10 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { auth, updateSession } from "@/auth";
 import { THEME_COOKIE, THEME_COOKIE_MAX_AGE, isTheme } from "@/lib/theme";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
+import { sessionRefreshFor } from "@/lib/session-refresh";
+import { resolveCurrentSessionId } from "@/lib/user-sessions";
 import { PREF_FIELD, isNotificationKind } from "@/lib/notification-prefs";
 import { displayNameSchemaFor } from "@/lib/display-name";
 import { walletAddressSchema } from "@/lib/validations/issue";
@@ -27,6 +30,8 @@ export type WalletResult = Partial<FieldErrorResult> & { ok?: boolean; walletAdd
 export type ChangePasswordResult = Partial<FieldErrorResult> & { ok?: boolean };
 
 export type AvatarResult = { error?: string; ok?: boolean; image?: string | null };
+
+export type SessionActionResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Change a credentials password from Settings (#570). Updating sessionVersion
@@ -280,4 +285,124 @@ export async function removeAvatarAction(): Promise<AvatarResult> {
   revalidatePath("/settings");
   revalidatePath(`/users/${user.id}`);
   return { ok: true, image: null };
+}
+
+/**
+ * Revoke a single active session belonging to the signed-in caller. Refuses to
+ * sign out the caller's own active device here (that uses `logoutAction`).
+ */
+export async function signOutSessionAction(sessionId: unknown): Promise<SessionActionResult> {
+  const user = await requireUser();
+  const targetId = typeof sessionId === "string" ? sessionId.trim() : "";
+  if (!targetId) {
+    return { ok: false, error: "Invalid session." };
+  }
+
+  const session = await auth().catch(() => null);
+  const reqHeaders = await headers().catch(() => null);
+  const currentSessionId = await resolveCurrentSessionId({
+    userId: user.id,
+    sessionId: session?.user?.sessionId,
+    headers: reqHeaders,
+  });
+
+  if (currentSessionId && targetId === currentSessionId) {
+    return { ok: false, error: "Use Sign out in the account menu to sign out of this device." };
+  }
+
+  try {
+    const updated = await prisma.userSession.updateMany({
+      where: { id: targetId, userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (updated.count === 0) {
+      return { ok: false, error: "That session is already signed out." };
+    }
+    await prisma.securityAuditEvent
+      ?.create?.({ data: { userId: user.id, type: "session.revoked" } })
+      .catch(() => undefined);
+  } catch (error) {
+    logger.error("[settings] signOutSessionAction failed:", error);
+    return { ok: false, error: "Could not sign out that session." };
+  }
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/**
+ * Ends every session belonging to the signed-in caller except the current
+ * device: bumps `sessionVersion` to invalidate all other JWTs, keeps only this
+ * session row at the new version, and refreshes this device's JWT cookie.
+ */
+export async function signOutOtherSessionsAction(): Promise<SessionActionResult> {
+  const user = await requireUser();
+  const session = await auth().catch(() => null);
+  const reqHeaders = await headers().catch(() => null);
+  const currentSessionId = await resolveCurrentSessionId({
+    userId: user.id,
+    sessionId: session?.user?.sessionId,
+    headers: reqHeaders,
+  });
+
+  let nextVersion: number;
+  try {
+    nextVersion = await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const updatedUser = await tx.user.update({
+        where: { id: user.id },
+        data: { sessionVersion: { increment: 1 } },
+        select: { sessionVersion: true },
+      });
+
+      await tx.userSession.updateMany({
+        where: currentSessionId
+          ? { userId: user.id, id: { not: currentSessionId }, revokedAt: null }
+          : { userId: user.id, revokedAt: null },
+        data: { revokedAt: now },
+      });
+
+      if (currentSessionId) {
+        await tx.userSession.updateMany({
+          where: { id: currentSessionId, userId: user.id },
+          data: {
+            sessionVersion: updatedUser.sessionVersion,
+            lastActiveAt: now,
+            revokedAt: null,
+          },
+        });
+      }
+
+      if (tx.securityAuditEvent?.create) {
+        await tx.securityAuditEvent.create({
+          data: { userId: user.id, type: "session.revoked_others" },
+        });
+      }
+
+      return updatedUser.sessionVersion;
+    });
+  } catch (error) {
+    logger.error("[settings] signOutOtherSessionsAction transaction failed:", error);
+    return { ok: false, error: "Could not sign out other devices." };
+  }
+
+  const refreshData = {
+    sessionRefresh: sessionRefreshFor(user.id, nextVersion),
+    ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+  } as unknown as Parameters<typeof updateSession>[0];
+  try {
+    await updateSession(refreshData);
+  } catch (error) {
+    logger.error("[settings] could not refresh current session after signing out other devices:", error);
+    return { ok: false, error: "Could not refresh your current session. Please sign in again." };
+  }
+
+  // Deliberately do NOT call `revalidatePath("/settings")` inside this action:
+  // NextAuth's `updateSession` writes the new JWT to `cookies().set(...)` (the
+  // outgoing Set-Cookie header), while `auth()` reads `headers().get("cookie")`
+  // (the incoming header from the start of this POST). Re-rendering SettingsPage
+  // in the same request would read the pre-update cookie against `nextVersion`
+  // and redirect this device to `/session-expired`. The client calls
+  // `router.refresh()` once the response (and new Set-Cookie) lands.
+  return { ok: true };
 }

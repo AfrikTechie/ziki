@@ -357,6 +357,8 @@ model User {
   projectJoinRequestsReviewed ProjectJoinRequest[]  @relation("JoinRequestReviewer")
   skillSubmissions          SkillSubmission[]       @relation("SkillSubmissionSubmittedBy")
   reviewedSkillSubmissions  SkillSubmission[]       @relation("SkillSubmissionReviewedBy")
+  userSessions              UserSession[]
+  loginHistory              LoginHistory[]
 }
 
 /// Single-use password reset tokens (~30 min TTL). Store only the SHA-256 hash.
@@ -412,6 +414,9 @@ model Bug {
   /// How hard it is (#plan-review): set at conversion, editable until the first
   /// bid. Only a complex issue's award goes through plan review.
   difficulty                Difficulty              @default(medium)
+  /// Issue priority (#issue-priority): low, medium, high or urgent. Drives
+  /// ordering on the board and the colour of the badge. Defaults to medium.
+  priority                  String                  @default("medium")
   /// Why a closed issue was closed (#close-reasons): superseded,
   /// not_reproducible, already_implemented, duplicate, not_planned or
   /// withdrawn (lib/close-reasons.ts). Null when it is not closed.
@@ -871,6 +876,9 @@ model Project {
   visibility            ProjectVisibility     @default(private)
   /// Whether the project is open for external contributors to apply to join.
   isOpenForContributors Boolean               @default(false)
+  /// Whether signed-out visitors may file public ideas and receive a private tracking link.
+  /// This is independent of contributor access: guests never join, vote, bid or claim.
+  acceptsGuestIdeas     Boolean               @default(false)
   /// Optional guidelines shown to applicants when requesting to join.
   contributorGuidelines String?
   createdAt             DateTime              @default(now())
@@ -1683,6 +1691,10 @@ model Idea {
   /// Required when an agent files a report; null on reports filed before it existed.
   summary            String?
   description        String
+  /// `public` for signed-out intake; `internal` for member and agent submissions.
+  source             String           @default("internal")
+  /// SHA-256 of the unguessable token in a guest's tracking URL. The token itself is never stored.
+  publicTrackingTokenHash String?      @unique
   /// Why it is worth doing. Required on marketing ideas, by validation.
   rationale          String?
   /// Product or marketing work (`WorkTrack`). Converting copies it to the issue.
@@ -1713,6 +1725,8 @@ model Idea {
   /// When a manager agent rejected it, and which one.
   rejectedAt         DateTime?
   rejectedByAgentId  String?
+  /// Why a manager agent rejected it (e.g. "it doesn't align with the product's vision").
+  rejectReason       String?
   /// Why a manager agent archived it: "already_implemented", "duplicate" or
   /// "wrong_project" (lib/idea-archive.ts), with the evidence it gave.
   archiveReason      String?
@@ -3103,4 +3117,44 @@ model SavedIssueView {
 
   @@unique([userId, projectId, name])
   @@index([projectId])
+}
+
+/// An active or revoked browser session on a person's account (#active-sessions).
+/// Linked to the JWT by `id` (`token.sid`) when issued at sign-in, or by
+/// `legacyKey` for a token issued before per-session tracking deployed.
+model UserSession {
+  id             String    @id @default(cuid())
+  userId         String
+  /// HMAC fingerprint for a pre-deploy JWT that carries no `sid` yet.
+  legacyKey      String?   @unique
+  /// `User.sessionVersion` when this session was issued or last refreshed.
+  sessionVersion Int       @default(0)
+  device         String
+  /// "laptop" | "mobile" | "desktop"
+  deviceType     String    @default("laptop")
+  /// Masked client IP (e.g. "102.89.xx.xx").
+  ipAddress      String
+  location       String
+  lastActiveAt   DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  revokedAt      DateTime?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, lastActiveAt])
+}
+
+/// Successful and failed sign-in attempts on a person's account (#login-history).
+model LoginHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  /// "successful" | "failed_password" | "failed_two_factor" | "failed_2fa_required"
+  status    String
+  device    String
+  /// Masked client IP (e.g. "102.89.xx.xx").
+  ipAddress String
+  location  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

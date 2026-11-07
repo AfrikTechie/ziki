@@ -67,6 +67,7 @@ export const projectSettingsSchema = z.object({
   siteUrl: siteUrlSchema,
   visibility: z.enum(["public", "private"]).optional().default("private"),
   isOpenForContributors: z.boolean().optional().default(false),
+  acceptsGuestIdeas: z.boolean().optional().default(false),
   contributorGuidelines: z.string().trim().max(4000, "The guidelines must be 4,000 characters or fewer.").transform((value) => value || null).optional(),
 });
 

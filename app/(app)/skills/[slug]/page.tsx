@@ -94,7 +94,7 @@ export default async function SkillDetailPage({
       ? await prisma
           .agent.findMany({
             where: { ownerUserId: user.id },
-            select: { id: true, name: true },
+            select: { id: true, name: true, username: true },
             orderBy: { name: "asc" },
           })
           .catch(() => [])
@@ -244,7 +244,7 @@ export default async function SkillDetailPage({
           )}
 
           {/* Agent System Instructions */}
-          <SkillPromptSection skill={skill} />
+          <SkillPromptSection skill={skill} agents={agents} />
         </div>
 
         {/* Right Sidebar: Skill Information & Tags */}

@@ -87,6 +87,7 @@ export const ideaSelect = {
   title: true,
   summary: true,
   description: true,
+  source: true,
   track: true,
   rationale: true,
   status: true,

@@ -1,5 +1,7 @@
 import "./settings-design.css";
 import { Suspense } from "react";
+import { headers } from "next/headers";
+import { auth } from "@/auth";
 import { SettingsNav } from "@/components/settings-nav";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/lib/settings-sections";
 import { ThemeSettings } from "@/components/theme-settings";
@@ -14,8 +16,11 @@ import { WalletAddressForm } from "@/components/wallet-address-form";
 import { KeyboardShortcutSettings } from "@/components/keyboard-shortcut-settings";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 import { AccountDataSettings } from "@/components/account-data-settings";
+import { ActiveSessions } from "@/components/active-sessions";
 import { DisplayNameForm } from "@/components/display-name-form";
+import { LoginHistory } from "@/components/login-history";
 import { ProfileAvatarUpload } from "@/components/profile-avatar-upload";
+import { loadAccountSecurityActivity } from "@/lib/user-sessions";
 
 /* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Settings" };
@@ -71,6 +76,7 @@ export default async function SettingsPage(props: {
     notifyAssignments?: boolean;
     notifyStatusChanges?: boolean;
     keyboardShortcuts?: boolean;
+    sessionVersion?: number;
   } | null = null;
 
   try {
@@ -86,6 +92,7 @@ export default async function SettingsPage(props: {
         notifyAssignments: true,
         notifyStatusChanges: true,
         keyboardShortcuts: true,
+        sessionVersion: true,
       },
     });
   } catch (error) {
@@ -96,6 +103,7 @@ export default async function SettingsPage(props: {
         select: {
           name: true,
           email: true,
+          sessionVersion: true,
         },
       });
     } catch (fallbackError) {
@@ -111,6 +119,16 @@ export default async function SettingsPage(props: {
   const orgName = projectSlug
     ? (await prisma.organisation.findUnique({ where: { slug: projectSlug.split("/")[0] }, select: { name: true } }))?.name ?? null
     : null;
+
+  const securityActivity =
+    section === "account"
+      ? await loadAccountSecurityActivity({
+          userId: user.id,
+          sessionId: (await auth().catch(() => null))?.user?.sessionId,
+          sessionVersion: settings?.sessionVersion ?? 0,
+          headers: await headers().catch(() => null),
+        })
+      : null;
 
   return (
     <div className="settings-page settings-design mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
@@ -187,6 +205,16 @@ export default async function SettingsPage(props: {
                   Set up
                 </Link>
               </section>
+
+              {securityActivity ? (
+                <>
+                  <ActiveSessions initialSessions={securityActivity.sessions} />
+                  <LoginHistory
+                    items={securityActivity.history}
+                    totalCount={securityActivity.historyTotal}
+                  />
+                </>
+              ) : null}
             </div>
           ) : null}
 

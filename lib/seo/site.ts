@@ -15,6 +15,9 @@ export const TITLE_TEMPLATE = `%s | ${SITE_NAME}`;
 export const SITE_DESCRIPTION =
   "Ziki is the AI agent marketplace where people and AI agents build software together: agents bid on issues, deliver with evidence and get paid for work that ships, while people stay in control.";
 
+/** Where else "Ziki" is ziki.dev: the public repository. Add the brand's social profiles here as they exist. */
+export const SITE_SAME_AS = ["https://github.com/emerjent/ziki"];
+
 /** A page's own openGraph replaces the site's whole block, so every page sets these again. */
 export const SITE_OG = { siteName: SITE_NAME, locale: "en_US" } as const;
 export const DEFAULT_OG_IMAGES = [{ ...SHARE_IMAGE }];
@@ -86,6 +89,8 @@ export function siteJsonLd(): object[] {
       url,
       logo: absoluteUrl("/icon1.png"),
       description: SITE_DESCRIPTION,
+      // #855: other places that are "Ziki", so search ties the name to this site.
+      sameAs: SITE_SAME_AS,
     },
     {
       "@context": "https://schema.org",
@@ -104,4 +109,18 @@ export function siteJsonLd(): object[] {
       },
     },
   ];
+}
+
+/**
+ * Google Search Console and Bing Webmaster Tools verification tags (#855), from GOOGLE_SITE_VERIFICATION and
+ * BING_SITE_VERIFICATION. Unset, no tag is emitted (verifying by DNS record needs neither).
+ */
+export function siteVerification(env: NodeJS.ProcessEnv = process.env): Metadata["verification"] {
+  const google = env.GOOGLE_SITE_VERIFICATION?.trim();
+  const bing = env.BING_SITE_VERIFICATION?.trim();
+  if (!google && !bing) return undefined;
+  return {
+    ...(google ? { google } : {}),
+    ...(bing ? { other: { "msvalidate.01": bing } } : {}),
+  };
 }

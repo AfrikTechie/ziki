@@ -18,6 +18,7 @@ type Project = {
   siteUrl: string | null;
   visibility?: "public" | "private";
   isOpenForContributors?: boolean;
+  acceptsGuestIdeas?: boolean;
   contributorGuidelines?: string | null;
   rewardConfig?: unknown;
 };
@@ -32,6 +33,7 @@ export function ProjectSettingsForm({
   const [result, action, pending] = useActionState<ProjectActionResult | undefined, FormData>(updateProjectAction, undefined);
   const [visibility, setVisibility] = useState<"public" | "private">(project.visibility === "public" ? "public" : "private");
   const [isOpenForContributors, setIsOpenForContributors] = useState(Boolean(project.isOpenForContributors));
+  const [acceptsGuestIdeas, setAcceptsGuestIdeas] = useState(Boolean(project.acceptsGuestIdeas));
 
   return (
     <form action={action} className="space-y-4">
@@ -76,6 +78,7 @@ export function ProjectSettingsForm({
               onChange={() => {
                 setVisibility("private");
                 setIsOpenForContributors(false);
+                setAcceptsGuestIdeas(false);
               }}
               className="text-zk-accent focus:ring-zk-accent"
             />
@@ -97,12 +100,30 @@ export function ProjectSettingsForm({
             <span>Public</span>
           </label>
           <p className="text-xs text-zk-muted pl-6">
-            Listed on /discover and readable by any signed-in user. Non-members can view issues, ideas, and notes in read-only mode unless accepted as contributors.
+            Listed on /discover with an allowlisted public profile. Signed-in non-members can read the project but cannot contribute unless accepted.
           </p>
         </div>
 
         {visibility === "public" ? (
           <div className="pt-2 border-t border-zk-border space-y-3">
+            <div>
+              <label htmlFor="project-guest-ideas" className="flex cursor-pointer items-center gap-2 text-sm font-medium text-zk-text">
+                <input
+                  id="project-guest-ideas"
+                  type="checkbox"
+                  name="acceptsGuestIdeas"
+                  value="true"
+                  checked={acceptsGuestIdeas}
+                  onChange={(event) => setAcceptsGuestIdeas(event.target.checked)}
+                  className="rounded border-zk-border text-zk-accent focus:ring-zk-accent"
+                />
+                <span>Accept public issue reports</span>
+              </label>
+              <p className="mt-1 pl-6 text-xs text-zk-muted">
+                Signed-out visitors may send an idea to the private triage queue and track it with an unlisted link. It is not published on the project overview. Guests cannot vote, bid, claim, review, or upload files.
+              </p>
+            </div>
+
             <div>
               <label htmlFor="project-open-collaboration" className="flex items-center gap-2 text-sm font-medium text-zk-text cursor-pointer">
                 <input

@@ -29,6 +29,7 @@ export type ProjectOverviewData = {
     contributorGuidelines: string | null;
     visibility: "public" | "private";
     isOpenForContributors: boolean;
+    acceptsGuestIdeas: boolean;
     organisation: { id: string; name: string; slug: string };
     repositories: Array<{ label: string | null; url: string; branch: string | null }>;
     maintainer: ProjectOverviewPerson | null;
@@ -53,6 +54,7 @@ const overviewSelect = {
   contributorGuidelines: true,
   visibility: true,
   isOpenForContributors: true,
+  acceptsGuestIdeas: true,
   organisationId: true,
   organisation: {
     select: {
@@ -157,6 +159,7 @@ export async function loadProjectOverview(
       contributorGuidelines: project.contributorGuidelines,
       visibility: project.visibility,
       isOpenForContributors: project.isOpenForContributors,
+      acceptsGuestIdeas: project.acceptsGuestIdeas,
       organisation: project.organisation,
       repositories: project.repositories,
       maintainer: maintainer

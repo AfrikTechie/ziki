@@ -5,6 +5,7 @@ import { unstable_rethrow } from "next/navigation";
 import { createBugAction } from "@/app/actions/issues";
 import { ClaudeWorking } from "@/components/claude-working";
 import { BASE_PATH } from "@/lib/base-path";
+import { AddIdeaModal } from "@/components/add-idea-modal";
 
 type Upload = { key: string; name: string; id?: string; error?: string };
 
@@ -23,14 +24,22 @@ function titleFrom(text: string): string {
  * idea in this project with the first line as its title; agents structure it
  * afterwards, as any unstructured draft.
  */
-export function IdeaChat({ projectId, className = "", alwaysOpen = false, placeholder }: {
+export function IdeaChat({
+  projectId,
+  className = "",
+  alwaysOpen = false,
+  placeholder,
+  types,
+}: {
   projectId: string;
   className?: string;
   /** Just the box, open from the start and never closed (the Ideas empty state). */
   alwaysOpen?: boolean;
   placeholder?: string;
+  types?: Array<{ id: string; name: string }>;
 }) {
   const [open, setOpen] = useState(alwaysOpen);
+  const [modalOpen, setModalOpen] = useState(false);
   // The empty state and the header may both hold a box on one page.
   const boxId = useId();
   const [text, setText] = useState("");
@@ -114,22 +123,32 @@ export function IdeaChat({ projectId, className = "", alwaysOpen = false, placeh
   }
 
   const button = (
-    <button
-      ref={buttonRef}
-      type="button"
-      onClick={() => {
-        // Opens the box, or, once open, puts the cursor back in it.
-        setOpen(true);
-        requestAnimationFrame(() => boxRef.current?.focus());
-      }}
-      aria-expanded={open}
-      aria-controls={open ? boxId : undefined}
-      title="Add Idea"
-      className={`issues-new inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-2.5 text-[13px] font-semibold text-zk-text hover:bg-zk-chip ${className}`}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-      Add Idea
-    </button>
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          setModalOpen(true);
+        }}
+        aria-expanded={modalOpen}
+        title="Add Idea"
+        className={`issues-new inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-2.5 text-[13px] font-semibold text-zk-text hover:bg-zk-chip ${className}`}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        Add Idea
+      </button>
+      <AddIdeaModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        projectId={projectId}
+        types={types}
+        onOpenInlineComposer={() => {
+          setModalOpen(false);
+          setOpen(true);
+          requestAnimationFrame(() => boxRef.current?.focus());
+        }}
+      />
+    </>
   );
   const composer = (
         <div

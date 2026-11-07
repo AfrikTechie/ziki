@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
+import { headers } from "next/headers";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validations/issue";
@@ -14,6 +15,7 @@ import { TwoFactorInvalidError, TwoFactorRequiredError } from "@/lib/auth-errors
 import { isTwoFactorEnabled, verifySecondFactor } from "@/lib/two-factor";
 import { googleSignInBlockedByTwoFactor } from "@/lib/google-two-factor";
 import { acceptedSessionRefresh } from "@/lib/session-refresh";
+import { recordSignInFailure, recordSignInSuccess } from "@/lib/user-sessions";
 
 const googleClientId = cleanEnv(
   process.env.GOOGLE_CLIENT_ID || process.env.AUTH_GOOGLE_ID,
@@ -92,11 +94,19 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
           return null;
         }
 
+        const reqHeaders =
+          request?.headers ?? (await headers().catch(() => null));
+
         const valid = await compare(
           parsed.data.password,
           user.passwordHash,
         );
         if (!valid) {
+          await recordSignInFailure({
+            userId: user.id,
+            status: "failed_password",
+            headers: reqHeaders,
+          });
           return null;
         }
 
@@ -107,8 +117,21 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
         if (await isTwoFactorEnabled(user.id)) {
           const code = typeof credentials?.totp === "string" ? credentials.totp : "";
           if (!code.trim()) throw new TwoFactorRequiredError();
-          if (!(await verifySecondFactor(user.id, code))) throw new TwoFactorInvalidError();
+          if (!(await verifySecondFactor(user.id, code))) {
+            await recordSignInFailure({
+              userId: user.id,
+              status: "failed_two_factor",
+              headers: reqHeaders,
+            });
+            throw new TwoFactorInvalidError();
+          }
         }
+
+        const sessionId = await recordSignInSuccess({
+          userId: user.id,
+          sessionVersion: user.sessionVersion,
+          headers: reqHeaders,
+        });
 
         return {
           id: user.id,
@@ -116,6 +139,7 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
           email: user.email,
           role: user.role,
           sessionVersion: user.sessionVersion,
+          ...(sessionId ? { sessionId } : {}),
         };
       },
     }),
@@ -142,6 +166,16 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
       // code. Google must not open the session by itself (#388).
       if (email && (await googleSignInBlockedByTwoFactor(email))) {
         console.warn(`[auth] Google sign-in refused for ${email}: two-factor is on`);
+        const blockedUser = await prisma.user
+          .findUnique({ where: { email: email.toLowerCase() }, select: { id: true } })
+          .catch(() => null);
+        if (blockedUser) {
+          await recordSignInFailure({
+            userId: blockedUser.id,
+            status: "failed_2fa_required",
+            headers: await headers().catch(() => null),
+          });
+        }
         return "/login?error=TwoFactor";
       }
       return true;
@@ -202,12 +236,21 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
               : new Error("Google sign-in could not save the user");
           }
 
+          const googleSessionId = await recordSignInSuccess({
+            userId: dbUser.id,
+            sessionVersion: dbUser.sessionVersion,
+            headers: await headers().catch(() => null),
+          });
+
           token.email = email;
           token.name = dbUser.name || name;
           token.id = dbUser.id;
           token.sub = dbUser.id;
           token.role = dbUser.role;
           token.sv = dbUser.sessionVersion;
+          if (googleSessionId) {
+            token.sid = googleSessionId;
+          }
           return token;
         }
       }
@@ -222,12 +265,21 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
       if (typeof user?.sessionVersion === "number") {
         token.sv = user.sessionVersion;
       }
+      if (typeof user?.sessionId === "string" && user.sessionId) {
+        token.sid = user.sessionId;
+      }
 
       // The session that signed the others out keeps working (Ziki #389). Only a
       // server-signed refresh moves the version; see lib/session-refresh.ts.
       if (trigger === "update") {
         const refreshed = acceptedSessionRefresh(token, session);
-        if (refreshed !== null) token.sv = refreshed;
+        if (refreshed !== null) {
+          token.sv = refreshed;
+          const refreshedSid = (session as { sessionId?: unknown } | null | undefined)?.sessionId;
+          if (!token.sid && typeof refreshedSid === "string" && refreshedSid) {
+            token.sid = refreshedSid;
+          }
+        }
       }
 
       // Keep a stale token (#655). Edge middleware never reads the database, so

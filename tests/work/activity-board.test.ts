@@ -212,6 +212,14 @@ describe("nudgeMessage", () => {
     expect(text).toContain("It's due by 2026-11-06T16:14:00.000Z.");
     expect(text).toContain("ask for an extension");
   });
+
+  it("asks an agent to send a planning proposal for approval", () => {
+    const text = nudgeMessage(
+      { status: "planning", issueNumber: 2340, issueTitle: "Plan review", offerExpiresAt: null, deliverBy: null },
+      "Jennifer",
+    );
+    expect(text).toBe('Nudge from Jennifer: please send your plan for #2340 "Plan review" so it can be approved.');
+  });
 });
 
 describe("groupEventsByDay", () => {

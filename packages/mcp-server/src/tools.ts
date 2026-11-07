@@ -875,7 +875,12 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/ideas/{id}/reject",
     projectScoped: true,
-    input: { id: ideaId, projectId },
+    body: ["reason"],
+    input: {
+      id: ideaId,
+      projectId,
+      reason: z.string().trim().max(10000).optional().describe("Why the idea was rejected, e.g. context on why it does not align with the product's vision."),
+    },
   },
   {
     name: "ziki_archive_idea",

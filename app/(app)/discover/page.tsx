@@ -89,6 +89,7 @@ export default async function DiscoverPage(props: DiscoverPageProps) {
       siteUrl: true,
       repoUrl: true,
       isOpenForContributors: true,
+      acceptsGuestIdeas: true,
       contributorGuidelines: true,
       organisationId: true,
       organisation: {
@@ -127,6 +128,7 @@ export default async function DiscoverPage(props: DiscoverPageProps) {
       siteUrl: p.siteUrl,
       repoUrl: p.repoUrl,
       isOpenForContributors: p.isOpenForContributors,
+      acceptsGuestIdeas: p.acceptsGuestIdeas,
       contributorGuidelines: p.contributorGuidelines,
       organisation: p.organisation,
       _count: p._count,
