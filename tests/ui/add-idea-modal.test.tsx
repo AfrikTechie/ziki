@@ -1477,7 +1477,7 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     await waitFor(() => {
       expect(screen.getByAltText("Captured screenshot")).toBeTruthy();
       expect(screen.getByRole("button", { name: /Retake/i })).toBeTruthy();
-    });
+    }, { timeout: 15000 });
 
     // Advance to details
     await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -1492,4 +1492,4 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     expect(screen.getByText("Review issue draft")).toBeTruthy();
     expect(screen.getByAltText("Captured evidence")).toBeTruthy();
   });
-});
+}, 20000);

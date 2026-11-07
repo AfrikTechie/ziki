@@ -1,5 +1,4 @@
 import Link from "next/link";
-import type { SecuritySeverity } from "@prisma/client";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { prisma } from "@/lib/prisma";
@@ -8,9 +7,22 @@ import { SECURITY_SEVERITIES, SEVERITY_GUIDE, SEVERITY_LABEL } from "@/lib/secur
 import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
+import {
+  filterSecurityFindingsByStage,
+  parseSecurityStageFilter,
+  SecurityStageFilterBar,
+  type SecurityStageFilter,
+} from "@/components/security-stage-filter";
 import { LocalTime } from "@/components/local-time";
 
 export const metadata = { title: "Security" };
+
+type Props = {
+  searchParams?: Promise<{
+    severity?: string | string[];
+    stage?: string | string[];
+  }>;
+};
 
 /**
  * The Security area (#security-findings): report a vulnerability privately,
@@ -18,21 +30,22 @@ export const metadata = { title: "Security" };
  * the ones already disclosed. Owners and admins also choose which agents may
  * read private findings.
  */
-type SearchParams = Promise<{ severity?: string }>;
-
-export default async function SecurityPage(props: {
-  searchParams?: SearchParams;
-}) {
-  const params = (await props.searchParams) ?? {};
-  const selectedSeverity = (params.severity?.toLowerCase() || "all") as SecuritySeverity | "all";
+export default async function SecurityPage({ searchParams }: Props) {
+  const params = (await searchParams) ?? {};
+  const requestedSeverity = typeof params.severity === "string" ? params.severity.toLowerCase() : "";
+  const selectedSeverity = SECURITY_SEVERITIES.find((severity) => severity === requestedSeverity) ?? "all";
+  const selectedStage = parseSecurityStageFilter(params.stage);
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) {
     return (
-      <section className="mx-auto max-w-xl rounded-[24px] border border-zk-border bg-zk-surface p-8 text-center">
-        <h1 className="text-[28px] font-extrabold text-zk-text">Security</h1>
-        <p className="mt-2 text-sm text-zk-text2">Join or create a workspace to report and track security findings.</p>
-      </section>
+      <div className="security-page mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
+        <header className="space-y-1.5">
+          <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Security</h1>
+          <p className="text-sm text-zk-text2">Join or create a workspace to report and track security findings.</p>
+        </header>
+        <SecurityStageFilterBar findings={[]} selected={selectedStage} severity={selectedSeverity} />
+      </div>
     );
   }
   const organisationId = access.organisationId;
@@ -57,6 +70,7 @@ export default async function SecurityPage(props: {
 
   const openCount = dashboard.open.length;
   const severe = dashboard.openBySeverity.critical + dashboard.openBySeverity.high;
+  const visibleOpenFindings = filterSecurityFindingsByStage(filteredOpen, selectedStage);
 
   return (
     <div className="security-page mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
@@ -70,6 +84,8 @@ export default async function SecurityPage(props: {
         </div>
         <ReportButton projects={dashboard.projects} />
       </header>
+
+      <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} />
 
       <section aria-label="Summary" className="security-stats grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Open findings" value={String(openCount)} hint={openCount ? "Private until fixed" : "Nothing open"} />
@@ -99,7 +115,8 @@ export default async function SecurityPage(props: {
               return (
                 <Link
                   key={level}
-                  href={level === "all" ? "/security" : `/security?severity=${level}`}
+                  href={securityFilterHref(level, selectedStage)}
+                  aria-current={active ? "page" : undefined}
                   className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
                     active
                       ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
@@ -112,10 +129,28 @@ export default async function SecurityPage(props: {
             })}
           </div>
         </div>
-        {filteredOpen.length ? (
-          <FindingTable findings={filteredOpen} kind="open" />
-        ) : (
+        <p className="mt-2 text-xs text-zk-muted">
+          Showing {visibleOpenFindings.length} of {dashboard.open.length} open{" "}
+          {dashboard.open.length === 1 ? "finding" : "findings"}
+        </p>
+        {visibleOpenFindings.length ? (
+          <FindingTable findings={visibleOpenFindings} kind="open" />
+        ) : selectedStage === "all" && selectedSeverity === "all" ? (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
+        ) : selectedSeverity === "all" ? (
+          <p className="mt-3 text-sm text-zk-text2">
+            No open findings in this stage yet.{" "}
+            <Link href="/security" className="font-semibold text-zk-accent hover:underline">
+              Show all
+            </Link>
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-zk-text2">
+            No open findings match these filters.{" "}
+            <Link href="/security" className="font-semibold text-zk-accent hover:underline">
+              Show all
+            </Link>
+          </p>
         )}
       </section>
 
@@ -195,6 +230,14 @@ export default async function SecurityPage(props: {
       </section>
     </div>
   );
+}
+
+function securityFilterHref(severity: "all" | (typeof SECURITY_SEVERITIES)[number], stage: SecurityStageFilter) {
+  const params = new URLSearchParams();
+  if (severity !== "all") params.set("severity", severity);
+  if (stage !== "all") params.set("stage", stage);
+  const query = params.toString();
+  return query ? `/security?${query}` : "/security";
 }
 
 function Stat({ label, value, hint, alert = false }: { label: string; value: string; hint: string; alert?: boolean }) {
