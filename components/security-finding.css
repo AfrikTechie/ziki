@@ -1,0 +1,43 @@
+/* #security-findings: severity chips and the private-finding panel. Palette
+   variables, so the generated dark theme (app/theme-dark.css) re-maps them. */
+.security-severity {
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+.security-severity--critical {
+  background: var(--color-red-100);
+  color: var(--color-red-900);
+  border-color: var(--color-red-300);
+}
+.security-severity--high {
+  background: var(--color-orange-100);
+  color: var(--color-orange-900);
+  border-color: var(--color-orange-300);
+}
+.security-severity--medium {
+  background: var(--color-amber-100);
+  color: var(--color-amber-900);
+  border-color: var(--color-amber-300);
+}
+.security-severity--low {
+  background: var(--color-slate-100);
+  color: var(--color-slate-700);
+  border-color: var(--color-slate-300);
+}
+/* Inside the form's radio labels the chip is text only, with its colour. */
+label .security-severity {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.security-panel:not(.security-panel--public) {
+  background: var(--color-amber-50);
+  border-color: var(--color-amber-300);
+}
+.security-stat--alert {
+  background: var(--color-red-50);
+  border-color: var(--color-red-300);
+}
+.security-report > summary::-webkit-details-marker {
+  display: none;
+}
