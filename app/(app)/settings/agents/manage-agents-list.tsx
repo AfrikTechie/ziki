@@ -6,6 +6,7 @@ import { setAgentPaused } from "@/app/actions/agent-steering";
 import Link from "next/link";
 import type { AgentLevel } from "@prisma/client";
 import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
+import { agentCapSummary } from "@/lib/agents/registry-limits";
 import { agentPageHref } from "@/lib/header-nav";
 import { AgentPortrait } from "@/components/agent-portrait";
 import { colorFor, faceColorKeyFor, lookFor, useDockPrefs } from "@/components/agents-dock-prefs";
@@ -50,12 +51,10 @@ export type ManageAgentItem = {
 
 export function ManageAgentsList({
   agents,
-  activeCount,
   maxActive,
   organisation,
 }: {
   agents: ManageAgentItem[];
-  activeCount: number;
   maxActive: number;
   /** The organisation you are in: keys and Connect are for it. */
   organisation: { id: string; name: string } | null;
@@ -74,6 +73,7 @@ export function ManageAgentsList({
     );
   });
 
+  const cap = agentCapSummary(agents, maxActive);
   const legacyCount = agents.reduce(
     (count, agent) => count + agent.apiKeys.filter((key) => !key.apiKey).length,
     0,
@@ -104,9 +104,13 @@ export function ManageAgentsList({
             className="h-11 w-full rounded-full border border-zk-border bg-zk-surface px-4 text-sm text-zk-text placeholder:text-zk-muted focus:border-electric-blue focus:outline-none focus:ring-2 focus:ring-electric-blue/20"
           />
         </label>
-        <p data-active-agents className="text-sm text-zk-text2">
-          Active agents: <span className="font-bold text-zk-text tabular-nums">{activeCount}</span> of {maxActive} allowed
-        </p>
+        <div data-active-agents className="text-sm text-zk-text2 sm:text-right">
+          <p>
+            Agents: <span className="font-bold text-zk-text tabular-nums">{cap.live}</span> of {cap.max} allowed
+            <span className="text-zk-muted"> · {cap.running} running, {cap.paused} paused</span>
+          </p>
+          {cap.note ? <p className="mt-0.5 text-xs text-zk-warn-fg">{cap.note}</p> : null}
+        </div>
       </div>
 
       {visible.length === 0 ? (

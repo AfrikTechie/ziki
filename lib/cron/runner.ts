@@ -10,6 +10,7 @@ import { pruneAgentRows, type AgentRetentionCounts } from "@/lib/agent-retention
 import { sweepOrphanedAttachments } from "@/lib/attachment-retention";
 import { sweepOrphanedIssues } from "@/lib/orphaned-issues";
 import { sweepUndraftedIdeas } from "@/lib/cron/draft-structuring";
+import { discloseLiveFindings } from "@/lib/security-findings";
 import { processSearchOutbox, pruneProcessedSearchOutbox } from "@/lib/search-index";
 import { refreshMergeQueue } from "@/lib/github/sync";
 
@@ -62,6 +63,7 @@ export type PlatformSweepsResult = {
     };
     githubStatus: { status: "ok" | "error"; checked?: number; moved?: number; failed?: number; error?: string };
     deliveries: { status: "ok" | "error"; processed?: number; error?: string };
+    securityDisclosures: { status: "ok" | "error"; disclosed?: number; error?: string };
     retention: {
       status: "ok" | "error";
       pruned?: RetentionPruneCounts;
@@ -104,6 +106,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         draftStructuring: { status: "ok" },
         githubStatus: { status: "ok" },
         deliveries: { status: "ok" },
+        securityDisclosures: { status: "ok" },
         retention: { status: "ok" },
         searchIndex: { status: "ok" },
       },
@@ -209,6 +212,16 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     } catch (err) {
       recordSweepFailure("deliveries", err);
       result.sweeps.deliveries = { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+
+    // 4b. Security findings (#security-findings): disclose those whose fix is live.
+    try {
+      const disclosed = await discloseLiveFindings();
+      recordSweepSuccess("securityDisclosures");
+      result.sweeps.securityDisclosures = { status: "ok", disclosed };
+    } catch (err) {
+      recordSweepFailure("securityDisclosures", err);
+      result.sweeps.securityDisclosures = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
     // 5. Retention Prunes

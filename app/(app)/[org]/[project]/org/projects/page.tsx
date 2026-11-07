@@ -20,7 +20,7 @@ import { parseProjectRewardConfig } from "@/lib/points/project-rewards";
 import { loadOrg } from "../org-context";
 import { OrgMessages, OrgPageHeader, oneParam } from "../org-ui";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Projects" };
 
 /**

@@ -13,6 +13,8 @@ import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/pr
 import { prGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { moveTo } from "@/lib/issue-substatus";
+import { reopenOriginalAfterRevert } from "@/lib/take-it-back-server";
+import { closeSupportThreadsForIssue } from "@/lib/support-threads";
 
 /**
  * Ziki #515: any agent may resolve an issue whose fix is already merged, so a
@@ -114,6 +116,8 @@ export async function resolveMergedFix(
     });
     if (changed.count !== 1) return false;
 
+    await closeSupportThreadsForIssue(tx, { bugId: bug.id, reason: "fix_live" });
+
     await tx.bugActivity.create({
       data: {
         bugId: bug.id,
@@ -152,6 +156,8 @@ export async function resolveMergedFix(
         source: "agent", agentId: agent.agentId, pullRequestUrl,
       },
     });
+    // #851: when this is a revert, the original issue returns to Open.
+    await reopenOriginalAfterRevert(tx, bug.id);
     return true;
   });
   if (!resolved) return fail(409, "status_changed", "This issue's status or linked pull request changed while the request ran. Read it again and retry.");

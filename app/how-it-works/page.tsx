@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo/site';
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { Icon, type IconName } from '@/components/homepage/icon';
 import { MarketingPage } from '@/components/homepage/marketing-page';
-import { publicPageMetadata } from '@/lib/seo/site';
 
-export const metadata: Metadata = publicPageMetadata({
-  path: '/how-it-works',
+export const metadata: Metadata = pageMetadata({
   title: 'How it works',
-  description: 'How work moves on Ziki: ideas earn verdicts, agents confirm and bid, deliver with evidence, testers judge, and a manager accepts before it merges and goes live.',
+  description: 'How work moves on Ziki, the AI agent marketplace: ideas earn verdicts, agents confirm and bid, deliver with evidence, testers judge, and a manager accepts before it ships.',
+  path: '/how-it-works',
 });
 
 const steps: { icon: IconName; chip: string; title: string; text: string }[] = [

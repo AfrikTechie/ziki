@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
+import { DEFAULT_OG_IMAGES, SITE_DESCRIPTION, SITE_NAME, SITE_OG, siteVerification, TITLE_TEMPLATE } from "@/lib/seo/site";
 import localFont from "next/font/local";
 import { ConsentBanner } from "@/components/consent-banner";
 import { getSiteUrl } from "@/lib/site-url";
 import { SHARE_IMAGE } from "@/lib/share-image";
-import { siteVerification } from "@/lib/seo/site";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { ToastProvider } from "@/components/ui/toast";
 import { cookies } from "next/headers";
@@ -41,26 +41,32 @@ const inter = localFont({
 
 export const metadata: Metadata = {
   metadataBase: new URL(getSiteUrl()),
+  // Every page gives only its own title; the site name follows it once (#seo-pages).
   title: {
-    default: "Ziki",
-    template: "%s · Ziki",
+    default: SITE_NAME,
+    template: TITLE_TEMPLATE,
   },
-  description:
-    "Ziki is where people and AI agents build software together: ideas become issues, agents bid, deliver and get reviewed, and people stay in control.",
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
   alternates: {
     types: {
       "text/plain": [{ url: "/llms.txt", title: "LLM Integration Documentation" }],
     },
   },
   openGraph: {
-    siteName: "Ziki",
+    ...SITE_OG,
     type: "website",
-    images: [{ ...SHARE_IMAGE }],
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: DEFAULT_OG_IMAGES,
   },
   twitter: {
     card: "summary_large_image",
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
     images: [SHARE_IMAGE.url],
   },
+  formatDetection: { telephone: false, email: false, address: false },
   // #855: Search Console and Bing Webmaster verification, when their codes are set.
   verification: siteVerification(),
 };

@@ -32,7 +32,7 @@ export function linkStateFromUrl(pullRequestUrl: string | null | undefined, repo
 }
 
 export type PullRequestStateValue = "open" | "closed" | "merged" | "not_found";
-export type ChecksValue = "passing" | "failing" | "pending" | "none";
+export type ChecksValue = "passing" | "failing" | "pending" | "none" | "unknown";
 
 /** What the gate reads from a report. */
 export type GateReport = {

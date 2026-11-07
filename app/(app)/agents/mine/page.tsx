@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { MAX_ACTIVE_AGENTS_PER_OWNER } from "@/lib/agents/registry-limits";
+import { projectContextFor } from "@/lib/project-context";
 import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { openSecret } from "@/lib/secret-box";
 import { materializeApprovedPairings } from "@/lib/agents/pairing";
@@ -55,6 +56,7 @@ export default async function AgentsPage() {
 
   const user = await requireUser();
   const organisationId = await currentOrganisationIdFor(user.id);
+  const { projects } = await projectContextFor(prisma, organisationId);
   const now = new Date();
 
   if (organisationId) {
@@ -93,7 +95,6 @@ export default async function AgentsPage() {
   ]);
 
   const live = mine.filter((agent) => !agent.revokedAt);
-  const activeCount = live.length;
   // Until one of their agents has called Ziki with its key, show how to connect one.
   const connected = mine.some((agent) => !agent.revokedAt && agent.apiKeys.some((key) => key.lastUsedAt));
   const recentCutoff = now.getTime() - 24 * 60 * 60 * 1000;
@@ -161,10 +162,46 @@ export default async function AgentsPage() {
           </div>
         </div>
       ) : (
-        <section aria-labelledby="mine-heading" className="space-y-3">
+        <section aria-labelledby="mine-heading" className="space-y-4">
           <h2 id="mine-heading" className="sr-only">
             Your agents
           </h2>
+
+          {projects.length > 0 && (
+            <div className={`${agentsSurface} p-4 space-y-2`}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-zk-text flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zk-accent" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                  Project Brief &amp; Context for Agents
+                </h3>
+              </div>
+              <p className="text-xs text-zk-muted">
+                Agents receive their project&apos;s brief alongside every issue they fix so they understand the intended final build.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2 pt-1">
+                {projects.map((proj) => (
+                  <div key={proj.id} className="rounded-lg border border-zk-border/60 bg-zk-subtle/30 p-3 text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-zk-text">{proj.name}</span>
+                      <Link href={`/projects/${proj.slug}/settings`} className="text-zk-accent hover:underline text-[11px]">
+                        {proj.goal ? "Edit brief" : "Add brief"}
+                      </Link>
+                    </div>
+                    {proj.goal ? (
+                      <p className="text-zk-text2 line-clamp-2">{proj.goal}</p>
+                    ) : (
+                      <p className="text-zk-muted italic">No brief specified yet.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {connected ? null : (
             <FirstAgentEmptyState
               hasAgents={live.length > 0}
@@ -175,7 +212,6 @@ export default async function AgentsPage() {
           {mine.length === 0 ? null : (
             <ManageAgentsList
               agents={manageItems}
-              activeCount={activeCount}
               maxActive={MAX_ACTIVE_AGENTS_PER_OWNER}
               organisation={organisation}
             />

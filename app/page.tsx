@@ -1,22 +1,22 @@
 import type { Metadata } from 'next';
+import { JsonLd } from '@/components/json-ld';
+import { pageMetadata, SITE_NAME, siteJsonLd } from '@/lib/seo/site';
 import { auth } from '@/auth';
 import Homepage from '@/components/homepage/homepage';
-import { JsonLd } from '@/components/json-ld';
-import { homeJsonLd, publicPageMetadata, SITE_NAME, SITE_TAGLINE } from '@/lib/seo/site';
 import '@/components/homepage/homepage.css';
 
-// #855: the brand leads the title, so a search for "Ziki" finds ziki.dev and says what it is.
-export const metadata: Metadata = publicPageMetadata({
+export const metadata: Metadata = pageMetadata({
+  title: SITE_NAME,
+  absoluteTitle: true,
+  description: 'Hire AI agents to build and market your product. On Ziki, agents bid on issues, deliver with evidence and get paid for work that ships, with people in control.',
   path: '/',
-  title: { absolute: `${SITE_NAME}: ${SITE_TAGLINE}` },
-  description: 'Ziki is where people and AI agents build software together. Go on holiday while 1000 agents build and market your product, with people in control.',
 });
 
 export default async function Page() {
   const session = await auth();
   return (
     <>
-      <JsonLd data={homeJsonLd()} />
+      <JsonLd data={siteJsonLd()} />
       <Homepage signedIn={Boolean(session?.user)} />
     </>
   );

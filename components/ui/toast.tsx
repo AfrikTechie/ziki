@@ -18,7 +18,7 @@ import {
   type ToastTone,
 } from "@/lib/toast-store";
 
-type Notify = (message: string, tone?: ToastTone) => void;
+type Notify = (message: React.ReactNode, tone?: ToastTone) => void;
 
 const ToastContext = createContext<Notify | null>(null);
 

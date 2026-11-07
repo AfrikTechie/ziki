@@ -147,7 +147,9 @@ Google redirect URI: `{AUTH_URL}/api/auth/callback/google`
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`AGENTS.md`](./AGENTS.md).
 
-PRs target **`main`** on `emerjent/ziki`, which is what production runs.
+PRs for the Ziki codebase target **`main`** on `emerjent/ziki`.
+
+The legacy fork `Zedu-Endor/issue-tracker` is retired and no longer used. For tenant projects on Ziki, pull requests target the project repository (`Project.repoUrl`) configured dynamically by the organization/workspace owner in Project Settings.
 
 ## Archive
 

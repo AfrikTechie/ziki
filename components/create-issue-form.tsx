@@ -23,6 +23,8 @@ import { DraftBanner } from "@/components/draft-banner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ClaudeWorking } from "@/components/claude-working";
 import { initialDescription, templateSwitch } from "@/lib/issue-templates";
+import { SECURITY_SEVERITIES, SEVERITY_GUIDE, SEVERITY_LABEL } from "@/lib/security-severity";
+import type { SecuritySeverity } from "@prisma/client";
 
 /** Must match the title limit enforced by createBugSchema. */
 const TITLE_MAX_LENGTH = 200;
@@ -42,6 +44,7 @@ const FIELD_LABELS: Record<string, string> = {
   typeId: "Type",
   description: "Description",
   proofLinks: "GitHub PR",
+  severity: "Severity",
 };
 
 export function CreateIssueForm({
@@ -54,6 +57,7 @@ export function CreateIssueForm({
   reportedFrom = null,
   onCancel,
   onDirtyChange,
+  defaultSecurity = false,
 }: {
   users: UserOption[];
   assigneeUsers?: UserOption[];
@@ -74,6 +78,8 @@ export function CreateIssueForm({
   onCancel?: () => void;
   /** Modal only: whether anything has been typed or attached, for the discard prompt. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** Open with "This is a security vulnerability" ticked (the Security page's report button). */
+  defaultSecurity?: boolean;
 }) {
   const inModal = variant === "modal";
   const defaultTypeId =
@@ -119,6 +125,9 @@ export function CreateIssueForm({
   );
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [mode, setMode] = useState<"report" | "detailed">(inModal ? "report" : "detailed");
+  // #security-findings: a private report. Its details stay hidden until the fix is live.
+  const [security, setSecurity] = useState(defaultSecurity);
+  const [severity, setSeverity] = useState<SecuritySeverity | "">("");
   const [includeFrom, setIncludeFrom] = useState(Boolean(reportedFrom));
   const [editorUploading, setEditorUploading] = useState(false);
   const [pickerUploading, setPickerUploading] = useState(false);
@@ -141,8 +150,10 @@ export function CreateIssueForm({
   }, [dirty, onDirtyChange]);
   // Similar issues are matched as you type: on the title, or in a quick
   // report (where the title is optional) on the start of the description.
-  const similarQuery =
-    values.title.trim() || (mode === "report" ? values.description.trim().slice(0, 160) : "");
+  // A private security report is never matched against public issues as you type.
+  const similarQuery = security
+    ? ""
+    : values.title.trim() || (mode === "report" ? values.description.trim().slice(0, 160) : "");
   const sideHasFields =
     !inModal && mode === "detailed";
 
@@ -171,6 +182,10 @@ export function CreateIssueForm({
         if (mode === "detailed") {
           formData.set("typeId", values.typeId);
           formData.set("proofLinks", values.proofLinks);
+        }
+        if (security) {
+          formData.set("security", "true");
+          formData.set("severity", severity);
         }
         startTransition(async () => {
           try {
@@ -301,6 +316,48 @@ export function CreateIssueForm({
               disabled={pending}
             />
           </fieldset>
+          <fieldset className="create-security space-y-2 rounded-xl border border-zk-line bg-zk-bg px-3 py-3">
+            <legend className="sr-only">Security</legend>
+            <label className="flex items-start gap-2 text-sm font-medium text-zk-text">
+              <input
+                type="checkbox"
+                name="security"
+                className="mt-0.5"
+                checked={security}
+                onChange={(event) => setSecurity(event.target.checked)}
+              />
+              <span>
+                This is a security vulnerability: keep it private
+                <span className="block text-xs font-normal text-zk-text2">
+                  Only you, this workspace&apos;s owners and admins, and agents cleared for security work will see the details.
+                  Everyone else sees &quot;Private security finding&quot; until the fix is live, then it is published.
+                </span>
+              </span>
+            </label>
+            {security ? (
+              <div role="radiogroup" aria-labelledby="severity-label" className="space-y-1.5 pl-6">
+                <p id="severity-label" className="text-sm font-medium text-zk-text">How serious is it?</p>
+                {SECURITY_SEVERITIES.map((level) => (
+                  <label key={level} className="flex items-start gap-2 text-sm text-zk-text">
+                    <input
+                      type="radio"
+                      name="severity"
+                      value={level}
+                      className="mt-0.5"
+                      checked={severity === level}
+                      onChange={() => setSeverity(level)}
+                      {...(level === "critical" ? errs.attrs("severity") : {})}
+                    />
+                    <span>
+                      <span className={`security-severity security-severity--${level} font-semibold`}>{SEVERITY_LABEL[level]}</span>
+                      <span className="block text-xs text-zk-text2">{SEVERITY_GUIDE[level]}</span>
+                    </span>
+                  </label>
+                ))}
+                <FieldError formId={errs.formId} field="severity" errors={errs.fieldErrors} />
+              </div>
+            ) : null}
+          </fieldset>
           {inModal && reportedFrom && includeFrom ? (
             <div className="create-from flex flex-wrap items-center gap-2 rounded-xl bg-zk-bg px-3 py-2 text-sm text-zk-text2">
               <span className="min-w-0 flex-1">
@@ -412,7 +469,7 @@ export function CreateIssueForm({
         </Button>
       )}
       {/* While the idea goes to Claude to be written up, show the work happening. */}
-      {pending ? <ClaudeWorking className="mt-3" /> : null}
+      {pending && !security ? <ClaudeWorking className="mt-3" /> : null}
     </form>
   );
 }

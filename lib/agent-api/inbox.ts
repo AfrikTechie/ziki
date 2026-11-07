@@ -25,7 +25,7 @@ import { activeIn } from "@/lib/agents/active-in";
  * `(agentId, createdAt, id)` instead of a scan of every event.
  */
 
-export const INBOX_KINDS = ["offer", "reply", "mention", "answer", "message", "approval", "claim"] as const;
+export const INBOX_KINDS = ["offer", "reply", "mention", "answer", "message", "approval", "claim", "request"] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 
 type Db = typeof prisma | Prisma.TransactionClient;

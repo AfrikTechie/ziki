@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { canManageProject } from "@/lib/project-permissions";
 import { marketingPath, orgPath, projectPath, projectRef } from "@/lib/project-paths";
 import { projectHomePath } from "@/lib/marketing/project-home";
+import { awardSignupBonus } from "@/lib/points/signup-bonus";
 
 export type JoinRequestActionResult = {
   ok?: boolean;
@@ -199,6 +200,12 @@ export async function joinOpenProjectAction(projectId: string): Promise<JoinOpen
       create: { projectId: project.id, userId: user.id },
       update: {},
     });
+    // Joining a project puts you in that project only, not its organisation (Chloe's call, reverting #531): you
+    // see and work in just what you joined. A brand-new person (in no organisation) still gets the signup bonus,
+    // paid in the joined project's organisation: once per account (its source key is the account), so it is never
+    // paid twice, and someone who already has an organisation got theirs, or comes in another way.
+    const inAnOrganisation = await tx.membership.findFirst({ where: { userId: user.id }, select: { id: true } });
+    if (!inAnOrganisation) await awardSignupBonus(tx, user.id, project.organisationId);
     await tx.projectJoinRequest.updateMany({
       where: { projectId: project.id, userId: user.id, status: "pending" },
       data: { status: "accepted", reviewedAt: new Date() },

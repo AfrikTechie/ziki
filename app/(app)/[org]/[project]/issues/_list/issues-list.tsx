@@ -113,7 +113,7 @@ import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
 import { bugSearchSort, ideaSearchSort, searchWorkItems, typesenseFilter } from "@/lib/search-index";
 import { activeIn } from "@/lib/agents/active-in";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Issues" };
 
 /** `?status=all`: every issue. With no `?status=` the page opens on Ideas. */

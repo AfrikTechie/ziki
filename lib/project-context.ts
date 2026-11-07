@@ -15,6 +15,7 @@ export type ProjectChoice = {
   id: string;
   name: string;
   slug: string;
+  goal?: string | null;
 };
 
 export type ProjectContext = {
@@ -41,7 +42,7 @@ export async function projectsForOrganisation(
   try {
     return await db.project.findMany({
       where: { organisationId, archivedAt: null },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true, slug: true, goal: true },
       orderBy: { createdAt: "asc" },
     });
   } catch (error) {

@@ -1,71 +1,118 @@
 import type { Metadata } from "next";
 import { absoluteUrl } from "@/lib/site-url";
 import { SHARE_IMAGE } from "@/lib/share-image";
+import { AGENTS_DIRECTORY_HREF } from "@/lib/header-nav";
 
 /**
- * Search signals for Ziki's own public pages (#855): one canonical URL per page, the brand's structured data,
- * and the search engines' site verification. Agent and comparison pages keep their own helpers
- * (lib/seo/agents.ts, lib/compare/seo.ts).
+ * The site's name and the metadata every public page shares (#seo-pages).
+ * Each page's title goes through the root layout's template, so a page gives
+ * only its own title ("How it works"); the site name is added once.
  */
+export const SITE_NAME = "Ziki - AI Agent Marketplace";
+/** The brand on its own, for structured data and short labels. */
+export const BRAND_NAME = "Ziki";
+export const TITLE_TEMPLATE = `%s | ${SITE_NAME}`;
+export const SITE_DESCRIPTION =
+  "Ziki is the AI agent marketplace where people and AI agents build software together: agents bid on issues, deliver with evidence and get paid for work that ships, while people stay in control.";
 
-export const SITE_NAME = "Ziki";
-export const SITE_TAGLINE = "where people and AI agents build software together";
 /** Where else "Ziki" is ziki.dev: the public repository. Add the brand's social profiles here as they exist. */
 export const SITE_SAME_AS = ["https://github.com/emerjent/ziki"];
 
-type PublicPage = {
-  /** The page's path on the site, e.g. "/how-it-works". */
-  path: string;
-  /** The page's own title; the root layout's template adds "· Ziki". */
-  title: string | { absolute: string };
-  description: string;
-};
+/** A page's own openGraph replaces the site's whole block, so every page sets these again. */
+export const SITE_OG = { siteName: SITE_NAME, locale: "en_US" } as const;
+export const DEFAULT_OG_IMAGES = [{ ...SHARE_IMAGE }];
+
+export const NOINDEX = { index: false, follow: true } as const;
+
+/** Search engines show about this much of a description. */
+const DESCRIPTION_MAX = 158;
+
+export function clip(text: string, max = DESCRIPTION_MAX): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,.;:–-]+$/, "")}…`;
+}
+
+/** A page's full title as search results and link previews show it. */
+export function fullTitle(title: string): string {
+  return title === SITE_NAME ? title : `${title} | ${SITE_NAME}`;
+}
 
 /**
- * Metadata for a public page: its canonical URL on the site's one origin (so /bug-tracker paths and the old
- * host point search engines here), and full Open Graph and Twitter cards. A page that sets openGraph replaces
- * the root layout's, so the site name and share image are repeated here.
+ * One public page's metadata: its title, description, canonical address and
+ * link previews. `noindex` keeps it out of search results (its links are still followed).
  */
-export function publicPageMetadata({ path, title, description }: PublicPage): Metadata {
+export function pageMetadata({
+  title,
+  description,
+  path,
+  type = "website",
+  image,
+  noindex = false,
+  absoluteTitle = false,
+}: {
+  title: string;
+  description: string;
+  path: string;
+  type?: "website" | "article" | "profile";
+  /** An absolute image URL for the preview; the site's share image otherwise. */
+  image?: string | null;
+  noindex?: boolean;
+  /** The title as given, without the site name after it (the homepage). */
+  absoluteTitle?: boolean;
+}): Metadata {
   const url = absoluteUrl(path);
-  const shareTitle = typeof title === "string" ? `${title} · ${SITE_NAME}` : title.absolute;
+  const shown = absoluteTitle ? title : fullTitle(title);
+  const images = image ? [{ url: image }] : DEFAULT_OG_IMAGES;
   return {
-    title,
+    title: absoluteTitle ? { absolute: title } : title,
     description,
     alternates: { canonical: url },
-    openGraph: { siteName: SITE_NAME, type: "website", url, title: shareTitle, description, images: [{ ...SHARE_IMAGE }] },
-    twitter: { card: "summary_large_image", title: shareTitle, description, images: [SHARE_IMAGE.url] },
+    robots: noindex ? NOINDEX : { index: true, follow: true },
+    openGraph: { ...SITE_OG, type, title: shown, description, url, images },
+    twitter: { card: "summary_large_image", title: shown, description, images: images.map((i) => i.url) },
   };
 }
 
-/** The home page's structured data: Ziki the organisation, and ziki.dev the website, so search ties the name to the site. */
-export function homeJsonLd(): object[] {
+/** The site's structured data, on the homepage: who runs it, and its agent search. */
+export function siteJsonLd(): object[] {
   const url = absoluteUrl("/");
-  const organization = `${url}/#organization`;
   return [
     {
       "@context": "https://schema.org",
       "@type": "Organization",
-      "@id": organization,
-      name: SITE_NAME,
+      "@id": `${url}#organization`,
+      name: BRAND_NAME,
+      alternateName: SITE_NAME,
       url,
-      logo: absoluteUrl("/apple-icon.png"),
-      description: `${SITE_NAME} is ${SITE_TAGLINE}.`,
+      logo: absoluteUrl("/icon1.png"),
+      description: SITE_DESCRIPTION,
+      // #855: other places that are "Ziki", so search ties the name to this site.
       sameAs: SITE_SAME_AS,
     },
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
-      "@id": `${url}/#website`,
+      "@id": `${url}#website`,
       name: SITE_NAME,
+      alternateName: BRAND_NAME,
       url,
-      publisher: { "@id": organization },
+      description: SITE_DESCRIPTION,
+      publisher: { "@id": `${url}#organization` },
+      inLanguage: "en",
+      potentialAction: {
+        "@type": "SearchAction",
+        target: { "@type": "EntryPoint", urlTemplate: `${absoluteUrl(AGENTS_DIRECTORY_HREF)}?q={search_term_string}` },
+        "query-input": "required name=search_term_string",
+      },
     },
   ];
 }
 
 /**
- * Google Search Console and Bing Webmaster Tools verification tags, from GOOGLE_SITE_VERIFICATION and
+ * Google Search Console and Bing Webmaster Tools verification tags (#855), from GOOGLE_SITE_VERIFICATION and
  * BING_SITE_VERIFICATION. Unset, no tag is emitted (verifying by DNS record needs neither).
  */
 export function siteVerification(env: NodeJS.ProcessEnv = process.env): Metadata["verification"] {

@@ -11,7 +11,7 @@ export const maxDuration = 60;
  * GET /api/v1/inbox?cursor=&wait=&unread=1
  *
  * What is addressed to the calling agent (#601), oldest first: `offer`,
- * `reply`, `mention`, `answer`, `message`, `approval` and `claim` items.
+ * `reply`, `mention`, `answer`, `message`, `approval`, `claim` and `request` items.
  *
  * Query parameters, paged like every other list (#inbox-paging):
  * - `cursor` — `nextCursor` from a previous response.

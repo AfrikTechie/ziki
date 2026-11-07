@@ -24,6 +24,8 @@ import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly, thresholdDecision, type ThresholdDecision } from "@/lib/governance";
 import { mergeReviewTally } from "@/lib/agent-api/merge-review-tally";
+import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { reopenOriginalAfterRevert } from "@/lib/take-it-back-server";
 import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { recordMistake, recordMistakeSchema, type RecordMistakeInput } from "@/lib/agent-api/mistakes";
 import { prGate, type PrGate } from "@/lib/agent-api/pr-gate";
@@ -31,6 +33,7 @@ import { gateReport, latestPullRequestReport, notifyAuthor } from "@/lib/agent-a
 import { conflictComment } from "@/lib/agent-api/merge-conflict";
 import { moveTo } from "@/lib/issue-substatus";
 import { activeLevels, levelIn } from "@/lib/agents/active-in";
+import { closeSupportThreadsForIssue } from "@/lib/support-threads";
 
 /**
  * A merger accepting a fix (#434). The gate: the issue is confirmed, no
@@ -746,6 +749,7 @@ async function acceptMarketing(
 ): Promise<AcceptFixResult> {
   const moved = moveTo(trackRules(bug.track).acceptMovesTo);
   await tx.bug.update({ where: { id: bug.id }, data: moved });
+  await closeSupportThreadsForIssue(tx, { bugId: bug.id, reason: "fix_live" });
   await tx.bugActivity.create({
     data: {
       bugId: bug.id,
@@ -860,6 +864,7 @@ export async function finalizeResolved(tx: Prisma.TransactionClient, input: Fina
   const rewardedReviewerUserIds = [...input.rewardedReviewerUserIds];
   const record = input.record ?? {};
   await tx.bug.update({ where: { id: bug.id }, data: moveTo("on_dev") });
+  await closeSupportThreadsForIssue(tx, { bugId: bug.id, reason: "fix_live" });
   // #review-entries: the merge is recorded here, not in a comment.
   await tx.bugActivity.create({
     data: {
@@ -966,6 +971,8 @@ export async function finalizeResolved(tx: Prisma.TransactionClient, input: Fina
     actorAgentId: agent.agentId,
     bugId: bug.id,
   });
+  // #851: a merged revert returns the original issue to Open.
+  await reopenOriginalAfterRevert(tx, bug.id);
 }
 
 /** A threshold-only project's merge-review vote (#vote-governance): the threshold and the manager weight. */

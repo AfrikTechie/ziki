@@ -22,6 +22,9 @@ const projectMembershipUpsert = vi.hoisted(() => vi.fn());
 const projectJoinRequestUpdateMany = vi.hoisted(() => vi.fn());
 const bugCount = vi.hoisted(() => vi.fn());
 const bugFindFirst = vi.hoisted(() => vi.fn());
+const membershipUpsert = vi.hoisted(() => vi.fn());
+const txMembershipFindFirst = vi.hoisted(() => vi.fn());
+const awardSignupBonus = vi.hoisted(() => vi.fn());
 const ideaFindFirst = vi.hoisted(() => vi.fn());
 const notificationCreateMany = vi.hoisted(() => vi.fn().mockResolvedValue({ count: 1 }));
 const membershipFindMany = vi.hoisted(() => vi.fn());
@@ -30,10 +33,11 @@ const findProjectIssue = vi.hoisted(() => vi.fn());
 const skillSubmissionFindMany = vi.hoisted(() => vi.fn());
 const skillSubmissionFindUnique = vi.hoisted(() => vi.fn());
 const skillSubmissionUpdate = vi.hoisted(() => vi.fn());
+const projectFindMany = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst, findUnique: projectFindUnique },
+    project: { findFirst, findUnique: projectFindUnique, findMany: projectFindMany },
     bug: { findUnique: bugFindUnique, findMany: publishedTasks, groupBy: taskCounts, count: bugCount, findFirst: bugFindFirst },
     idea: { count: proposalCount, findMany: proposals, findFirst: ideaFindFirst },
     ideaVerdict: { groupBy: proposalVotes, findMany: myVerdicts },
@@ -44,10 +48,12 @@ vi.mock("@/lib/prisma", () => ({
     notification: { createMany: notificationCreateMany },
     skillSubmission: { findMany: skillSubmissionFindMany, findUnique: skillSubmissionFindUnique, update: skillSubmissionUpdate },
     $transaction: async (run: (tx: unknown) => Promise<unknown>) =>
-      run({ projectMembership: { upsert: projectMembershipUpsert }, projectJoinRequest: { updateMany: projectJoinRequestUpdateMany } }),
+      run({ projectMembership: { upsert: projectMembershipUpsert }, membership: { upsert: membershipUpsert, findFirst: txMembershipFindFirst }, projectJoinRequest: { updateMany: projectJoinRequestUpdateMany } }),
   },
 }));
 vi.mock("@/components/marketing/tasks/tasks-board", () => ({ TasksBoard: () => null }));
+vi.mock("@/lib/points/signup-bonus", () => ({ awardSignupBonus }));
+vi.mock("@/lib/organisation-next-step-load", () => ({ loadOrganisationNextStep: vi.fn(async () => null) }));
 vi.mock("@/lib/workflow", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/workflow")>()),
   workflowFor: vi.fn(async () => ({ ideaThreshold: 3, revisionLimit: 2 })),
@@ -96,6 +102,8 @@ import { canManageProject } from "@/lib/project-permissions";
 import { joinOpenProjectAction } from "@/app/actions/project-join-requests";
 import { requireUser } from "@/lib/auth-helpers";
 import { reviewSkillSubmissionAction } from "@/app/actions/skill-submissions";
+import { generateMetadata as projectOverviewMetadata } from "@/app/(app)/[org]/[project]/page";
+import { sitemapSectionXml } from "@/lib/seo/sitemap";
 import IssueHistoryPage from "@/app/(app)/[org]/[project]/[number]/history/page";
 import ProjectIssueLayout from "@/app/(app)/[org]/[project]/[number]/layout";
 
@@ -372,6 +380,8 @@ describe("joinOpenProjectAction (#earnings)", () => {
     const res = await joinOpenProjectAction("p-1");
     expect(res).toEqual({ ok: true, href: "/ziki/ziki-marketing/marketing" });
     expect(projectMembershipUpsert).toHaveBeenCalledWith(expect.objectContaining({ create: { projectId: "p-1", userId: "user-1" } }));
+    // Joining puts you in that project only, never in its whole organisation.
+    expect(membershipUpsert).not.toHaveBeenCalled();
     expect(projectJoinRequestUpsert).not.toHaveBeenCalled();
   });
 
@@ -392,12 +402,27 @@ describe("joinOpenProjectAction (#earnings)", () => {
     expect(await joinOpenProjectAction("p-1")).toEqual({ ok: true, href: "/ziki/ziki-marketing/marketing" });
   });
 
+  it("pays the signup bonus to a brand-new person (in no organisation), and not to someone already in one", async () => {
+    findFirst.mockResolvedValue(open);
+    bugCount.mockResolvedValue(1);
+    txMembershipFindFirst.mockResolvedValue(null);
+    await joinOpenProjectAction("p-1");
+    expect(awardSignupBonus).toHaveBeenCalledWith(expect.anything(), "user-1", "t-1");
+
+    awardSignupBonus.mockClear();
+    txMembershipFindFirst.mockResolvedValue({ id: "m-1" });
+    await joinOpenProjectAction("p-1");
+    expect(awardSignupBonus).not.toHaveBeenCalled();
+    expect(membershipUpsert).not.toHaveBeenCalled();
+  });
+
   it("refuses a project that isn't open, or isn't public, and adds nobody", async () => {
     findFirst.mockResolvedValue({ ...open, isOpenForContributors: false });
     expect(await joinOpenProjectAction("p-1")).toEqual({ ok: false, error: expect.any(String) });
     findFirst.mockResolvedValue({ ...open, visibility: "private" });
     expect(await joinOpenProjectAction("p-1")).toEqual({ ok: false, error: expect.any(String) });
     expect(projectMembershipUpsert).not.toHaveBeenCalled();
+    expect(membershipUpsert).not.toHaveBeenCalled();
   });
 });
 
@@ -496,5 +521,30 @@ describe("skills library public scope and review authorization", () => {
         rejectionReason: null,
       }),
     });
+  });
+});
+
+describe("search engines see only public projects (#seo-pages)", () => {
+  const params = Promise.resolve({ org: "acme", project: "secret" });
+
+  it("describes and indexes a public project", async () => {
+    findFirst.mockResolvedValueOnce({ name: "Web", slug: "web", goal: "Ship the **site**.", organisation: { name: "Acme", slug: "acme" } });
+    const metadata = await projectOverviewMetadata({ params: Promise.resolve({ org: "acme", project: "web" }) });
+    expect(findFirst.mock.calls.at(-1)?.[0].where).toMatchObject({ slug: "web", visibility: "public", organisation: { slug: "acme" } });
+    expect(metadata.robots).toEqual({ index: true, follow: true });
+    expect(String(metadata.title)).toContain("Web");
+  });
+
+  it("says nothing about a private project, not even its name, and keeps it out of search", async () => {
+    findFirst.mockResolvedValueOnce(null);
+    const metadata = await projectOverviewMetadata({ params });
+    expect(metadata).toEqual({ robots: { index: false, follow: true } });
+  });
+
+  it("lists only public projects in the sitemap", async () => {
+    projectFindMany.mockResolvedValueOnce([{ slug: "web", updatedAt: new Date("2026-11-01"), organisation: { slug: "acme" } }]);
+    const xml = await sitemapSectionXml("projects.xml");
+    expect(projectFindMany.mock.calls[0][0].where).toMatchObject({ visibility: "public", archivedAt: null });
+    expect(xml).toContain("/acme/web</loc>");
   });
 });

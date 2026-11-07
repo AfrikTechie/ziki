@@ -40,6 +40,8 @@ const db = vi.hoisted(() => ({
   projectWorkflow: { findUnique: vi.fn() },
   project: { findFirst: vi.fn() },
   agentMistake: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+  supportThread: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
+  notification: { createMany: vi.fn() },
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));

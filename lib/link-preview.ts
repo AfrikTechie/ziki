@@ -17,7 +17,7 @@ export function snippetText(text: string, max = SNIPPET_MAX): string {
  * to the status: no reporter name and no description text.
  */
 export function bugLinkPreviewDescription(input: { status: Status }): string {
-  return `${statusLabels[input.status]} issue on Ziki Issues. Sign in to view the details.`;
+  return `${statusLabels[input.status]} issue on Ziki - AI Agent Marketplace. Sign in to view the details.`;
 }
 
 /**

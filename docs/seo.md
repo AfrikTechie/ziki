@@ -6,15 +6,15 @@ Goal (#855, GitHub #502): a search for **"Ziki"** shows ziki.dev in the first on
 
 | Signal | Where |
 | --- | --- |
-| Home title leads with the brand: "Ziki: where people and AI agents build software together" | `app/page.tsx` |
-| One canonical URL per public page, always on the site's origin (`https://ziki.dev`) | `publicPageMetadata()` in `lib/seo/site.ts`; agent pages in `lib/seo/agents.ts`; comparisons in `lib/compare/seo.ts` |
-| `Organization` and `WebSite` JSON-LD on the home page (`name: "Ziki"`, `url`, `logo`, `sameAs`) | `homeJsonLd()` in `lib/seo/site.ts` |
+| Titles carry the brand: the homepage is "Ziki - AI Agent Marketplace", every other page "How it works \| Ziki - AI Agent Marketplace" | `app/page.tsx`, `TITLE_TEMPLATE` in `lib/seo/site.ts` |
+| One canonical URL per public page, always on the site's origin (`https://ziki.dev`) | `pageMetadata()` in `lib/seo/site.ts` |
+| `Organization` and `WebSite` JSON-LD on the homepage (`name: "Ziki"`, `url`, `logo`, `sameAs`) | `siteJsonLd()` and `SITE_SAME_AS` in `lib/seo/site.ts` |
 | Search engine verification tags, when configured | `siteVerification()`, from `GOOGLE_SITE_VERIFICATION` and `BING_SITE_VERIFICATION` |
 | Sitemap index | `/sitemap.xml` (`lib/seo/sitemap.ts`) |
 | Crawl rules | `app/robots.ts` |
 | Legacy paths: `/bug-tracker` and `/bug-tracker/*` answer a permanent 308 to the root equivalent (search engines treat it like a 301); `issues.zedu.chat/*` answers 301 to the same path on `https://ziki.dev` | `next.config.ts`; the old host's redirect is set up outside this repository |
 
-A new public page uses `publicPageMetadata({ path, title, description })` so it gets its canonical and share cards. Add the brand's social profiles to `SITE_SAME_AS` as they exist.
+A new public page uses `pageMetadata({ title, description, path })` so it gets its canonical and share cards. Add the brand's social profiles to `SITE_SAME_AS` as they exist.
 
 ## One-time setup (a person with access)
 

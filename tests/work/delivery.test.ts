@@ -10,7 +10,8 @@ const PR = "https://github.com/emerjent/ziki/pull/615";
 const db = vi.hoisted(() => {
   const tx = {
     delivery: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    bug: { update: vi.fn() },
+    bug: { update: vi.fn(), updateMany: vi.fn() },
+    agentAuditEvent: { update: vi.fn() },
     testVerdict: { updateMany: vi.fn() },
     bugActivity: { create: vi.fn() },
     attachment: { updateMany: vi.fn() },
@@ -227,6 +228,99 @@ describe("deliverWork: the latest pull request report decides whether it can be 
 
   it("refuses a head commit that isn't a hexadecimal SHA", async () => {
     expect(await deliverWork(agent("working", "ada"), "bug1", { ...body(), headSha: "not-a-sha" })).toMatchObject({ status: 400, field: "headSha" });
+  });
+});
+
+/** #replacement-pr: an accepted fix is bound to its pull request unless that one is reported closed without merging. */
+describe("deliverWork: a replacement for an accepted pull request that was closed unmerged (#replacement-pr)", () => {
+  const OLD = "https://github.com/emerjent/ziki/pull/600";
+  const NEW = "https://github.com/emerjent/ziki/pull/615";
+
+  /** The latest report per pull request address; none for an address not listed. */
+  function reports(byUrl: Record<string, ReturnType<typeof report> | null>) {
+    db.prisma.pullRequestReport.findFirst.mockImplementation(async ({ where }: { where: { pullRequestUrl: string } }) => byUrl[where.pullRequestUrl] ?? null);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Done · Accepted, the accepted pull request #600 linked.
+    db.prisma.bug.findFirst.mockResolvedValue({
+      id: "bug1",
+      projectId: "p1",
+      status: "merge",
+      substatus: "error",
+      pullRequestUrl: OLD,
+      project: { repoUrl: "https://github.com/emerjent/ziki" },
+    });
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.agentAuditEvent.findFirst.mockResolvedValue({ id: "accept1", payload: { pullRequestUrl: OLD } });
+    db.prisma.delivery.findMany.mockResolvedValue([
+      {
+        id: "d1", agentId: "agent-ada", beneficiaryUserId: "ada", summary: body().summary, description: body().description,
+        pullRequestUrl: NEW, headSha: null, screenshots: [], testResults: body().testResults,
+        createdAt: new Date(), updatedAt: new Date(), agent: { name: "ada's agent" }, beneficiary: { name: "Ada" }, replies: [],
+      },
+    ]);
+    db.tx.delivery.findUnique.mockResolvedValue(null);
+    db.tx.delivery.create.mockResolvedValue({ id: "d1" });
+  });
+
+  it("delivers the replacement when the accepted pull request is reported closed, and restarts review", async () => {
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }), [NEW]: null });
+    const result = await deliverWork(agent("working", "ada"), "bug1", body(NEW));
+    expect(result).toMatchObject({ status: 201 });
+    // The acceptance is cleared, so it gates nothing and the new pull request is judged afresh.
+    expect(db.tx.agentAuditEvent.update).toHaveBeenCalledWith({ where: { id: "accept1" }, data: { undoneAt: expect.any(Date) } });
+    expect(db.tx.bug.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review" }) }));
+    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review", pullRequestUrl: NEW }) }));
+    // It records what it replaces, on the activity, the audit row and the event.
+    expect(db.tx.bugActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ metadata: expect.objectContaining({ replacesPullRequestUrl: OLD }) }) }),
+    );
+    expect(mocks.audit).toHaveBeenCalledWith(expect.anything(), "issue.delivered", "bug:bug1", expect.objectContaining({ replacesPullRequestUrl: OLD, pullRequestUrl: NEW }), expect.anything());
+    expect(mocks.publish).toHaveBeenCalledWith(db.tx, expect.objectContaining({ type: "issue.delivered", payload: expect.objectContaining({ replacesPullRequestUrl: OLD }) }));
+    // New reviewers are asked for the new code.
+    expect(mocks.createReviewOffers).toHaveBeenCalled();
+  });
+
+  it("answers 409 accepted_pull_request while the accepted pull request is reported open", async () => {
+    reports({ [OLD]: report("open", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 409, error: "accepted_pull_request" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 accepted_pull_request when the accepted pull request is reported merged", async () => {
+    reports({ [OLD]: report("merged", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 409, error: "accepted_pull_request" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 accepted_pull_request when nobody has reported the accepted pull request", async () => {
+    reports({});
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 409, error: "accepted_pull_request" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a replacement that is itself reported closed", async () => {
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }), [NEW]: report("closed", { pullRequestUrl: NEW }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 422, error: "pull_request_closed" });
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+  });
+
+  it("changes nothing for the accepted pull request itself, even when it is closed", async () => {
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(OLD))).toMatchObject({ status: 422, error: "pull_request_closed" });
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+  });
+
+  it("does not restart review when there is no standing acceptance", async () => {
+    db.prisma.agentAuditEvent.findFirst.mockResolvedValue(null);
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 201 });
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+    expect(db.tx.bug.updateMany).not.toHaveBeenCalled();
   });
 });
 

@@ -85,6 +85,25 @@ function NewProjectForm({ orgSlug, defaults, onCancel }: { orgSlug?: string; def
         />
       </div>
 
+      <div>
+        <label htmlFor="new-project-goal" className="block text-sm font-medium text-zk-text">
+          Project Brief / Goal (optional)
+        </label>
+        <p id="new-project-goal-hint" className="mt-0.5 text-xs text-zk-muted">
+          Describe what you&apos;re building, who it serves, and what the finished product should achieve so connected agents understand the final build. Markdown supported.
+        </p>
+        <Textarea
+          id="new-project-goal"
+          name="goal"
+          placeholder="Explain the intended final build and its constraints"
+          maxLength={4000}
+          rows={4}
+          disabled={pending}
+          aria-describedby="new-project-goal-hint"
+          className="mt-2"
+        />
+      </div>
+
       <fieldset className="space-y-2 rounded-xl border border-zk-border bg-zk-card p-3.5">
         <legend className="px-1 text-xs font-semibold text-zk-text">Who can see it</legend>
         <label className="flex cursor-pointer items-start gap-2 text-sm text-zk-text">

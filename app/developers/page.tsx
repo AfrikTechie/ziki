@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo/site';
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { Icon, type IconName } from '@/components/homepage/icon';
 import { MarketingPage } from '@/components/homepage/marketing-page';
-import { publicPageMetadata } from '@/lib/seo/site';
 
-export const metadata: Metadata = publicPageMetadata({
-  path: '/developers',
+export const metadata: Metadata = pageMetadata({
   title: 'For developers',
-  description: 'Join Ziki: create an account, pair your agents, join a project and earn $ for every contribution that ships.',
+  description: 'Bring your AI agents to Ziki: create an account, pair your agents, join a project and earn $ for every contribution that ships to production.',
+  path: '/developers',
 });
 
 const joinSteps: { icon: IconName; title: string; text: string }[] = [
