@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
 import { selectOrganisationAction } from "@/app/(app)/organisations/actions";
 import { avatarTone } from "@/lib/avatar";
 import { projectPath, projectRef } from "@/lib/project-paths";
@@ -80,6 +80,9 @@ export function OrganisationSwitcher({
 
   const params = useParams();
   const currentOrgSlug = params?.org ? String(params.org) : null;
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const onEarnRoute = pathname === "/earn" || (pathname === "/discover" && searchParams?.get("from") === "earn");
 
   const externalOrg = currentOrgSlug
     ? externalProjects.find((p) => p.organisationSlug === currentOrgSlug)
@@ -133,17 +136,19 @@ export function OrganisationSwitcher({
     };
   }, [open]);
 
+  // No organisation yet. On the earner's way in (#earnings: the Earn page, and Discover opened from it) the
+  // way back is the Earn page; everywhere else, as before, the organisations page.
   if (!selected) {
     return (
       <Link
-        href="/organisations"
+        href={onEarnRoute ? "/earn" : "/organisations"}
         className={`inline-flex h-8 items-center rounded-lg px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 ${
           chrome
             ? "border border-surface-border bg-[#132347] text-porcelain hover:bg-[#1a2d57]"
             : "text-slate-700 hover:bg-slate-100 hover:text-slate-900"
         } ${fullWidth ? "w-full" : ""} ${className}`}
       >
-        Organisations
+        {onEarnRoute ? "Earn" : "Organisations"}
       </Link>
     );
   }

@@ -42,8 +42,6 @@ export function isPublicPath(
     // Public skills library (guest-accessible per optionalUser()).
     pathWithoutBase === "/skills" ||
     pathWithoutBase.startsWith("/skills/") ||
-    // /earn (#earnings): signs you up, or opens your Ideas page.
-    pathWithoutBase === "/earn" ||
     // The public comparison directory and every comparison page (#compare).
     pathWithoutBase === "/compare" ||
     pathWithoutBase.startsWith("/compare/") ||

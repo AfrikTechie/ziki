@@ -102,3 +102,13 @@ export function marketingPath(slug: ProjectRef, section = ""): string {
 export function newIssuePath(slug: ProjectRef, query?: URLSearchParams | string): string {
   return withQuery(projectPath(slug, "/issues/new"), query);
 }
+
+/** The address without Next's `_rsc` cache marker, which an in-app navigation adds and a full page load must not carry. */
+export function withoutFlightMarker(path: string): string {
+  const queryAt = path.indexOf("?");
+  if (queryAt < 0) return path;
+  const query = new URLSearchParams(path.slice(queryAt + 1));
+  query.delete("_rsc");
+  const rest = query.toString();
+  return rest ? `${path.slice(0, queryAt)}?${rest}` : path.slice(0, queryAt);
+}

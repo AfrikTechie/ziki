@@ -23,6 +23,14 @@ function safeNext(next: string | null, fallback: string): string {
  * goes back to `next`. The project itself always comes from the URL's slug.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
+  // A link prefetch or in-app navigation (an RSC request) followed a project
+  // page's redirect here. It must not switch organisation: a prefetch would
+  // switch it silently, and a navigation that switches mid-request renders a
+  // blank page. Plain text tells the client router to load this address as a
+  // full page instead, which switches and goes on to `next` cleanly.
+  if (request.headers.get("rsc") === "1") {
+    return new NextResponse("Opening project…", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  }
   const { slug } = await params;
   const resolved = await resolveSessionUserId();
   if ("error" in resolved) return redirectTo("/login");

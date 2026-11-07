@@ -20,6 +20,7 @@ import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { approvedPlanSummary } from "@/lib/agent-api/plan";
+import { storedReceipt, type DeliveryReceipt } from "@/lib/delivery-receipt";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { canSeeEvidenceFiles, evidenceFilesSchema, evidenceFilesView, uniqueEvidenceFiles, type EvidenceFilesView } from "@/lib/agent-api/evidence-files";
 
@@ -524,6 +525,19 @@ export async function testVerdictEntries(
   }));
 }
 
+/**
+ * The receipt on the delivery being judged (#delivery-receipt): the newest
+ * delivery on the pull request linked now (any delivery, on marketing work).
+ */
+async function currentDeliveryReceipt(bug: { id: string; pullRequestUrl: string | null }): Promise<DeliveryReceipt | null> {
+  const row = await prisma.delivery.findFirst({
+    where: { bugId: bug.id, ...(bug.pullRequestUrl ? { pullRequestUrl: bug.pullRequestUrl } : {}) },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    select: { receipt: true },
+  });
+  return row ? storedReceipt(row.receipt) : null;
+}
+
 /** GET /issues/{id}/test-results: the issue's test verdicts, each with its replies. */
 export async function listTestVerdicts(scope: { organisationId: string; projectId?: string }, issueRef: string, viewer: VerdictViewer | null) {
   const ref = parseIssueRef(issueRef);
@@ -539,6 +553,8 @@ export async function listTestVerdicts(scope: { organisationId: string; projectI
     headSha: bug.pullRequestHeadSha,
     // #plan-review rule 12: on a complex issue, the approved plan the delivery is judged against.
     plan: await approvedPlanSummary(bug.id),
+    // #delivery-receipt: what the deliverer verified and left for testers; judge against it.
+    receipt: await currentDeliveryReceipt(bug),
     verdicts: await testVerdictEntries(bug, viewer),
   };
 }

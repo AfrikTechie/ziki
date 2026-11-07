@@ -1,3 +1,4 @@
+import { SavedIssueViews } from "@/components/saved-issue-views";
 import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { IdeasWelcome } from "@/components/ideas-welcome";
 import { IdeaChat } from "@/components/idea-chat";
@@ -1072,6 +1073,22 @@ export async function IssuesList({
     value === YOUR_WORK_STATUS ? yourWorkCount : value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
   const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));
 
+  let savedViews: { id: string; name: string; status: string; query: string }[] = [];
+  let savedViewsFailed = false;
+  if (!isIdeasView) {
+    try {
+      savedViews = await prisma.savedIssueView.findMany({
+        where: { userId: user.id, projectId: project.id },
+        select: { id: true, name: true, status: true, query: true },
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+      });
+    } catch {
+      savedViewsFailed = true;
+    }
+  }
+  const savedViewQuery = new URLSearchParams(currentQuery);
+  savedViewQuery.set("sort", currentSort);
+
   const headerContent = (
     <>
       {activeProject?.goal ? (
@@ -1119,6 +1136,10 @@ export async function IssuesList({
           {!isDeletedView ? <IdeaChat projectId={project.id} className={isFirstRun ? "" : "md:hidden"} /> : null}
         </div>
       </div>
+      {!isIdeasView ? (
+        <SavedIssueViews org={project.orgSlug} slug={project.slug} status={statusParam}
+          query={savedViewQuery.toString()} views={savedViews} loadFailed={savedViewsFailed} />
+      ) : null}
     </>
   );
 

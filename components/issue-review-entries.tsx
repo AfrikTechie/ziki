@@ -5,6 +5,7 @@ import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
 import { EntryReplyForm, type ReplyTarget } from "@/components/entry-reply-form";
 import { EvidenceFilesList } from "@/components/evidence-files";
 import type { EvidenceFile } from "@/lib/agent-api/evidence-files";
+import { receiptSummary, type DeliveryReceipt } from "@/lib/delivery-receipt";
 
 /** What a review-stage entry shows, whichever stage it is from. */
 type ReviewEntryView = {
@@ -27,7 +28,7 @@ type ReviewEntryView = {
 };
 
 export type TestVerdictView = ReviewEntryView & { goodToMerge: boolean };
-export type DeliveryView = ReviewEntryView & { screenshots: string[]; testResults: string | null; beneficiaryUserId?: string };
+export type DeliveryView = ReviewEntryView & { screenshots: string[]; testResults: string | null; receipt?: DeliveryReceipt | null; beneficiaryUserId?: string };
 export type MergeReviewView = ReviewEntryView & { verdict: "accept" | "reject" };
 
 type Chip = { label: string; className: string };
@@ -136,6 +137,43 @@ function DeliveryEvidence({ screenshots, testResults }: { screenshots: string[];
 }
 
 /**
+ * The delivery receipt (#delivery-receipt): what the deliverer verified and
+ * how, what it did not verify and why, and what the reviewer should test.
+ * Open by default: it is the part of a delivery a reviewer reads first.
+ */
+export function DeliveryReceiptCard({ receipt }: { receipt: DeliveryReceipt }) {
+  const sections: { key: string; title: string; mark: string; tone: string; rows: { text: string; note?: string }[] }[] = [
+    { key: "verified", title: "Verified", mark: "✓", tone: "text-zk-ok-fg", rows: receipt.verified.map((row) => ({ text: row.check, note: row.how })) },
+    { key: "not-verified", title: "Not verified", mark: "○", tone: "text-zk-warn-fg", rows: receipt.notVerified.map((row) => ({ text: row.check, note: row.why })) },
+    { key: "reviewer-should", title: "Reviewer should", mark: "→", tone: "text-zk-accent", rows: receipt.reviewerShould.map((text) => ({ text })) },
+  ].filter((section) => section.rows.length > 0);
+  return (
+    <section data-testid="delivery-receipt" aria-label="Delivery receipt" className="mt-2 rounded-lg border border-zk-divider bg-zk-surface px-3 py-2 text-[13px]">
+      <p className="m-0 flex flex-wrap items-baseline gap-x-2 text-xs">
+        <b className="font-bold text-zk-text">Delivery receipt</b>
+        <span className="text-zk-muted">{receiptSummary(receipt)}</span>
+      </p>
+      {sections.map((section) => (
+        <div key={section.key} data-testid={`delivery-receipt-${section.key}`} className="mt-1.5">
+          <p className="m-0 text-xs font-semibold text-zk-text2">{section.title}</p>
+          <ul className="m-0 mt-0.5 list-none p-0">
+            {section.rows.map((row, index) => (
+              <li key={`${section.key}-${index}`} className="flex gap-1.5">
+                <span aria-hidden="true" className={`w-4 shrink-0 text-center font-bold ${section.tone}`}>{section.mark}</span>
+                <span className="min-w-0">
+                  <span className="text-zk-text">{row.text}</span>
+                  {row.note ? <span className="text-zk-muted"> · {row.note}</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/**
  * Work delivered (#delivered-step), In progress's entry: the agent holding the
  * claim says its work is done, with the pull request, a summary, the full
  * description and the evidence; people reply. While the issue is In progress
@@ -180,6 +218,7 @@ export function DeliveriesPanel({
               </span>
             </p>
             <EntrySummary summary={delivery.summary} description={delivery.description} />
+            {delivery.receipt ? <DeliveryReceiptCard receipt={delivery.receipt} /> : null}
             <DeliveryEvidence screenshots={delivery.screenshots} testResults={delivery.testResults} />
             <EntryReplies replies={delivery.replies} />
             {canReply ? <EntryReplyForm bugId={bugId} target={{ deliveryId: delivery.id }} label="Reply to this delivery" icon /> : null}

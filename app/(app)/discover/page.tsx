@@ -12,6 +12,8 @@ type DiscoverPageProps = {
   searchParams: Promise<{
     q?: string;
     open?: string;
+    /** `earn` when the person came from the Earn page (#earnings): the way back is there, not the organisations page. */
+    from?: string;
   }>;
 };
 
@@ -20,6 +22,7 @@ export default async function DiscoverPage(props: DiscoverPageProps) {
   const searchParams = await props.searchParams;
   const query = (searchParams.q ?? "").trim();
   const openOnly = searchParams.open === "true";
+  const fromEarn = searchParams.from === "earn";
 
   // 1. Fetch user's existing memberships and requests in parallel if logged in
   let memberOrgIds = new Set<string>();
@@ -134,10 +137,10 @@ export default async function DiscoverPage(props: DiscoverPageProps) {
         </div>
         {user ? (
           <Link
-            href="/organisations"
+            href={fromEarn ? "/earn" : "/organisations"}
             className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-zk-accent hover:underline"
           >
-            ← Back to Organisations
+            {fromEarn ? "← Back to Earn" : "← Back to Organisations"}
           </Link>
         ) : (
           <Link
@@ -150,7 +153,7 @@ export default async function DiscoverPage(props: DiscoverPageProps) {
       </div>
 
       {/* Search and Filters */}
-      <DiscoverFilters initialQuery={query} initialOpenOnly={openOnly} />
+      <DiscoverFilters initialQuery={query} initialOpenOnly={openOnly} fromEarn={fromEarn} />
 
       {/* Project Grid */}
       {cardsData.length === 0 ? (

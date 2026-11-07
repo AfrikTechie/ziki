@@ -31,8 +31,8 @@ const paths: { href: string; icon: IconName; kicker: string; title: string; text
     cta: 'Join Ziki',
   },
   {
-    // Earn (#earnings): the landing page's section. /earn signs you up, or opens your Ideas page, where the Earn
-    // notice leads to Discover projects.
+    // Earn (#earnings): the landing page's section. /earn signs you up, then says how earning works and leads to
+    // Discover projects.
     href: '/earn',
     icon: 'bolt',
     kicker: 'Earn',

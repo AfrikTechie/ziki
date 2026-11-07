@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
@@ -20,6 +20,7 @@ import { moveTo } from "@/lib/issue-substatus";
 import { deliverableText, marketingDeliveryBodySchema } from "@/lib/validations/marketing";
 import { linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
+import { deliveryReceiptSchema, storedReceipt, type DeliveryReceipt } from "@/lib/delivery-receipt";
 
 /**
  * Work delivered (#delivered-step): the In progress step's entry. The agent
@@ -40,6 +41,11 @@ import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
  * replaces this agent's delivery and returns the issue to Delivered; only
  * judgements on the delivered pull request count.
  *
+ * A delivery may carry a receipt (#delivery-receipt, lib/delivery-receipt.ts):
+ * what the agent verified and how, what it did not verify and why, and what
+ * the reviewer should test. It is shown under the delivery and handed to
+ * testers with GET /issues/{id}/test-results, so judgements answer it.
+ *
  * Agents report pull requests and Ziki reads them on GitHub (#pr-reports, #github-status): the delivery records the pull request
  * and the head commit the deliverer names. When an independent agent's latest
  * report on that pull request says it is merged, closed or missing, it can't be
@@ -57,6 +63,8 @@ export const deliveryBodySchema = z
     description: entryDescription,
     screenshots: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
     testResults: z.union([z.string().trim().min(1).max(20_000), z.record(z.string(), z.unknown())]).optional(),
+    /** What was verified, what was not, and what the reviewer should test (#delivery-receipt). Both tracks. */
+    receipt: deliveryReceiptSchema.optional(),
     /** The pull request's head commit: what judgements and the accept bind to. Product work only. */
     headSha: z.string().trim().regex(/^[0-9a-f]{7,64}$/i, "headSha must be a hexadecimal commit SHA.").optional(),
     /** The finished work as Markdown, shown as a file. Marketing work only. */
@@ -91,6 +99,8 @@ export type DeliveryEntry = {
   headSha: string | null;
   screenshots: string[];
   testResults: string | null;
+  /** The delivery receipt (#delivery-receipt), or null when the delivery carried none. */
+  receipt: DeliveryReceipt | null;
   /** On the pull request linked now: the work being judged. */
   current: boolean;
   createdAt: Date;
@@ -126,6 +136,7 @@ export async function deliveryEntries(bug: { id: string; pullRequestUrl: string 
       headSha: true,
       screenshots: true,
       testResults: true,
+      receipt: true,
       createdAt: true,
       updatedAt: true,
       agent: { select: { name: true } },
@@ -133,8 +144,9 @@ export async function deliveryEntries(bug: { id: string; pullRequestUrl: string 
       replies: entryReplySelect,
     },
   });
-  return rows.map(({ agent, beneficiary, replies, ...row }) => ({
+  return rows.map(({ agent, beneficiary, replies, receipt, ...row }) => ({
     ...row,
+    receipt: storedReceipt(receipt),
     agentName: agent.name,
     by: beneficiary.name ?? "A member",
     // Marketing work has no pull request, so every marketing delivery is current.
@@ -346,6 +358,8 @@ export async function deliverWork(
       headSha,
       screenshots,
       testResults,
+      // Delivering again replaces the delivery, its receipt included.
+      receipt: body.receipt ?? Prisma.JsonNull,
     };
     const saved = existing
       ? await tx.delivery.update({ where: { id: existing.id }, data, select: { id: true } })
@@ -397,6 +411,8 @@ export async function deliverWork(
       ...(marketing ? { deliverableUrls: body.deliverableUrls ?? [] } : { pullRequestUrl: pullRequestUrl!, headSha }),
       summary: body.summary,
       agentId: agent.agentId,
+      // #delivery-receipt: the receipt travels with the event, so a listener can judge against it.
+      ...(body.receipt ? { receipt: body.receipt } : {}),
       // #stranded-delivery: a manager agent filed it for the person credited.
       ...(onBehalfOf ? { onBehalfOf: true, filedBy: agent.agentId, creditedUserId: beneficiaryUserId! } : {}),
     };

@@ -39,7 +39,7 @@ function sectionOf(pathname: string, ref: ProjectRef): string[] {
     return second && IDEA_LISTS[second] ? ["Ideas", IDEA_LISTS[second]] : ["Ideas"];
   }
   if (first === "issues") return (ISSUE_LISTS[second ?? "all"] ?? ["Issues"]).filter((part): part is string => Boolean(part));
-  const named: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream" };
+  const named: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream", features: "Feature plans" };
   return named[first] ? [named[first]] : [];
 }
 
