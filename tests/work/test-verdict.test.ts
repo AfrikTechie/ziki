@@ -70,6 +70,8 @@ function report(overrides: Record<string, unknown> = {}) {
 
 import { submitTestVerdict } from "@/lib/agent-api/test-verdict";
 import { reviewJobSubmission } from "@/lib/jobs/review";
+import { judgeBlockKind } from "@/lib/agent-api/judge-block";
+import type { PrGate } from "@/lib/agent-api/pr-gate";
 
 /** An issue Ada filed herself, with no agent and no claim. */
 function bugRow(overrides: Record<string, unknown> = {}) {
@@ -554,5 +556,26 @@ describe("sending marketing work back", () => {
     const pr = "https://github.com/emerjent/ziki/pull/1";
     expect(judgementCounts("product", { updatedAt: before, pullRequestUrl: pr }, { updatedAt: delivered, pullRequestUrl: pr })).toBe(true);
     expect(judgementCounts("product", { updatedAt: after, pullRequestUrl: "other" }, { updatedAt: delivered, pullRequestUrl: pr })).toBe(false);
+  });
+});
+
+/** What stops testers judging a delivered pull request (#864). */
+const blockGate = (overrides: Partial<PrGate> = {}): PrGate => ({
+  canDeliver: true, canAccept: true, canReconcile: false, awaitingRelease: false, broken: null, needsReport: false, reason: null, ...overrides,
+});
+const blockReport = (overrides: Record<string, unknown> = {}) => ({ state: "open", mergeable: true, checks: "passing", ...overrides }) as Parameters<typeof judgeBlockKind>[1];
+
+describe("judgeBlockKind", () => {
+  it("is null for an open, mergeable pull request with passing checks, or none reported", () => {
+    expect(judgeBlockKind(blockGate(), blockReport())).toBeNull();
+    expect(judgeBlockKind(blockGate(), null)).toBeNull();
+  });
+  it("names a merge conflict, failing checks and a broken link", () => {
+    expect(judgeBlockKind(blockGate(), blockReport({ mergeable: false }))).toBe("merge_conflict");
+    expect(judgeBlockKind(blockGate(), blockReport({ checks: "failing" }))).toBe("deployment_verification");
+    expect(judgeBlockKind(blockGate({ broken: "other_repository" }), blockReport())).toBe("pull_request");
+  });
+  it("waits for a fresh report before blocking on a stale one", () => {
+    expect(judgeBlockKind(blockGate({ needsReport: true }), blockReport({ mergeable: false }))).toBeNull();
   });
 });

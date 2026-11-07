@@ -108,6 +108,7 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     toRepair: [],
     toReportPr: [],
     prGates: new Map(),
+    judgeBlocks: new Map(),
     toConfirm: [],
     ideaThreshold: 3,
     tests: [],
@@ -194,6 +195,19 @@ describe("itemsFor", () => {
     const project = work({ tests: [{ id: "b1", number: 7, title: "x", pullRequestUrl: pr }], facts: new Map([["b1", tested]]) });
     expect(itemsFor(agent("working"), project, nothingMine)).toEqual([]);
     expect(itemsFor(agent("manager"), project, nothingMine).some((i) => i.kind === "test_fix")).toBe(true);
+  });
+
+  it("lists a fix whose pull request can't merge as not actionable, with the reason (#864)", () => {
+    const pr = "https://github.com/emerjent/ziki/pull/2";
+    const row = { id: "b1", number: 7, title: "x", pullRequestUrl: pr };
+    const base = { tests: [row], facts: new Map([["b1", facts({ pullRequestUrl: pr })]]) };
+    const blocked = itemsFor(agent("working"), work({ ...base, judgeBlocks: new Map([["b1", "The pull request has merge conflicts with its base branch."]]) }), nothingMine).find((i) => i.kind === "test_fix");
+    expect(blocked).toMatchObject({ canAct: false, blockedReason: "The pull request has merge conflicts with its base branch." });
+    expect(blocked!.detail).toContain("List the changed files you judged");
+    // A pull request nothing blocks stays actionable.
+    const open = itemsFor(agent("working"), work(base), nothingMine).find((i) => i.kind === "test_fix");
+    expect(open).toMatchObject({ canAct: true });
+    expect(open).not.toHaveProperty("blockedReason");
   });
 
   it("lists manager and merger work for a working agent without letting it act", () => {
