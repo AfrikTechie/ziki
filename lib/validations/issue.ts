@@ -80,6 +80,7 @@ export const createBugSchema = z
     assigneeId: userIdSchema.optional().or(z.literal("")),
     areaId: z.string().optional().or(z.literal("")),
     proofLinks: proofLinksInputSchema,
+    priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   })
   .strict();
 
@@ -88,6 +89,7 @@ export const updateBugSchema = z.object({
   typeId: z.string().nullable().optional().or(z.literal("")),
   assigneeId: userIdSchema.nullable().optional().or(z.literal("")),
   areaId: z.string().nullable().optional().or(z.literal("")),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
 });
 
 export const editBugContentSchema = z
