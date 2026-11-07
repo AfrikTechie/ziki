@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
+import React, { useState, useEffect, useRef, useMemo, Suspense, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SupportGuideAvatar } from "./support-guide-avatar";
+import { FloatingAgentLauncher } from "@/components/floating-agent-launcher";
 import {
   getPageGuidance,
   searchSupportAnswers,
@@ -27,6 +28,12 @@ function getFormattedTime() {
   const mins = String(d.getMinutes()).padStart(2, "0");
   return `${hours}:${mins}`;
 }
+
+/** Never changes on its own; every render re-reads the shell marker. */
+const subscribeToAppShell = () => () => {};
+const appShellSnapshot = () =>
+  typeof document !== "undefined" &&
+  Boolean(document.querySelector("[data-app-shell]"));
 
 function OnScreenGuideContent() {
   const pathname = usePathname();
@@ -170,6 +177,14 @@ function OnScreenGuideContent() {
     },
   ];
 
+  // Signed-in shell? The server renders the pre-login guide; the client
+  // re-renders into the launcher inside [data-app-shell]. getSnapshot stays a
+  // primitive so React never loops.
+  const isInsideApp = useSyncExternalStore(
+    subscribeToAppShell,
+    appShellSnapshot,
+    () => false,
+  );
   return (
     // Above the support link (a small line at the bottom right), and above the agents bar where it is drawn
     // (#agents-dock, 76px tall), so the chat never sits behind either. Decided in CSS, not at render, so the
@@ -416,17 +431,52 @@ function OnScreenGuideContent() {
         </div>
       )}
 
-      {/* The way in: small text with the guide's picture at the bottom right corner, in the agents bar where it is
-          drawn (#agents-dock). No pop-up of its own: it opens only when asked. */}
-      <button
-        type="button"
-        onClick={() => setMode((prev) => (prev === "avatar" ? "chat" : "avatar"))}
-        aria-expanded={mode !== "avatar"}
-        className="group pointer-events-auto fixed bottom-3 right-4 z-40 flex items-center gap-2 rounded-full text-[11px] font-semibold text-zk-muted hover:text-zk-text focus-visible:outline-2 focus-visible:outline-electric-blue lg:[body:has([data-dock-strip])_&]:bottom-[22px] sm:right-6"
-      >
-        <span className="group-hover:underline">{mode === "avatar" ? "Need help? Ask support" : "Close support"}</span>
-        <SupportGuideAvatar size="sm" isOnline={true} animated={false} />
-      </button>
+      {/* ---------------- STATE 1: THE BOT (Always accessible anchor) ---------------- */}
+      <div className="pointer-events-auto flex items-center gap-2">
+        {isInsideApp ? (
+          /* Signed in: one bot that rolls out support, a game and the agents
+             directory. The pre-login guide below is deliberately unchanged. */
+          <FloatingAgentLauncher
+            embedded
+            onSupport={() => setMode("chat")}
+            onOpenChange={(isOpen) => {
+              if (isOpen) setMode("avatar");
+            }}
+            icon={<SupportGuideAvatar size="lg" isOnline={true} animated={true} />}
+            buttonClassName="h-14 w-14 bg-gradient-to-tr from-blue-600 to-indigo-600 p-1 shadow-xl hover:scale-105 active:scale-95"
+          />
+        ) : (
+          <>
+        {mode === "avatar" && (
+          <button
+            type="button"
+            onClick={() => setMode("chat")}
+            className="cursor-pointer group flex items-center gap-2 rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-[#0c1938]/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-all duration-200 hover:border-electric-blue hover:shadow-xl focus-visible:outline-2 focus-visible:outline-electric-blue text-left"
+          >
+            <span className="flex flex-col">
+              <span className="text-[12px] font-bold text-slate-900 dark:text-white group-hover:text-electric-blue">
+                Lost? Ask Support
+              </span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                Human Guide • Online
+              </span>
+            </span>
+          </button>
+        )}
+
+        {/* Avatar button */}
+        <button
+          type="button"
+          onClick={() => setMode((prev) => (prev === "avatar" ? "chat" : "avatar"))}
+          aria-label="Toggle Ziki Customer Support Guide"
+          className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 p-1 shadow-xl transition-transform duration-200 hover:scale-105 active:scale-95 focus-visible:outline-2 focus-visible:outline-electric-blue"
+        >
+          <SupportGuideAvatar size="lg" isOnline={true} animated={true} />
+          <span className="sr-only">Toggle Customer Support Guide</span>
+        </button>
+          </>
+        )}
+      </div>
     </aside>
   );
 }
