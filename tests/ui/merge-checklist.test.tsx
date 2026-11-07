@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MergeChecklistCard, MANUAL_CHECKS } from "@/components/merge-checklist";
 import type { MergeChecklist } from "@/lib/merge-checklist";
 
@@ -18,6 +20,8 @@ const MOCK_CHECKLIST: MergeChecklist = {
   headline: "Ready for a good-to-merge judgement.",
   reportedAt: new Date("2026-11-06T10:00:00Z"),
 };
+
+afterEach(cleanup);
 
 describe("MergeChecklistCard (#merge-checklist)", () => {
   it("renders the heading and check count correctly", () => {

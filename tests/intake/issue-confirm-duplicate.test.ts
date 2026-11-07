@@ -91,6 +91,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
     duplicateOfId: null,
     createdByAgentId: "agent-ada",
     createdByAgent: { ownerUserId: "ada" },
+    idea: null,
     claims: [],
     ...overrides,
   };
@@ -221,6 +222,15 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     // The filing agent may confirm too; one person's agent of the same class replaces the entry.
     const filer = await giveConfirmation(agentOf("agent-ada", "ada"), scope, "bug1", body("confirm"));
     expect(filer).toMatchObject({ replaced: true, confirmations: 1 });
+  });
+
+  it("does not award reporter points to a public intake identity when the issue is confirmed", async () => {
+    state.bug = bugRow({ idea: { source: "public" } });
+    await giveConfirmation(person("bob"), scope, "bug1", body("confirm"));
+    await giveConfirmation(person("cara"), scope, "bug1", body("confirm"));
+
+    expect(state.points.map((point) => point.sourceKey)).not.toContain("reporter:bug1:ada");
+    expect(state.points.map((point) => point.role).filter((role) => role === "reviewer")).toHaveLength(2);
   });
 
   it("keeps one entry per person per class: a manager agent's counts its weight beside the person's own (#confirmation-weights)", async () => {

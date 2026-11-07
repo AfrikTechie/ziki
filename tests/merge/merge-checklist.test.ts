@@ -21,6 +21,8 @@ function sampleReport(
     pullRequestUrl: PR,
     headSha: HEAD,
     state: "open",
+    mergedInto: null,
+    inDefaultBranch: null,
     checks: "passing",
     mergeable: true,
     mergedInto: null,

@@ -10,7 +10,8 @@ const db = vi.hoisted(() => ({
   idempotencyKey: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
   issueType: { findUnique: vi.fn() },
   bug: { findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), findFirst: vi.fn() },
-  idea: { findMany: vi.fn(), count: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), groupBy: vi.fn(), create: vi.fn() },
+  idea: { create: vi.fn(), findMany: vi.fn(), count: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), groupBy: vi.fn() },
+  user: { upsert: vi.fn() },
   featurePlan: { upsert: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   featurePlanItem: { findMany: vi.fn(), create: vi.fn() },
   // #security-findings: no idea in these tests is a private finding.
@@ -44,6 +45,8 @@ vi.mock("@/lib/project-context", () => ({ activeProjectIdFor: activeProject.get 
 const rateLimit = vi.hoisted(() => ({ consume: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({
   consumeRateLimit: rateLimit.consume,
+  consumeRateLimits: rateLimit.consume,
+  clientRateLimitKey: () => "ip:203.0.113.7",
   RATE_LIMIT_MESSAGE: "Please wait before searching again.",
 }));
 
@@ -72,6 +75,8 @@ import { GET as suggestIssues } from "@/app/api/issues/suggest/route";
 import { NextRequest } from "next/server";
 import { structureIdea } from "@/lib/idea-structuring";
 import { parseIdeaTrack } from "@/lib/marketing/idea-track";
+import { createPublicIdea, findPublicIdeaMatches, publicIdeaSchema } from "@/lib/public-idea-intake";
+import { POST as submitPublicIdea } from "@/app/api/public/projects/[org]/[project]/ideas/route";
 import { createFeaturePlan, featureProject, featureWorkState, findFeatureWork, publishFeaturePlan, saveFeaturePlan } from "@/lib/feature-plans";
 import { generateFeatureDraft } from "@/lib/feature-plan-generation";
 import { featureDraftSchema, type FeatureDraft } from "@/lib/validations/feature-plan";
@@ -91,9 +96,23 @@ const input = (overrides: Partial<CreatePolicyInput> = {}): CreatePolicyInput =>
   ...overrides,
 });
 const similarRow = { id: "b1", number: 12, title: "Login button does nothing in Safari", status: "open", voteCount: 3, score: 0.8 };
+const publicProject = { id: "public-project", name: "Ziki", organisationId: "organisation_zedu" };
+const publicHeaders = new Headers({ "x-forwarded-for": "203.0.113.7", "user-agent": "test-browser" });
+const publicInput = (overrides: Record<string, unknown> = {}) => ({
+  title: "Public issue intake drops the report",
+  summary: "A signed-out report disappears after submission.",
+  description: "Submitting the public form does not create an idea for review.",
+  stepsToReproduce: "Open the public project page and submit the report form.",
+  expectedBehavior: "The report is saved as an idea.",
+  actualBehavior: "The report disappears.",
+  website: "",
+  acknowledgeSimilar: false,
+  trackingToken: "a".repeat(32),
+  ...overrides,
+});
 const idea = {
   id: "i1", number: 12, title: "Export activity as CSV", summary: "People want a CSV.", description: "People want their data.",
-  track: "product" as const, rationale: null as string | null, status: "open" as const, score: 3, typeId: null, areaId: null, proofLinks: [], projectId: "p1",
+  source: "internal", track: "product" as const, rationale: null as string | null, status: "open" as const, score: 3, typeId: null, areaId: null, proofLinks: [], projectId: "p1",
   reporterId: "ada", beneficiaryUserId: "ada", createdByAgentId: null, convertedAt: null, archiveReason: null,
   archiveEvidence: null, archiveDuplicateOf: null, archivedAt: null, archivedByAgentId: null,
   createdAt: new Date("2026-10-20T10:00:00Z"), updatedAt: new Date("2026-10-20T10:00:00Z"), area: null, issue: null,
@@ -165,10 +184,170 @@ beforeEach(() => {
   db.idea.findMany.mockResolvedValue([idea]);
   db.idea.count.mockResolvedValue(1);
   db.idea.findFirst.mockResolvedValue({ id: "i1" });
+  db.idea.findUnique.mockResolvedValue(null);
+  db.idea.create.mockResolvedValue({ id: "public-idea", number: 77 });
   db.idea.findUniqueOrThrow.mockResolvedValue({ ...idea, attachments: [] });
+  db.user.upsert.mockResolvedValue({ id: "public-reporter" });
   db.bug.count.mockResolvedValue(1);
   indexedSearch.mockRejectedValue(new Error("Typesense is unavailable in this test."));
   insert.mockResolvedValue({ id: "new-idea" });
+});
+
+describe("signed-out public idea intake (#3464)", () => {
+  const ref = { orgSlug: "zedu", projectSlug: "web" };
+  const emit = vi.fn().mockResolvedValue({ id: "event-1" });
+
+  beforeEach(() => {
+    db.project.findFirst.mockResolvedValue(publicProject);
+    rateLimit.consume.mockResolvedValue({ allowed: true, retryAfterMs: 0 });
+    emit.mockClear();
+  });
+
+  it("is unavailable unless the project is public and explicitly opted in", async () => {
+    db.project.findFirst.mockResolvedValue(null);
+
+    await expect(createPublicIdea(ref, publicInput(), publicHeaders, {
+      db: db as never,
+      consume: rateLimit.consume,
+      emit,
+    })).resolves.toMatchObject({ status: 404, error: "not_found" });
+    expect(db.idea.create).not.toHaveBeenCalled();
+  });
+
+  it("bounds duplicate searches before querying the project", async () => {
+    await expect(findPublicIdeaMatches(ref, "x".repeat(201), publicHeaders, {
+      db: db as never,
+      consume: rateLimit.consume,
+    })).resolves.toMatchObject({ status: 400, error: "invalid_request" });
+    expect(db.project.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("shows scoped duplicate candidates before it creates anything", async () => {
+    db.$queryRaw.mockResolvedValue([{ ...similarRow, kind: "issue" }]);
+
+    await expect(createPublicIdea(ref, publicInput(), publicHeaders, {
+      db: db as never,
+      consume: rateLimit.consume,
+      emit,
+    })).resolves.toMatchObject({
+      status: 409,
+      error: "similar_ideas",
+      matches: [{ kind: "issue", number: 12, title: similarRow.title, status: "open" }],
+    });
+    expect(db.idea.create).not.toHaveBeenCalled();
+  });
+
+  it("creates an ordinary public-source idea with a synthetic reporter and hashed tracking token", async () => {
+    const result = await createPublicIdea(ref, publicInput({ acknowledgeSimilar: true }), publicHeaders, {
+      db: db as never,
+      consume: rateLimit.consume,
+      emit,
+    });
+
+    expect(result).toEqual({
+      status: 201,
+      ideaId: "public-idea",
+      ideaNumber: 77,
+      trackingPath: `/zedu/web/track/${"a".repeat(32)}`,
+      replayed: false,
+    });
+    expect(db.user.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        email: expect.stringMatching(/@system\.ziki\.invalid$/),
+        passwordHash: null,
+        emailNotifications: false,
+      }),
+    }));
+    const created = db.idea.create.mock.calls[0][0].data;
+    expect(created).toMatchObject({
+      source: "public",
+      reporterId: "public-reporter",
+      beneficiaryUserId: "public-reporter",
+      organisationId: "organisation_zedu",
+      projectId: "public-project",
+      track: "product",
+    });
+    expect(created.publicTrackingTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(created.publicTrackingTokenHash).not.toContain("a".repeat(32));
+    expect(emit).toHaveBeenCalledWith(db, expect.objectContaining({
+      type: "idea.created",
+      payload: expect.objectContaining({ source: "public", ideaId: "public-idea" }),
+    }));
+  });
+
+  it("replays the same tracking token without consuming another limit or creating another idea", async () => {
+    db.idea.findUnique.mockResolvedValue({ id: "existing", number: 76, projectId: publicProject.id });
+
+    await expect(createPublicIdea(ref, publicInput(), publicHeaders, {
+      db: db as never,
+      consume: rateLimit.consume,
+      emit,
+    })).resolves.toMatchObject({ status: 200, ideaId: "existing", replayed: true });
+    expect(rateLimit.consume).not.toHaveBeenCalled();
+    expect(db.idea.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects honeypot submissions and rate-limited clients", async () => {
+    await expect(createPublicIdea(ref, publicInput({ website: "https://spam.test" }), publicHeaders, {
+      db: db as never,
+      consume: rateLimit.consume,
+      emit,
+    })).resolves.toMatchObject({ status: 400, error: "bot_detected" });
+    expect(db.project.findFirst).not.toHaveBeenCalled();
+
+    rateLimit.consume.mockResolvedValue({ allowed: false, retryAfterMs: 2_500 });
+    await expect(createPublicIdea(ref, publicInput(), publicHeaders, {
+      db: db as never,
+      consume: rateLimit.consume,
+      emit,
+    })).resolves.toMatchObject({ status: 429, error: "rate_limited", retryAfterSeconds: 3 });
+    expect(db.idea.create).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes markup while allowing reports to describe URL schemes as text", () => {
+    const sanitized = publicIdeaSchema.parse(publicInput({
+      summary: "<b>A public report is not stored after submission.</b>",
+      description: "<!-- template -->The report is not stored after submission.",
+    }));
+    expect(sanitized.summary).toBe("A public report is not stored after submission.");
+    expect(sanitized.description).not.toContain("template");
+    expect(publicIdeaSchema.safeParse(publicInput({ description: "Open javascript:alert(1) after submitting; expected data: 5." })).success).toBe(true);
+  });
+
+  it("rejects cross-origin and oversized API submissions before database work", async () => {
+    const context = { params: Promise.resolve({ org: "zedu", project: "web" }) };
+    const crossOrigin = new NextRequest("https://ziki.dev/api/public/projects/zedu/web/ideas", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://attacker.test" },
+      body: JSON.stringify(publicInput()),
+    });
+    expect((await submitPublicIdea(crossOrigin, context)).status).toBe(403);
+
+    const oversized = new NextRequest("https://ziki.dev/api/public/projects/zedu/web/ideas", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": String(25 * 1024), origin: "https://ziki.dev", host: "ziki.dev" },
+      body: "{}",
+    });
+    expect((await submitPublicIdea(oversized, context)).status).toBe(413);
+    expect(db.project.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("accepts the public forwarded host when the server request URL uses its bind address", async () => {
+    const context = { params: Promise.resolve({ org: "zedu", project: "web" }) };
+    const proxied = new NextRequest("http://0.0.0.0:3000/api/public/projects/zedu/web/ideas", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://ziki.dev",
+        host: "0.0.0.0:3000",
+        "x-forwarded-host": "ziki.dev",
+      },
+      body: JSON.stringify(publicInput({ acknowledgeSimilar: true })),
+    });
+
+    expect((await submitPublicIdea(proxied, context)).status).toBe(201);
+    expect(db.idea.create).toHaveBeenCalled();
+  });
 });
 
 describe("creating an idea", () => {

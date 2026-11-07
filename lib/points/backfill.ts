@@ -41,6 +41,8 @@ export type HistoricalBug = {
   /** #live-payout: a resolution still waiting for its deployment reports pays nothing yet. */
   heldPayout?: unknown;
   payoutReleasedAt?: Date | null;
+  /** Public intake uses a synthetic reporter that must never receive points. */
+  idea?: { source: string } | null;
 };
 
 /** Solver points are earned on `resolved` only — the same eligibility the
@@ -82,7 +84,7 @@ export function backfillEntries(
       sourceKey: pointSourceKey("solver", bug.id, bug.assigneeId),
     });
   }
-  if (!bug.duplicateOfId) {
+  if (!bug.duplicateOfId && bug.idea?.source !== "public") {
     const modern = isModernBug(bug, options?.cutoffDate);
     // Modern agent-platform issues require confirmation (#715)
     if (!modern || bug.isConfirmed) {
@@ -158,6 +160,7 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
         reward: true,
         heldPayout: true,
         payoutReleasedAt: true,
+        idea: { select: { source: true } },
       },
     });
     if (bugs.length === 0) break;

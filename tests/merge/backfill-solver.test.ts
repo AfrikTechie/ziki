@@ -48,4 +48,8 @@ describe("backfill solver eligibility (#656)", () => {
   it("a deleted bug earns nothing", () => {
     expect(backfillEntries(bug({ isDeleted: true }))).toEqual([]);
   });
+
+  it("never backfills reporter points to a public intake identity", () => {
+    expect(backfillEntries(bug({ idea: { source: "public" } })).map((entry) => entry.role)).toEqual(["solver"]);
+  });
 });
