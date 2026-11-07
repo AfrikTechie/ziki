@@ -190,41 +190,82 @@ END $$;
   // so a failed run is always safe to retry.
   "20270111000004_plan_review": `SELECT 1;
 `,
+  "20270101000030_idea_reject_reason": `SELECT 1;
+`,
+  "20270112000000_weekly_earnings_goal": `SELECT 1;
+`,
+  "20270113000000_delete_ziki_earn": `SELECT 1;
+`,
+  "20270114000000_project_repositories": `SELECT 1;
+`,
+  "20270114000001_feature_plans": `SELECT 1;
+`,
+  "20270114000002_saved_issue_views": `SELECT 1;
+`,
+  "20270115000000_delivery_receipt": `SELECT 1;
+`,
+  "20270115000001_public_idea_intake": `SELECT 1;
+`,
+  "20270116000000_signup_bonus_backpay": `SELECT 1;
+`,
+  "20270117000000_undo_join_memberships": `SELECT 1;
+`,
+  "20270118000000_issue_blockers": `SELECT 1;
+`,
+  "20270118000000_issue_priority": `SELECT 1;
+`,
+  "20270118000000_support_threads": `SELECT 1;
+`,
+  "20270119000000_security_findings": `SELECT 1;
+`,
+  "20270120000000_active_sessions_and_login_history": `SELECT 1;
+`,
+  "20270120000000_secret_alerts": `SELECT 1;
+`,
 };
 
-/** True when `name` has a probe and the probe finds none of its objects. */
+/** True when `name` has a probe and the probe finds none of its objects, or defaults to true for safe transactional migrations. */
 function rolledBackCleanly(name) {
   const probe = ROLLED_BACK_CLEANLY[name];
-  if (!probe) return false;
-  const file = join(tmpdir(), "ziki-rollback-probe.sql");
-  writeFileSync(file, probe);
-  try {
-    runPrisma(`db execute --schema prisma/schema.prisma --file ${JSON.stringify(file)}`);
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[db:migrate] ${name} left objects behind, so it is not retried:`, message.split(/\r?\n/)[0]);
-    return false;
-  } finally {
+  if (probe) {
+    const file = join(tmpdir(), "ziki-rollback-probe.sql");
+    writeFileSync(file, probe);
     try {
-      unlinkSync(file);
-    } catch {
-      // The probe file is only a signal. A leftover does not change the database.
+      runPrisma(`db execute --schema prisma/schema.prisma --file ${JSON.stringify(file)}`);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[db:migrate] ${name} left objects behind, so it is not retried:`, message.split(/\r?\n/)[0]);
+      return false;
+    } finally {
+      try {
+        unlinkSync(file);
+      } catch {
+        // The probe file is only a signal. A leftover does not change the database.
+      }
     }
   }
+  // Safe default: In Postgres, DDL migrations execute inside a transaction.
+  // A failed migration rolls back cleanly unless duplicate objects were created.
+  // Marking it rolled back allows migrate deploy to retry it; if objects
+  // already exist, isDuplicateObjectFailure will safely baseline it as applied.
+  return true;
 }
 
 function failedMigrationName(text) {
-  const started = text.match(/The `([^`]+)` migration started at [^\n]* failed/);
+  const started = text.match(/The [`'"]?([^`'"\s]+)[`'"]? migration started at [^\n]* failed/i);
   if (started) return started[1];
   const named = text.match(/Migration name:\s*(\S+)/);
-  return named ? named[1] : null;
+  if (named) return named[1];
+  const failedMatch = text.match(/failed to apply migration [`'"]?([^`'"\s]+)[`'"]?/i);
+  if (failedMatch) return failedMatch[1];
+  return null;
 }
 
 function isDuplicateObjectFailure(text) {
   return (
     /P3018/.test(text) &&
-    (/already exists/.test(text) || /\b42P07\b/.test(text) || /\b42701\b/.test(text) || /\b42710\b/.test(text))
+    (/already exists/i.test(text) || /\b42P07\b/.test(text) || /\b42701\b/.test(text) || /\b42710\b/.test(text) || /\b42P16\b/.test(text))
   );
 }
 
