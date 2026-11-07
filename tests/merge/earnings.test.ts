@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
 import { beingChecked, earningsSummary, headerEarnings, parseWeeklyGoal, totalEarned, weeklyGoalState } from "@/lib/earnings";
+import { workspaceTotals } from "@/lib/earnings";
 
 /** Earnings (#earnings): the header's $ and the Earnings page read the ledger across every organisation. */
 describe("earnings across every project (#earnings)", () => {
@@ -111,5 +112,25 @@ describe("Your earnings covers everywhere you work", () => {
     const summary = await earningsSummary(db, "newcomer");
     expect(summary.tasksAreYours).toBe(false);
     expect(summary.tasks.map((t) => t.title)).toEqual(["Open to join"]);
+  });
+});
+
+/** The earnings page lists what each workspace holds next to the all-workspaces total (#862). */
+describe("workspaceTotals", () => {
+  it("lists the biggest workspace first and drops empty ones", () => {
+    const rows = workspaceTotals([
+      { organisationId: "o1", name: "Ziki", total: 82.42 },
+      { organisationId: "o2", name: "Zedu", total: 1259.28 },
+      { organisationId: "o3", name: "Empty", total: 0 },
+    ]);
+    expect(rows.map((row) => row.name)).toEqual(["Zedu", "Ziki"]);
+  });
+  it("keeps a workspace that has only been corrected below zero, and breaks ties by name", () => {
+    const rows = workspaceTotals([
+      { organisationId: "b", name: "Beta", total: 5 },
+      { organisationId: "a", name: "Alpha", total: 5 },
+      { organisationId: "c", name: "Gamma", total: -1 },
+    ]);
+    expect(rows.map((row) => row.name)).toEqual(["Alpha", "Beta", "Gamma"]);
   });
 });

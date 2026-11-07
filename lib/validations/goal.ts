@@ -25,12 +25,21 @@ export type GoalAllocationTargetValue = z.infer<typeof goalAllocationTargetSchem
 
 const idSchema = z.string().trim().min(1).max(191);
 
+const strictCoerceInteger = (val: unknown) => {
+  if (typeof val === "number") return val;
+  if (typeof val === "string" && /^\s*\d+\s*$/.test(val)) return Number(val);
+  return val;
+};
+
 const credits = (label: string, max: number, min: number) =>
-  z.coerce
-    .number()
-    .int(`${label} must be a whole number of credits`)
-    .min(min, `${label} must be at least ${min}`)
-    .max(max, `${label} must be at most ${max}`);
+  z.preprocess(
+    strictCoerceInteger,
+    z
+      .number({ message: `${label} must be a number` })
+      .int(`${label} must be a whole number of credits`)
+      .min(min, `${label} must be at least ${min}`)
+      .max(max, `${label} must be at most ${max}`),
+  );
 
 /**
  * Optional free-text description. `""`, `null`, and an omitted field all
@@ -82,7 +91,10 @@ const splitTargetSchema = z
       .max(200, "A deliverable label must be at most 200 characters")
       .optional(),
     /** Weight (`proportional`) or percentage share (`milestone`). */
-    weight: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    weight: z.preprocess(
+      strictCoerceInteger,
+      z.number({ message: "Weight must be a number" }).int().min(0).max(1_000_000),
+    ).optional(),
     /** Explicit slice for `manual` splits. */
     amount: credits("amount", MAX_POOL_CREDITS, 1).optional(),
   })

@@ -29,6 +29,7 @@ vi.mock("@/app/actions/your-decision", () => ({ respondToCloseAction: decisionAc
 
 import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVerdictView } from "@/components/issue-review-entries";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
+import type { BidderRecordView } from "@/lib/bidder-record";
 import { IssueConfirmationsPanel, type ConfirmationEntryView, type ConfirmationsData } from "@/components/issue-confirmations";
 import { TakeItBackPanel } from "@/components/take-it-back";
 import { takeItBackReasonError, takeItBackState, type TakeItBackView } from "@/lib/take-it-back";
@@ -314,6 +315,79 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(marks[0].closest("li")).toHaveTextContent("Pixel");
     const buttons = screen.getAllByRole("button", { name: /Award/ });
     expect(buttons.map((button) => (button.closest("form")?.querySelector("input[name=bidId]") as HTMLInputElement | null)?.value)).toEqual(["free"]);
+  });
+
+  it("shows New here instead of a record for a bidder with fewer than three tasks (#825)", () => {
+    const record: BidderRecordView = {
+      newHere: true,
+      finished: 1,
+      dropped: 1,
+      finishRate: 50,
+      areaName: "Auth",
+      areaFixes: 1,
+      recent: [],
+      recentFinished: 0,
+      agents: [],
+    };
+    render(<IssueBidsPanel bids={[{ ...bid, record }]} />);
+    expect(screen.getByTestId("bidder-record-new")).toHaveTextContent("New here");
+    expect(screen.queryByText("See record")).toBeNull();
+    expect(screen.queryAllByTestId("bidder-form-square")).toHaveLength(0);
+  });
+
+  it("shows the bidder's form and opens the full record inside the bid card (#825)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const recent: BidderRecordView["recent"] = Array.from({ length: 10 }, (_, index) => ({
+      issueId: `task${index}`,
+      issueNumber: index + 1,
+      title: `Task ${index + 1}`,
+      path: `/zedu/ziki/${index + 1}`,
+      outcome: index === 0 ? "dropped" : "finished",
+      at: new Date(`2026-10-${String(index + 1).padStart(2, "0")}T12:00:00Z`),
+      agentId: "agent1",
+      agentName: "Ada's Claude",
+    }));
+    const record: BidderRecordView = {
+      newHere: false,
+      finished: 9,
+      dropped: 1,
+      finishRate: 90,
+      areaName: "Auth",
+      areaFixes: 4,
+      recent,
+      recentFinished: 9,
+      agents: [{ id: "agent1", name: "Ada's Claude", username: "adas-claude", finished: 9, dropped: 1 }],
+    };
+    render(<IssueBidsPanel bids={[{ ...bid, record }]} />);
+    const card = screen.getByTestId("bidder-record");
+    expect(card).not.toHaveAttribute("open");
+    expect(screen.getAllByTestId("bidder-form-square")).toHaveLength(10);
+    expect(screen.getAllByTestId("bidder-form-square").filter((square) => square.dataset.outcome === "finished")).toHaveLength(9);
+    expect(card).toHaveTextContent("9 of 10 finished");
+    expect(card).toHaveTextContent("4 fixes in Auth");
+    await user.click(screen.getByText("See record"));
+    expect(card).toHaveAttribute("open");
+    expect(card).toHaveTextContent("Finish rate");
+    expect(card).toHaveTextContent("90%");
+    expect(card).toHaveTextContent("Task 10");
+    expect(screen.getByRole("link", { name: "Ada's Claude" })).toHaveAttribute("href", "/agent/adas-claude");
+  });
+
+  it("keeps a withdrawn bid to one quiet line, without a record (#825)", () => {
+    const record: BidderRecordView = {
+      newHere: false,
+      finished: 4,
+      dropped: 1,
+      finishRate: 80,
+      areaName: null,
+      areaFixes: 0,
+      recent: [],
+      recentFinished: 0,
+      agents: [],
+    };
+    render(<IssueBidsPanel bids={[{ ...bid, withdrawnAt: new Date("2026-10-29T12:00:00Z"), record }]} />);
+    expect(screen.getByTestId("bid-withdrawn")).toBeInTheDocument();
+    expect(screen.queryByText("See record")).toBeNull();
   });
 
 });

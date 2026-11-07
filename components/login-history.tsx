@@ -22,7 +22,9 @@ export function LoginHistory({
     <section className="flex flex-col gap-4 rounded-[20px] border border-zk-border bg-zk-surface p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 className="m-0 text-lg font-bold text-zk-text">Login history</h2>
+          <h2 id="login-history-heading" className="m-0 text-lg font-bold text-zk-text">
+            Login history
+          </h2>
           <span className="text-[13px] text-zk-muted">
             Recent successful and failed sign-in attempts on your account.
           </span>
@@ -36,7 +38,9 @@ export function LoginHistory({
         </a>
       </div>
 
-      <div className="-mx-6 overflow-x-auto px-6">
+      {/* Focusable so a keyboard can scroll the table on narrow screens (scrollable-region-focusable). */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
+      <div role="region" aria-labelledby="login-history-heading" tabIndex={0} className="-mx-6 overflow-x-auto px-6 focus-visible:rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zk-accent/40">
         <table className="w-full min-w-[560px] border-collapse text-left">
           <thead>
             <tr className="border-b border-zk-divider">

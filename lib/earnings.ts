@@ -105,6 +105,24 @@ export async function beingChecked(db: Db, userId: string, organisationId: strin
   return held;
 }
 
+/** What a person has earned in each workspace (#862), biggest first. Withdraw and the header $ are for one of them. */
+export type WorkspaceTotal = { organisationId: string; name: string; total: number };
+
+export function workspaceTotals(rows: readonly { organisationId: string; name: string; total: number }[]): WorkspaceTotal[] {
+  return rows
+    .filter((row) => Math.abs(row.total) > 0.004)
+    .map((row) => ({ organisationId: row.organisationId, name: row.name, total: row.total }))
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+}
+
+export async function earningsByWorkspace(db: Db, userId: string): Promise<WorkspaceTotal[]> {
+  const grouped = await db.pointEntry.groupBy({ by: ["organisationId"], where: { userId }, _sum: { points: true } });
+  if (grouped.length === 0) return [];
+  const organisations = await db.organisation.findMany({ where: { id: { in: grouped.map((row) => row.organisationId) } }, select: { id: true, name: true } });
+  const nameOf = new Map(organisations.map((organisation) => [organisation.id, organisation.name]));
+  return workspaceTotals(grouped.map((row) => ({ organisationId: row.organisationId, name: nameOf.get(row.organisationId) ?? "Another workspace", total: pointsNumber(row._sum.points) })));
+}
+
 /** Where the money came from, in the few groups a person thinks in. Order is the bar's order. */
 export const SOURCE_GROUPS = [
   { key: "solved", label: "Solved issues", roles: ["solver", "dispatcher", "submission", "plan"] },

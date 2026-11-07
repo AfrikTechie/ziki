@@ -330,10 +330,12 @@ describe("component accessibility (axe)", () => {
         />
       </div>,
     );
+    expect(screen.getByRole("region", { name: "Login history" })).toHaveAttribute("tabindex", "0");
     await expectNoA11yViolations(populated.container);
     populated.unmount();
 
     const empty = render(<LoginHistory items={[]} totalCount={0} />);
+    expect(screen.getByRole("region", { name: "Login history" })).toHaveAttribute("tabindex", "0");
     await expectNoA11yViolations(empty.container);
   });
 
