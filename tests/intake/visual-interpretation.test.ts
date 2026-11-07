@@ -648,5 +648,105 @@ describe("visual-interpretation", () => {
         else delete process.env.OPENROUTER_API_KEY;
       }
     });
+
+    it("recovers JSON from reasoning when message content is null or empty", async () => {
+      const origProvider = process.env.ZIKI_AI_PROVIDER;
+      const origKey = process.env.OPENROUTER_API_KEY;
+
+      process.env.ZIKI_AI_PROVIDER = "openrouter";
+      process.env.OPENROUTER_API_KEY = "sk-or-v1-mock-key";
+
+      const mockReasoningResponse = {
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: null,
+              reasoning:
+                "Thinking process... The user showed a broken button.\n" +
+                JSON.stringify({
+                  observedBehavior: "Submit button stays disabled",
+                  context: "Add Idea modal",
+                  intent: "Enable submit button",
+                  isAmbiguous: false,
+                  title: "Submit button remains disabled after required fields filled",
+                  summary: "The submit button does not activate.",
+                  stepsToReproduce: ["Fill in form", "Observe button"],
+                  expectedBehavior: "Button activates",
+                  actualBehavior: "Button stays disabled",
+                  suggestedType: "Bug",
+                }),
+            },
+          },
+        ],
+      };
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => mockReasoningResponse,
+      });
+
+      try {
+        const input: VisualEvidenceInput = {
+          mediaType: "screenshot",
+        };
+
+        const result = await interpretVisualEvidence(input);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.understanding.observedBehavior).toBe("Submit button stays disabled");
+          expect(result.draft.title).toBe("Submit button remains disabled after required fields filled");
+        }
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (origProvider) process.env.ZIKI_AI_PROVIDER = origProvider;
+        else delete process.env.ZIKI_AI_PROVIDER;
+        if (origKey) process.env.OPENROUTER_API_KEY = origKey;
+        else delete process.env.OPENROUTER_API_KEY;
+      }
+    });
+
+    it("handles OpenRouter error payloads gracefully without throwing generic empty structure error", async () => {
+      const origProvider = process.env.ZIKI_AI_PROVIDER;
+      const origKey = process.env.OPENROUTER_API_KEY;
+
+      process.env.ZIKI_AI_PROVIDER = "openrouter";
+      process.env.OPENROUTER_API_KEY = "sk-or-v1-mock-key";
+
+      const mockErrorResponse = {
+        error: {
+          message: "Provider nvidia returned upstream error: model unavailable",
+          code: 503,
+        },
+      };
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => mockErrorResponse,
+      });
+
+      try {
+        const input: VisualEvidenceInput = {
+          mediaType: "screenshot",
+        };
+
+        const result = await interpretVisualEvidence(input);
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error).toContain("Provider nvidia returned upstream error");
+        }
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (origProvider) process.env.ZIKI_AI_PROVIDER = origProvider;
+        else delete process.env.ZIKI_AI_PROVIDER;
+        if (origKey) process.env.OPENROUTER_API_KEY = origKey;
+        else delete process.env.OPENROUTER_API_KEY;
+      }
+    });
   });
 });

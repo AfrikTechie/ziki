@@ -10,7 +10,6 @@ import {
   type VisualInterpretationDetails,
 } from "@/lib/visual-interpretation";
 import { AreaCropper } from "@/components/area-cropper";
-import { ClaudeWorking } from "@/components/claude-working";
 
 type Mode = "record" | "capture" | "write";
 type Step = "choose" | "capture" | "details" | "review";
@@ -23,22 +22,6 @@ type TypeOption = { id: string; name: string };
 
 const FALLBACK_TYPES: TypeOption[] = [
   { id: "", name: "Bug" },
-];
-
-const VISUAL_INTERPRETATION_STEPS = [
-  "Analyzing visual demonstration…",
-  "Examining interactions and screen elements…",
-  "Identifying unexpected behavior…",
-  "Synthesizing reproduction steps…",
-  "Drafting structured issue description…",
-];
-
-const VISUAL_WITH_NARRATION_STEPS = [
-  "Correlating spoken voice narration with visual frames…",
-  "Examining interactions and screen elements…",
-  "Identifying demonstrated defect…",
-  "Synthesizing reproduction steps…",
-  "Drafting structured issue description…",
 ];
 
 /**
@@ -223,27 +206,47 @@ async function blobToDataUrl(blob: Blob): Promise<string | null> {
 }
 
 /**
- * Formats AI errors into transparent, user-friendly messages rather than raw JSON or stack traces.
+ * Formats AI errors into transparent, user-friendly messages rather than raw JSON or provider stack traces.
  */
 function formatUserFriendlyAiError(rawError?: string): string {
   if (!rawError) {
-    return "AI interpretation could not be completed. You can retry or edit your draft directly.";
+    return "AI interpretation could not be completed. Your recorded demonstration is preserved, and you can retry or edit your draft directly.";
+  }
+  const lower = rawError.toLowerCase();
+  if (
+    lower.includes("zoderror") ||
+    lower.includes('"expected"') ||
+    lower.includes("invalid_type") ||
+    lower.includes("incomplete or missing") ||
+    lower.includes("empty response") ||
+    lower.includes("invalid message structure") ||
+    lower.includes("ai provider returned an empty response")
+  ) {
+    return "The AI analysis response was incomplete or formatted unexpectedly. Your demonstration has been preserved. You can retry the analysis or continue to edit the draft manually.";
   }
   if (
-    rawError.includes("ZodError") ||
-    rawError.includes('"expected"') ||
-    rawError.includes("invalid_type") ||
-    rawError.includes("undefined") ||
-    rawError.includes("incomplete or missing") ||
-    rawError.includes("JSON")
+    lower.includes("rate limit") ||
+    lower.includes("429") ||
+    lower.includes("quota") ||
+    lower.includes("credits") ||
+    lower.includes("busy") ||
+    lower.includes("overloaded")
   ) {
-    return "The AI analysis response was incomplete or formatted unexpectedly. Your previous understanding has been preserved. You can adjust your clarification or continue to edit the draft manually.";
+    return "The AI interpretation service is currently busy or rate-limited. Your demonstration is preserved. Please try again in a moment or continue to draft manually.";
   }
-  if (rawError.includes("timed out") || rawError.includes("timeout")) {
+  if (lower.includes("timed out") || lower.includes("timeout")) {
     return "Analysis took longer than expected (timed out after 25s). Your previous interpretation has been preserved. You can retry or proceed to the review step.";
   }
-  if (rawError.includes("fetch failed") || rawError.includes("ENOTFOUND")) {
+  if (
+    lower.includes("fetch failed") ||
+    lower.includes("enotfound") ||
+    lower.includes("econnrefused") ||
+    lower.includes("network error")
+  ) {
     return "Could not connect to the AI provider service. Please check your network connection and configuration.";
+  }
+  if (lower.includes("openrouter api returned http") || lower.includes("openrouter error")) {
+    return "The AI provider returned an error while processing your demonstration. Your recording is preserved. Please retry or continue to edit manually.";
   }
   return rawError.length > 250 ? `${rawError.slice(0, 247)}...` : rawError;
 }
@@ -1815,16 +1818,44 @@ export function AddIdeaModal({
 
             {/* AI Progress Indicator when interpreting */}
             {isInterpreting && (
-              <div className="flex flex-col space-y-2 pt-1">
-                <ClaudeWorking
-                  statusText={narration ? "Analyzing voice narration and visual evidence..." : "Analyzing visual demonstration and drafting issue..."}
-                  steps={narration ? VISUAL_WITH_NARRATION_STEPS : VISUAL_INTERPRETATION_STEPS}
-                />
-                <div className="flex justify-center pt-1">
+              <div className="flex flex-col space-y-3 rounded-2xl border border-zk-border/80 bg-zk-chip/30 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-zk-accent text-white shadow-xs">
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="motion-safe:animate-spin"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-zk-text">
+                      {narration
+                        ? "Understanding demonstration and voice narration…"
+                        : "Understanding visual demonstration…"}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-zk-muted leading-relaxed">
+                      Synthesizing screen evidence to prepare a proposed issue draft for your review.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between border-t border-zk-divider/50 pt-2.5 text-xs">
+                  <span className="text-[11px] text-zk-muted">
+                    Usually takes 5–15 seconds
+                  </span>
                   <button
                     type="button"
                     onClick={() => setStep("review")}
-                    className="text-xs font-semibold text-zk-muted hover:text-zk-accent underline decoration-dotted"
+                    className="font-semibold text-zk-muted hover:text-zk-accent underline decoration-dotted"
                   >
                     Skip waiting &amp; draft manually &rarr;
                   </button>
@@ -1874,14 +1905,22 @@ export function AddIdeaModal({
             {/* AI Understanding Card (once interpreted) */}
             {!isInterpreting && understanding && (
               <div className="flex flex-col space-y-3 rounded-2xl border border-zk-border bg-zk-tint/20 p-4">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-zk-accent text-white">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Z" />
-                    </svg>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-zk-accent text-white">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Z" />
+                      </svg>
+                    </span>
+                    <span className="text-xs font-bold text-zk-text">Ziki&apos;s understanding</span>
+                  </div>
+                  <span className="rounded-full bg-zk-accent/15 px-2 py-0.5 text-[10px] font-semibold text-zk-accent">
+                    Proposed understanding
                   </span>
-                  <span className="text-xs font-bold text-zk-text">Ziki&apos;s understanding</span>
                 </div>
+                <p className="text-[11px] text-zk-muted">
+                  Proposed interpretation synthesized from your demonstration. You can review, clarify, or edit before creating your issue draft.
+                </p>
 
                 <div className="space-y-1.5 text-xs">
                   <p className="font-semibold text-zk-text">

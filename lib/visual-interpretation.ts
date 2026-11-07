@@ -962,7 +962,7 @@ async function interpretWithOpenRouter(
     ],
     response_format: { type: "json_object" },
     temperature: 0.2,
-    max_tokens: 2500,
+    max_tokens: 4000,
   };
 
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -979,21 +979,75 @@ async function interpretWithOpenRouter(
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => "");
-    throw new Error(`OpenRouter API returned HTTP ${response.status}: ${errBody.slice(0, 300)}`);
+    let userMsg = `OpenRouter API returned HTTP ${response.status}`;
+    try {
+      const parsedErr = JSON.parse(errBody);
+      if (parsedErr?.error?.message) {
+        userMsg = parsedErr.error.message;
+      }
+    } catch {
+      if (errBody) userMsg += `: ${errBody.slice(0, 150)}`;
+    }
+    logger.warn("[visual-interpretation] OpenRouter HTTP error", {
+      model,
+      status: response.status,
+      message: userMsg.slice(0, 200),
+    });
+    throw new Error(userMsg);
   }
 
   const json = await response.json();
+
+  if (json.error) {
+    const errorMsg =
+      typeof json.error.message === "string"
+        ? json.error.message
+        : "OpenRouter returned an error response.";
+    logger.warn("[visual-interpretation] OpenRouter error in response body", {
+      model,
+      message: errorMsg.slice(0, 200),
+    });
+    throw new Error(errorMsg);
+  }
+
   const choice = json.choices?.[0];
-  const messageContent = choice?.message?.content;
-  if (!messageContent || typeof messageContent !== "string") {
-    logger.warn("[visual-interpretation] OpenRouter unexpected response:", json);
-    throw new Error(`OpenRouter returned an empty response or invalid message structure: ${JSON.stringify(json).slice(0, 300)}`);
+
+  // Resilient text extraction: check content (string or array), reasoning, and text
+  let rawText = "";
+  if (typeof choice?.message?.content === "string" && choice.message.content.trim()) {
+    rawText = choice.message.content.trim();
+  } else if (Array.isArray(choice?.message?.content)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rawText = choice.message.content
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  // Fallback: If content is empty but model reasoning contains a JSON object
+  if (!rawText && typeof choice?.message?.reasoning === "string" && choice.message.reasoning.includes("{")) {
+    rawText = choice.message.reasoning.trim();
+  } else if (!rawText && typeof (choice as unknown as { text?: string })?.text === "string") {
+    rawText = (choice as unknown as { text: string }).text.trim();
+  }
+
+  if (!rawText) {
+    logger.warn("[visual-interpretation] OpenRouter empty response structure", {
+      model,
+      hasChoices: Boolean(json.choices?.length),
+      finishReason: choice?.finish_reason,
+      hasMessage: Boolean(choice?.message),
+      hasReasoning: Boolean(choice?.message?.reasoning),
+    });
+    throw new Error("AI provider returned an empty response without content.");
   }
 
   const openrouterApiMs = Math.round(performance.now() - openrouterStartTime);
   const validationStartTime = performance.now();
 
-  const parsedResult = parseAndValidateAnalysisOutput(messageContent, input);
+  const parsedResult = parseAndValidateAnalysisOutput(rawText, input);
 
   const description = formatStructuredIssueDescription(parsedResult);
   const validationMs = Math.round(performance.now() - validationStartTime);

@@ -643,6 +643,99 @@ describe("AddIdeaModal (Visual Capture, AI Interpretation & User Confirmation)",
     expect(screen.getByText("Review issue draft")).toBeTruthy();
   });
 
+  it("allows retrying AI analysis when initial attempt fails without losing recorded demonstration", async () => {
+    const user = userEvent.setup();
+    const mockTrack = { stop: vi.fn(), onended: null };
+    const mockStream = {
+      getTracks: vi.fn(() => [mockTrack]),
+      getVideoTracks: vi.fn(() => [mockTrack]),
+    };
+
+    class MockMediaRecorder {
+      state = "inactive";
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        if (this.ondataavailable) {
+          this.ondataavailable({ data: new Blob(["recorded video chunk"], { type: "video/webm" }) });
+        }
+        if (this.onstop) this.onstop();
+      }
+      static isTypeSupported() {
+        return true;
+      }
+    }
+
+    Object.defineProperty(window, "MediaRecorder", {
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      writable: true,
+      value: {
+        getDisplayMedia: vi.fn().mockResolvedValue(mockStream),
+      },
+    });
+
+    // Mock first failure, then success on retry
+    mockedInterpretVisual
+      .mockResolvedValueOnce({
+        success: false,
+        error: "OpenRouter returned an empty response or invalid message structure.",
+        code: "PARSE_ERROR",
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        understanding: {
+          observedBehavior: "Idea details button does not open drawer",
+          context: "Ideas page",
+          intent: "Open idea details",
+          isAmbiguous: false,
+        },
+        draft: {
+          title: "Idea details drawer fails to open on click",
+          description: "## Summary\nClicking an idea does not trigger the details panel.",
+          suggestedType: "Bug",
+        },
+      });
+
+    render(<AddIdeaModal isOpen={true} onClose={vi.fn()} projectId="p1" />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Start recording/i }));
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Record again/i })).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Verifies user-friendly error notice is displayed
+    await waitFor(() => {
+      expect(screen.getByText("Live AI interpretation unavailable")).toBeTruthy();
+    });
+    expect(
+      screen.getByText(/The AI analysis response was incomplete or formatted unexpectedly/i)
+    ).toBeTruthy();
+
+    // Click "Retry analysis"
+    const retryBtn = screen.getByRole("button", { name: /Retry analysis/i });
+    await user.click(retryBtn);
+
+    // Verifies proposed understanding is rendered after successful retry
+    await waitFor(() => {
+      expect(screen.getByText("Ziki's understanding")).toBeTruthy();
+    });
+    expect(screen.getByText("Idea details button does not open drawer")).toBeTruthy();
+    expect(screen.getByText("Proposed understanding")).toBeTruthy();
+  });
+
   it("displays execution timing breakdown metrics when returned from visual analysis", async () => {
     const user = userEvent.setup();
     const mockTrack = { stop: vi.fn(), onended: null };
