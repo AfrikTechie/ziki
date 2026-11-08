@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { firstProjectRefFor } from "@/lib/project-route";
 import { organisationsForUser } from "@/lib/organisations";
+import type { OrganisationRole } from "@/lib/organisation-role";
 import { countPendingEscalations } from "@/lib/agent-questions";
 import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { AgentsDock, type DockAgent } from "@/components/agents-dock";
@@ -107,6 +108,7 @@ export default async function AppLayout({
   let externalProjects: ExternalProjectChoice[] = [];
   let activeOrganisationId: string | null = null;
   let organisationId: string | null = null;
+  let organisationRole: OrganisationRole | null = null;
   try {
     organisationId = await currentOrganisationIdFor(user.id);
     activeOrganisationId = organisationId;
@@ -153,6 +155,8 @@ export default async function AppLayout({
       list.push({ id: p.id, name: p.name, slug: p.slug });
       projectsByOrg.set(p.organisationId, list);
     }
+
+    organisationRole = activeOrganisations.find((organisation) => organisation.id === activeOrganisationId)?.role ?? null;
 
     organisationOptions = activeOrganisations.map((organisation) => ({
       id: organisation.id,
@@ -260,6 +264,7 @@ export default async function AppLayout({
           organisationOptions={organisationOptions}
           externalProjects={externalProjects}
           activeOrganisationId={activeOrganisationId}
+          organisationRole={organisationRole}
           defaultProjectSlug={defaultProjectSlug}
           earned={earned}
           earningsOrganisationId={earningsOrganisationId}
